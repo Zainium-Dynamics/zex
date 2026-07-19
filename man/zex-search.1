@@ -1,0 +1,36 @@
+.TH ZEX-SEARCH 1 "2026-06-27" "zex 5.0.0" "Zainium OS"
+.SH NAME
+zex-search \- search Zainium package repositories
+.SH SYNOPSIS
+.B zex search
+.RI [ \-\-tier
+.IR N ]
+.RI [ \-\-installed ]
+.I <query>
+.SH DESCRIPTION
+.B zex search
+queries all four package tiers simultaneously and displays matching
+packages with their tier origin, version, and description.
+.PP
+Results are ordered by tier priority: T1 (Zainium native) first,
+then T2 (Alpine), T3 (Void), T4 (Chimera). Within each tier, results
+are sorted by relevance.
+.SH OPTIONS
+.TP
+.B \-\-tier INR
+Restrict search to a specific tier (1\(en4).
+.TP
+.B \-\-installed
+Show only already-installed packages that match the query.
+.SH EXAMPLES
+.PP
+.nf
+    zex search ripgrep
+    zex search "fuzzy finder"
+    zex search --tier 1 rust
+    zex search --installed vim
+.fi
+.SH SEE ALSO
+.BR zex (1),
+.BR zex-install (1),
+.BR zex-inspect (1)

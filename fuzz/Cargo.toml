@@ -1,0 +1,63 @@
+[package]
+name    = "zex-fuzz"
+version = "0.0.1"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[lib]
+test = false
+
+[dependencies]
+libfuzzer-sys = "0.4"
+zex           = { path = ".." }
+toml          = "0.8"
+serde         = { version = "1", features = ["derive"] }
+plist         = "1.7"
+tempfile      = "3"
+
+# Each fuzz target is its own [[bin]]
+[[bin]]
+name = "fuzz_manifest_parser"
+path = "fuzz_targets/fuzz_manifest_parser.rs"
+test = false
+doc  = false
+
+[[bin]]
+name = "fuzz_zex_extractor"
+path = "fuzz_targets/fuzz_zex_extractor.rs"
+test = false
+doc  = false
+
+[[bin]]
+name = "fuzz_apkindex_parser"
+path = "fuzz_targets/fuzz_apkindex_parser.rs"
+test = false
+doc  = false
+
+[[bin]]
+name = "fuzz_xbps_parser"
+path = "fuzz_targets/fuzz_xbps_parser.rs"
+test = false
+doc  = false
+
+[[bin]]
+name = "fuzz_vercmp"
+path = "fuzz_targets/fuzz_vercmp.rs"
+test = false
+doc  = false
+
+[[bin]]
+name = "fuzz_receipt_parser"
+path = "fuzz_targets/fuzz_receipt_parser.rs"
+test = false
+doc  = false
+
+[profile.release]
+opt-level        = 3
+debug            = true          # needed for sanitizer stack traces
+overflow-checks  = false
+lto              = false         # libfuzzer doesn't work well with LTO
+panic            = "unwind"      # fuzzer needs unwinding to catch panics

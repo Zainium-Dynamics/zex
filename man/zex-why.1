@@ -1,0 +1,23 @@
+.TH ZEX-WHY 1 "2026-06-27" "zex 5.0.0" "Zainium OS"
+.SH NAME
+zex-why \- show which installed packages depend on a package
+.SH SYNOPSIS
+.B zex why
+.I <package>
+.SH DESCRIPTION
+.B zex why
+shows the reverse dependency graph: which currently installed packages
+declare a runtime dependency on
+.IR <package> .
+.PP
+This is useful before removing a package to understand what would break.
+.SH EXAMPLES
+.PP
+.nf
+    zex why libssl
+    zex why musl
+.fi
+.SH SEE ALSO
+.BR zex (1),
+.BR zex-depends (1),
+.BR zex-remove (1)

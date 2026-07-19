@@ -1,0 +1,157 @@
+.TH ZEX-INSTALL 1 "2026-07-19" "zex 5.0.0" "Zainium OS"
+.SH NAME
+zex-install \- install packages on Zainium OS
+.SH SYNOPSIS
+.B elevate zex install
+.RI [ \-\-dry\-resolve ]
+.RI [ \-\-cache\-only ]
+.RI [ \-\-lock\-out\ <path> ]
+.IR <package> ...
+.br
+.B elevate zex install \-\-from\-lock
+.I <path>
+.br
+.B elevate zex install \-\-verify\-lock
+.I <path>
+.SH DESCRIPTION
+.B zex install
+resolves, downloads, verifies, and installs one or more packages onto
+.BR "Zainium OS" .
+.PP
+Dependencies are resolved by a breadth-first search over each package's
+declared
+.I depends
+tokens
+.RI ( "not" " PubGrub \(en that crate exists in the source tree but is not"
+wired into the live install path). For every dependency, resolution
+prefers the
+.I same mirror
+the requested package itself came from before falling back to a different
+tier, and warns visibly when a fallback happens. Real version constraints
+embedded in dependency tokens (e.g.
+.IR libfoo>=2.0 )
+are checked against the resolved candidate's actual version, and
+declared package conflicts are checked bidirectionally against everything
+already installed. The full plan (every package, every constraint, every
+conflict) is computed
+.B before
+any download begins; if anything is unsatisfiable the operation is
+aborted before any change is made to the system.
+.PP
+Each package is downloaded from the highest-priority tier that provides
+it (T1\(enT4) and cryptographically verified against that tier's real
+signature scheme (Ed25519+Blake3 for Tier 1; RSA for Tiers 2\(en4 \(em
+see
+.BR zex.toml (5)
+for
+.IR signature_verification_mode ),
+then extracted atomically into
+.IR /overlayer/zexlib/union/ .
+.PP
+An installed-file receipt is written to
+.I /overlayer/zexlib/registry/installed/<name>.toml
+and a transaction snapshot is created in
+.I /overlayer/zexlib/transactions/
+to enable rollback.
+.SH OPTIONS
+.TP
+.B \-\-dry\-resolve
+Resolve dependencies and display the install plan without downloading or
+installing anything.
+.TP
+.B \-\-cache\-only
+Install from local cache only; abort if any package is not cached. Useful
+for offline environments.
+.TP
+.BI \-\-lock\-out\  path
+After a successful single-package install, write a lockfile to
+.I path
+recording the exact resolved root and dependency graph (versions, source
+mirrors, URLs, hashes). Only supported for single-package installs.
+.TP
+.BI \-\-from\-lock\  path
+Install exactly what the lockfile at
+.I path
+pins, bypassing live dependency resolution entirely \(em the result is
+identical to when the lockfile was generated even if upstream indices
+have since changed. Goes through the same download/verify/install
+pipeline as a normal install, so signature and hash verification are not
+skipped, only name resolution is. Cannot be combined with naming packages
+on the command line.
+.TP
+.BI \-\-verify\-lock\  path
+Compare the lockfile at
+.I path
+against the real, currently-installed registry state and report any
+version or hash drift, without installing anything. Exits non-zero if
+drift is found. Cannot be combined with naming packages on the command line.
+.SH EXIT STATUS
+.TP
+.B 0
+All packages installed successfully (or, for
+.BR \-\-verify\-lock ,
+no drift found).
+.TP
+.B 1
+Dependency conflict, version-constraint violation, download failure,
+signature/hash verification failure, insufficient privileges, or (for
+.BR \-\-verify\-lock )
+drift found.
+.SH EXAMPLES
+Install a single package:
+.PP
+.nf
+    elevate zex install ripgrep
+.fi
+.PP
+Install multiple packages:
+.PP
+.nf
+    elevate zex install vim htop curl fd-find
+.fi
+.PP
+Preview what would be installed:
+.PP
+.nf
+    elevate zex install neovim --dry-resolve
+.fi
+.PP
+Pin an install for later exact reproduction:
+.PP
+.nf
+    elevate zex install musl --lock-out musl.lock.toml
+    # ... later, on any host ...
+    elevate zex install --from-lock musl.lock.toml
+.fi
+.PP
+Check whether a previously-locked install has drifted:
+.PP
+.nf
+    elevate zex install --verify-lock musl.lock.toml
+.fi
+.SH FILES
+.TP
+.I /overlayer/zexlib/registry/installed/<name>.toml
+Package receipt written after successful installation \(em the
+authoritative record of what is installed.
+.TP
+.I /overlayer/zexlib/registry/packages.toml
+Derived summary index, kept in sync automatically; regenerable from
+scratch with
+.BR "zex doctor --fix" .
+.TP
+.I /overlayer/zexlib/transactions/tx-<timestamp>/
+Snapshot directory for rollback.
+.TP
+.I /overlayer/zexlib/tmp/
+Temporary extraction area, cleaned after install.
+.TP
+.I /var/lib/zex/history.json
+Every install is recorded here; query with
+.BR zex-history (1).
+.SH SEE ALSO
+.BR zex (1),
+.BR zex-remove (1),
+.BR zex-rollback (1),
+.BR zex-inspect (1),
+.BR zex-history (1)

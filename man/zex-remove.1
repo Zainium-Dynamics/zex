@@ -1,0 +1,55 @@
+.TH ZEX-REMOVE 1 "2026-06-27" "zex 5.0.0" "Zainium OS"
+.SH NAME
+zex-remove \- remove installed packages
+.SH SYNOPSIS
+.B elevate zex remove
+.RI [ \-\-dry\-run ]
+.RI [ \-\-force ]
+.IR <package> ...
+.SH DESCRIPTION
+.B zex remove
+uninstalls one or more packages from Zainium OS.
+.PP
+The list of files to remove is read verbatim from the receipt at
+.IR /overlayer/zexlib/registry/installed/<name>.toml .
+No glob scanning or filesystem heuristics are used: exactly the files
+recorded at install time are removed.
+.PP
+Before removal,
+.B zex remove
+checks whether any other installed package depends on the target. If a
+reverse dependency exists and
+.B \-\-force
+is not set, the operation is aborted.
+.PP
+Pinned packages cannot be removed without first running
+.BR "zex unpin <pkg>" .
+.SH OPTIONS
+.TP
+.B \-\-dry\-run
+Show which files would be removed without making any changes.
+.TP
+.B \-\-force
+Remove even if reverse dependencies exist or files are missing.
+.SH EXIT STATUS
+.TP
+.B 0
+Package removed successfully.
+.TP
+.B 1
+Package not installed, pinned, reverse-dependency conflict, or permission error.
+.SH EXAMPLES
+.PP
+.nf
+    elevate zex remove ripgrep
+    elevate zex remove vim htop --dry-run
+.fi
+.SH FILES
+.TP
+.I /overlayer/zexlib/registry/installed/<name>.toml
+Receipt read to determine which files to remove. Deleted on success.
+.SH SEE ALSO
+.BR zex (1),
+.BR zex-install (1),
+.BR zex-inspect (1),
+.BR zex-history (1)

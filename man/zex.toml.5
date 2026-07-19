@@ -1,0 +1,211 @@
+.TH ZEX.TOML 5 "2026-06-27" "zex 5.0.0" "Zainium OS"
+.SH NAME
+zex.toml \- package manifest format for Zainium .zex packages
+.SH DESCRIPTION
+A
+.I .zex
+file is a
+.BR tar (1)
+archive compressed with
+.BR zstd (1)
+containing exactly two top-level entries:
+.TP
+.B manifest.toml
+Package metadata and install instructions.
+.TP
+.B payload/
+Directory tree of files to install.
+.PP
+The
+.B manifest.toml
+schema is described here.
+.SH MANIFEST SECTIONS
+.SS [package]
+Required. Package identity and metadata.
+.TP
+.B name
+.I string
+(required) — Package name. Lowercase, no spaces. Used as the registry key.
+.TP
+.B version
+.I string
+(required) — Package version. Any versioning scheme accepted; the live
+resolver in
+.I depends.rs
+parses semantic-version constraints from
+.B depends
+tokens (e.g.
+.IR "libfoo>=2.0" )
+and falls back to plain string comparison for anything it can't parse
+as semver.
+.TP
+.B description
+.I string
+(required) — One-line description.
+.TP
+.B license
+.I string
+(required) — SPDX license identifier (e.g.,
+.IR "MIT" ", " "GPL-2.0-only" ).
+.TP
+.B maintainer
+.I string
+(required) — Maintainer name and email (e.g.,
+.IR "Ali Zain <alizain.x404@gmail.com>" ).
+.TP
+.B homepage
+.I string
+(optional) — Project URL.
+.TP
+.B build_type
+.I string
+(optional) —
+.B static
+or
+.BR dynamic .
+.TP
+.B libc_target
+.I string
+(optional) —
+.BR musl ", " relibc ,
+or
+.BR freestanding .
+.TP
+.B edition
+.I string
+(optional) — Active edition (e.g.,
+.BR stable ", " nightly ", " lts ).
+.TP
+.B ed25519_sig
+.I string
+(optional) — Base64-encoded Ed25519 signature over the Blake3 hash of
+.IR payload/ .
+Required for packages uploaded to the Zainium repository.
+.TP
+.B blake3
+.I string
+(optional) — Hex-encoded Blake3 hash of the entire
+.I payload/
+tree.
+.TP
+.B depends
+.I array of strings
+(optional) — Runtime dependency constraints. Format:
+.IR "<name>" " or " "<name> >= <version>" " or " "<name> >= <ver>, < <ver>" .
+.TP
+.B provides
+.I array of strings
+(optional) — Virtual capabilities or alternative names this package provides.
+.SS [install]
+Required. Maps subdirectories under
+.I payload/
+to absolute on-disk destinations.
+.PP
+Example:
+.PP
+.nf
+    [install]
+    bin   = "/overlayer/zexlib/union/bin"
+    lib   = "/overlayer/zexlib/union/lib"
+    share = "/overlayer/zexlib/union/share"
+    etc   = "/overlayer/zexlib/union/etc"
+.fi
+.PP
+All destination paths must begin with
+.IR /overlayer/ .
+.SS [remove]
+Written by the installer after installation; must be present for uploaded packages.
+.TP
+.B files
+.I array of strings
+— Absolute paths of every file installed. Used verbatim by
+.BR zex-remove (1).
+.TP
+.B symlinks
+.I array of strings
+— Absolute paths of created symlinks.
+.TP
+.B dirs
+.I array of strings
+— Absolute paths of created directories (removed if empty on uninstall).
+.SS [depends]
+.TP
+.B runtime
+.I array of strings
+— Runtime dependencies (same format as
+.IR [package].depends ).
+.TP
+.B build
+.I array of strings
+— Build-time only dependencies; not installed by
+.BR zex-install (1).
+.SS [editions]
+Optional. Enables edition selection (analogous to Rust editions).
+.TP
+.B available
+.I array of strings
+— All editions shipped in this package.
+.TP
+.B default
+.I string
+— Default edition if the user does not specify.
+.SH SERVICES CONFIGURATION
+Separate from the per-package
+.B manifest.toml
+above,
+.I /overlayer/syshub/engine/services/zex_services.toml
+configures mirrors and global install behavior. Relevant fields:
+.TP
+.B signature_verification_mode
+.I string
+— One of
+.BR off ", " audit ,
+or
+.BR strict
+(default:
+.BR strict ).
+.B strict
+rejects any package whose per-tier signature does not verify;
+.B audit
+logs a verification failure but still installs (for migration/debugging
+only);
+.B off
+skips verification entirely.
+.B strict
+is the only mode recommended for production. Read by
+.BR zex-install (1)
+and
+.BR zex-update (1)
+before every install/upgrade.
+.TP
+.B integrity_mode
+.I string
+— One of
+.BR strict " or " balanced .
+.SH EXAMPLE
+.PP
+.nf
+[package]
+name        = "ripgrep"
+version     = "14.1.1"
+description = "Recursively search directories for a regex pattern"
+license     = "MIT/Unlicense"
+maintainer  = "Andrew Gallant <jamslam@gmail.com>"
+homepage    = "https://github.com/BurntSushi/ripgrep"
+build_type  = "static"
+libc_target = "musl"
+
+[install]
+bin   = "/overlayer/zexlib/union/bin"
+share = "/overlayer/zexlib/union/share"
+
+[remove]
+files    = ["/overlayer/zexlib/union/bin/rg"]
+symlinks = []
+dirs     = []
+.fi
+.SH SEE ALSO
+.BR zex (1),
+.BR zex-install (1),
+.BR tar (1),
+.BR zstd (1)

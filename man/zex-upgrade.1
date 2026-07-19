@@ -1,0 +1,43 @@
+.TH ZEX-UPGRADE 1 "2026-06-27" "zex 5.0.0" "Zainium OS"
+.SH NAME
+zex-upgrade \- upgrade userland or syshub packages
+.SH SYNOPSIS
+.B elevate zex uland --u
+.br
+.B elevate zex syshub --u
+.SH DESCRIPTION
+Upgrade is exposed only as two commands (no bare
+.BR "zex upgrade" ):
+.B zex syshub
+and
+.BR "zex uland" .
+The engine is also used by
+.BR "zex update" .
+Sub-modes:
+.TP
+.B uland \-\-u
+Upgrade all userland packages (T1\(enT4). Reads the current index,
+diffs against installed versions, downloads and installs upgrades.
+.TP
+.B syshub \-\-u
+Upgrade the immutable syshub base. Assembles the new base in
+.I /overlayer/syshub.new/
+and performs an atomic rename swap to the live path.
+.PP
+Pinned packages are skipped automatically in both modes.
+.PP
+For a full system update including index refresh, use
+.B zex update
+instead.
+.PP
+.B syshub
+upgrades are crash-safe: each checkpoint is journaled to disk and marked
+with an atomic state file, so an interrupted upgrade (power loss, kill
+-9) is detected and rolled back automatically the next time any
+.B zex
+command runs, before it touches anything else.
+.SH SEE ALSO
+.BR zex (1),
+.BR zex-update (1),
+.BR zex-rollback (1),
+.BR zex-history (1)

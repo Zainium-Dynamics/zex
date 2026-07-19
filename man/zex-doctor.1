@@ -1,0 +1,64 @@
+.TH ZEX-DOCTOR 1 "2026-06-27" "zex 5.0.0" "Zainium OS"
+.SH NAME
+zex-doctor \- audit and repair the Zainium package system
+.SH SYNOPSIS
+.B elevate zex doctor
+.RI [ \-\-fix ]
+.SH DESCRIPTION
+.B zex doctor
+performs a comprehensive health audit of the Zainium package system:
+.TP
+\(bu
+Registry consistency \(em every receipt in
+.I /overlayer/zexlib/registry/installed/
+has all declared files present on disk.
+.TP
+\(bu
+Orphaned files \(em files under
+.I /overlayer/zexlib/union/
+not tracked by any receipt.
+.TP
+\(bu
+Broken symlinks \(em symlinks created by installed packages that
+now point to nonexistent targets.
+.TP
+\(bu
+Syshub integrity \(em key paths in
+.I /overlayer/syshub/
+exist and are not corrupted.
+.TP
+\(bu
+glibc contamination \(em ELF binaries linked against
+.I libc.so.6
+(which is not present in ZainiumOS).
+.TP
+\(bu
+musl/relibc interpreter correctness \(em dynamic linker paths
+point to
+.I /overlayer/syshub/x86_64-zainium-linux-musl/lib/ld-musl-x86_64.so.1
+or the relibc equivalent.
+.PP
+With
+.BR \-\-fix ,
+.B zex doctor
+attempts to repair each detected issue automatically. Registry-index
+repair fully rebuilds the derived
+.I /overlayer/zexlib/registry/packages.toml
+master index from the authoritative per-package receipts in
+.IR /overlayer/zexlib/registry/installed/ ,
+rather than patching it incrementally, so the fix is correct even if the
+index was corrupted or badly out of sync.
+.SH OPTIONS
+.TP
+.B \-\-fix
+Attempt automatic repair of all detected issues.
+.SH EXIT STATUS
+.TP
+.B 0
+System is healthy (or all found issues were repaired with \-\-fix).
+.TP
+.B 1
+Issues found that could not be auto-repaired.
+.SH SEE ALSO
+.BR zex (1),
+.BR zai-env (1)

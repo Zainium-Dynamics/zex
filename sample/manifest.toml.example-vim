@@ -1,0 +1,80 @@
+# ============================================================
+# manifest.toml — Zainium .zex Package Manifest
+# This file lives INSIDE every .zex archive at the root level.
+#
+# .zex archive structure:
+#   vim-9.1.1366.zex (tar.zst)
+#   ├── manifest.toml        ← YOU ARE HERE
+#   └── payload/
+#       ├── bin/
+#       │   ├── vim
+#       │   ├── vi          (symlink → vim)
+#       │   └── vimdiff
+#       ├── share/
+#       │   ├── vim/        (runtime files)
+#       │   └── man/man1/
+#       │       ├── vim.1.gz
+#       │       └── vimdiff.1.gz
+#       └── etc/
+#           └── vim/
+#               └── vimrc
+#
+# Read by: zex_manifest::read_from_zex()
+#          install driver, remove driver, edition driver
+# ============================================================
+
+# ── Package identity ──────────────────────────────────────────────────────────
+[package]
+name             = "vim"
+version          = "9.1.1366"
+description      = "Highly configurable text editor built to enable efficient text editing"
+license          = "Vim"
+maintainer       = "Zainium Core Team <core@zainiumdynamics.tech>"
+homepage         = "https://www.vim.org"
+build_type       = "dynamic"
+libc_target      = "musl"
+# No edition field — vim does not use edition variants
+
+# Cryptographic identity
+blake3           = "b3:667788990011223344556677889900112233445566778899001122334455667788"
+ed25519_sig      = "sig:ed25519:11223344556677889900aabbccddeeff11223344556677889900aabbccddeeff"
+
+# Runtime requirements
+requires_syshub  = "2026v3.0"
+depends          = ["musl"]
+provides         = ["vim", "vi", "vimdiff"]
+tags             = ["editor", "terminal", "text"]
+
+# ── Install map — payload subdir → absolute on-disk destination ───────────────
+#
+# The installer walks payload/ and maps each top-level dir using this table.
+# payload/bin/vim → /overlayer/zexlib/union/bin/vim
+# payload/share/  → /overlayer/zexlib/union/share/
+# payload/etc/    → /overlayer/zexlib/union/etc/
+#
+# _syshub = false means this package goes into userland (zexlib/union),
+# NOT into the immutable syshub base. Set _syshub = true only for
+# packages that are part of the base OS (kernel, relibc, coreutils etc.)
+[install]
+bin   = "/overlayer/zexlib/union/bin"
+share = "/overlayer/zexlib/union/share"
+etc   = "/overlayer/zexlib/union/etc"
+_syshub = false
+
+# ── Remove map — populated by installer at install time ───────────────────────
+#
+# THIS SECTION IS EMPTY IN THE SHIPPED .zex.
+# The installer fills it in and writes it to:
+#   /overlayer/zexlib/registry/installed/vim.toml
+#
+# Listed here so the schema is self-documenting.
+# `zex remove vim` reads the receipt at installed/vim.toml, not this file.
+[remove]
+files    = []   # filled by installer: ["/overlayer/zexlib/union/bin/vim", ...]
+dirs     = []   # filled by installer: ["/overlayer/zexlib/union/share/vim"]
+symlinks = []   # filled by installer: ["/overlayer/zexlib/union/bin/vi"]
+
+# ── Hooks — optional scripts run before/after install/remove ─────────────────
+[hooks]
+# post_install = "payload/etc/vim/post-install.sh"
+# pre_remove   = "payload/etc/vim/pre-remove.sh"

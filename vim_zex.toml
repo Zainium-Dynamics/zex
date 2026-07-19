@@ -1,0 +1,21 @@
+# File inside archive: vim.toml (or package.toml)
+
+[metadata]
+name = "vim"
+version = "9.1.0-r0"
+architecture = "x86_64"
+compression = "zstd"
+
+# Syshub/System Upgrade Instructions (Sirf upgrade cycle ke waqt kaam ayengi)
+[pre_flight]
+delete_files = [
+    "/overlayer/syshub/bin/vim.old",
+    "/overlayer/syshub/share/vim/old_syntax.vim"
+]
+create_paths = [
+    "/overlayer/syshub/share/vim/vim91"
+]
+
+[payload]
+# Specifies which directories exist inside the .zex archive
+directories = ["bin", "share", "etc"]

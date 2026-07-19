@@ -1,0 +1,222 @@
+# Zainium OS — Syshub Core Manifest
+# Served at: archive.zainiumdynamics.tech/core/stable/syshub.toml
+# Local:     /overlayer/syshub/engine/services/syshub.toml
+#
+# Schema v2.0 (merged):
+#   + build_type  : "static" | "dynamic" | "firmware"
+#   + libc_target : "relibc" | "musl" | "freestanding"
+#   + provides    : includes linker sonames for libc packages
+
+[core_info]
+os_name       = "ZainiumOS"
+architecture  = "x86_64"
+build_version = "2026v3.1"
+release_date  = "2026-06-01"
+min_zex_ver   = "1.0.0"
+
+# ── Kernel & Boot ─────────────────────────────────────────────────────────────
+[packages.linux-kernel]
+version      = "7.0.0"
+file         = "linux-kernel-7.0.0.zex"
+size_bytes   = 193_000_000
+blake3       = "b3:a1f2c3d4e5f6789012345678901234567890123456789012345678901234567890ab"
+depends      = []
+provides     = ["kernel", "vmlinuz"]
+build_type   = "static"
+libc_target  = "freestanding"
+
+[packages.zaisys-initramfs]
+version      = "2026.3"
+file         = "zaisys-initramfs-2026.3.zex"
+size_bytes   = 8_200_000
+blake3       = "b3:c3d4e5f6789012345678901234567890123456789012345678901234567890cd"
+depends      = ["linux-kernel"]
+provides     = ["initramfs"]
+build_type   = "static"
+libc_target  = "freestanding"
+
+[packages.firmware-base]
+version      = "2026.04"
+file         = "firmware-base-2026.04.zex"
+size_bytes   = 62_000_000
+blake3       = "b3:7890123456789012345678901234567890123456789012345678901234"
+depends      = []
+provides     = ["firmware-base", "firmware-wifi", "firmware-bluetooth"]
+build_type   = "firmware"
+libc_target  = "freestanding"
+
+# ── Core Libc ─────────────────────────────────────────────────────────────────
+[packages.relibc]
+version      = "2.40"
+file         = "relibc-2.40.zex"
+size_bytes   = 45_100_000
+blake3       = "b3:d4e5f6789012345678901234567890123456789012345678901234567890de"
+depends      = []
+provides     = ["libc", "libpthread", "libdl", "libm", "librt", "ld-zainium-x86_64.so.2"]
+build_type   = "dynamic"
+libc_target  = "freestanding"
+
+[packages.musl]
+version      = "1.2.6"
+file         = "musl-1.2.6.zex"
+size_bytes   = 18_300_000
+blake3       = "b3:e5f6789012345678901234567890123456789012345678901234567890ef"
+depends      = []
+provides     = ["libc-musl", "ld-musl-x86_64.so.1"]
+build_type   = "dynamic"
+libc_target  = "freestanding"
+
+# ── Toolchains ────────────────────────────────────────────────────────────────
+[packages.gcc-musl-cross]
+version      = "14.2.0"
+file         = "gcc-musl-cross-14.2.0.zex"
+size_bytes   = 144_800_000
+blake3       = "b3:778899001122334455667788990011223344556677889900112233445566778899"
+depends      = ["musl", "binutils"]
+provides     = ["gcc", "g++", "x86_64-zainium-linux-musl-gcc", "cc"]
+build_type   = "dynamic"
+libc_target  = "musl"
+
+[packages.binutils]
+version      = "2.44"
+file         = "binutils-2.44.zex"
+size_bytes   = 38_600_000
+blake3       = "b3:88990011223344556677889900112233445566778899001122334455667788"
+depends      = ["relibc"]
+provides     = ["ld", "as", "ar", "nm", "strip", "objdump"]
+build_type   = "dynamic"
+libc_target  = "relibc"
+
+# ── Base System ───────────────────────────────────────────────────────────────
+[packages.bash]
+version      = "5.2.37"
+file         = "bash-5.2.37.zex"
+size_bytes   = 8_800_000
+blake3       = "b3:0123456789012345678901234567890123456789012345678901234567"
+depends      = ["relibc"]
+provides     = ["sh", "bash"]
+build_type   = "dynamic"
+libc_target  = "relibc"
+
+[packages.coreutils]
+version      = "9.6"
+file         = "coreutils-9.6.zex"
+size_bytes   = 16_200_000
+blake3       = "b3:1234567890123456789012345678901234567890123456789012345678"
+depends      = ["relibc"]
+provides     = ["ls", "cp", "mv", "rm", "cat", "echo", "mkdir"]
+build_type   = "dynamic"
+libc_target  = "relibc"
+
+[packages.zex]
+version      = "1.0.0"
+file         = "zex-1.0.0.zex"
+size_bytes   = 22_100_000
+blake3       = "b3:2345678901234567890123456789012345678901234567890123456789"
+depends      = ["relibc"]
+provides     = ["zex", "elevate"]
+# Zex is compiled statically in Rust — never breaks if libc gets corrupted
+build_type   = "static"
+libc_target  = "relibc"
+
+[packages.quantra]
+version      = "2026.3"
+file         = "quantra-2026.3.zex"
+size_bytes   = 5_400_000
+blake3       = "b3:3456789012345678901234567890123456789012345678901234567890"
+depends      = ["relibc"]
+provides     = ["init", "pid1"]
+build_type   = "static"
+libc_target  = "relibc"
+
+[packages.openssl]
+version      = "3.4.1"
+file         = "openssl-3.4.1.zex"
+size_bytes   = 11_600_000
+blake3       = "b3:8901234567890123456789012345678901234567890123456789012345"
+depends      = ["relibc"]
+provides     = ["libssl", "libcrypto"]
+build_type   = "dynamic"
+libc_target  = "relibc"
+
+# ── Display & GPU ─────────────────────────────────────────────────────────────
+[packages.mesa]
+version      = "25.0.4"
+file         = "mesa-25.0.4.zex"
+size_bytes   = 67_800_000
+blake3       = "b3:f6789012345678901234567890123456789012345678901234567890f6"
+depends      = ["musl", "libdrm", "llvm-libs"]
+provides     = ["libGL", "libEGL", "libgbm", "libglapi", "mesa"]
+build_type   = "dynamic"
+libc_target  = "musl"
+
+[packages.libdrm]
+version      = "2.4.123"
+file         = "libdrm-2.4.123.zex"
+size_bytes   = 3_100_000
+blake3       = "b3:789012345678901234567890123456789012345678901234567890789012"
+depends      = ["musl"]
+provides     = ["libdrm"]
+build_type   = "dynamic"
+libc_target  = "musl"
+
+[packages.llvm-libs]
+version      = "19.1.7"
+file         = "llvm-libs-19.1.7.zex"
+size_bytes   = 88_400_000
+blake3       = "b3:89012345678901234567890123456789012345678901234567890890123"
+depends      = ["musl"]
+provides     = ["libLLVM"]
+build_type   = "dynamic"
+libc_target  = "musl"
+
+[packages.vulkan-loader]
+version      = "1.4.304"
+file         = "vulkan-loader-1.4.304.zex"
+size_bytes   = 1_200_000
+blake3       = "b3:9012345678901234567890123456789012345678901234567890901234"
+depends      = ["musl"]
+provides     = ["libvulkan"]
+build_type   = "dynamic"
+libc_target  = "musl"
+
+# ── Wayland / Input ───────────────────────────────────────────────────────────
+[packages.wayland]
+version      = "1.23.1"
+file         = "wayland-1.23.1.zex"
+size_bytes   = 2_800_000
+blake3       = "b3:4567890123456789012345678901234567890123456789012345678901"
+depends      = ["musl"]
+provides     = ["libwayland-client", "libwayland-server"]
+build_type   = "dynamic"
+libc_target  = "musl"
+
+[packages.libinput]
+version      = "1.27.1"
+file         = "libinput-1.27.1.zex"
+size_bytes   = 3_400_000
+blake3       = "b3:5678901234567890123456789012345678901234567890123456789012"
+depends      = ["musl", "libevdev", "libseat"]
+provides     = ["libinput"]
+build_type   = "dynamic"
+libc_target  = "musl"
+
+[packages.libseat]
+version      = "0.9.1"
+file         = "libseat-0.9.1.zex"
+size_bytes   = 800_000
+blake3       = "b3:6789012345678901234567890123456789012345678901234567890123"
+depends      = ["musl"]
+provides     = ["libseat"]
+build_type   = "dynamic"
+libc_target  = "musl"
+
+[packages.linux-firmware]
+version      = "2026.05"
+file         = "linux-firmware-2026.05.zex"
+size_bytes   = 89_400_000
+blake3       = "b3:b2c3d4e5f6789012345678901234567890123456789012345678901234567890bc"
+depends      = []
+provides     = ["linux-firmware"]
+build_type   = "firmware"
+libc_target  = "freestanding"

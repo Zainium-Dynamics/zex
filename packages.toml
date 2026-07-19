@@ -1,0 +1,27 @@
+# ZEX MASTER REGISTRY
+# Path: /overlayer/zexlib/registry/packages.toml
+
+[system]
+last_update = "2026-06-22T10:00:00Z"
+total_packages = 3
+
+[packages.vim]
+version      = "9.1.0-r0"
+description  = "Improved Vi-compatible text editor"
+origin       = "tier2-alpine"         # Tier 2: Alpine Linux Ports
+dependencies = ["ncurses", "musl"]
+receipt      = "installed/vim.toml"
+
+[packages.ripgrep]
+version      = "14.1.0"
+description  = "Fast line-oriented search tool written in Rust"
+origin       = "tier1-zainium"        # Tier 1: Native Zainium Repo
+dependencies = [] 
+receipt      = "installed/ripgrep.toml"
+
+[packages.dinit]
+version      = "0.17.0"
+description  = "Service manager and init system"
+origin       = "tier4-chimera"        # Tier 4: Chimera Linux Ports
+dependencies = []
+receipt      = "installed/dinit.toml"

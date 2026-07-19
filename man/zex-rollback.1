@@ -1,0 +1,41 @@
+.TH ZEX-ROLLBACK 1 "2026-06-27" "zex 5.0.0" "Zainium OS"
+.SH NAME
+zex-rollback \- revert a package transaction
+.SH SYNOPSIS
+.B elevate zex rollback
+.RI [ \-\-list ]
+.RI [ <tx-id> ]
+.SH DESCRIPTION
+.B zex rollback
+restores the system to the state captured at a previous transaction snapshot.
+.PP
+Every install, upgrade, and remove operation writes a snapshot to
+.IR /overlayer/zexlib/transactions/ .
+.B zex rollback
+reads the snapshot and reverses the recorded changes.
+.SH OPTIONS
+.TP
+.B \-\-list
+List available transaction snapshots with their timestamps and operations.
+.TP
+.I <tx-id>
+The transaction ID to roll back to (from
+.B \-\-list
+output).
+.SH EXIT STATUS
+.TP
+.B 0
+Rollback successful.
+.TP
+.B 1
+Transaction not found, snapshot corrupt, or insufficient privileges.
+.SH EXAMPLES
+.PP
+.nf
+    elevate zex rollback --list
+    elevate zex rollback tx-1719446400000
+.fi
+.SH SEE ALSO
+.BR zex (1),
+.BR zex-install (1),
+.BR zex-update (1)

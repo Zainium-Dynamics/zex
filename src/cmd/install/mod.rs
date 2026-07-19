@@ -1,0 +1,36 @@
+// cmd/install/mod.rs — re-exports the install driver entry point
+pub mod activation;
+pub mod adb;
+pub mod apk;
+pub mod backend;
+pub mod delta;
+pub mod depends;
+pub mod downloader;
+pub mod edition;
+pub mod history;
+pub mod hooks;
+pub mod immutable;
+pub mod infuse;
+pub mod installer;
+pub mod lock_graph;
+pub mod lockfile;
+pub mod native_sig;
+pub mod pinning;
+pub mod postmortem;
+pub mod pubgrub_resolver;
+pub mod registry;
+pub mod resolver;
+pub mod runtime;
+pub mod sandbox;
+pub mod scorecard;
+pub mod telemetry;
+pub mod theme;
+pub mod transaction;
+pub mod ui;
+pub mod union;
+pub mod xbps;
+pub mod zex_backend;
+pub mod zex_manifest;
+pub mod main;
+
+pub use main::run;

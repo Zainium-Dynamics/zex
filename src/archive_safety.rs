@@ -1,0 +1,463 @@
+//! Shared archive path sanitization for extract, install, and local-install.
+
+use std::fs::{self, File, OpenOptions};
+use std::io::{self, Read};
+use std::path::{Component, Path, PathBuf};
+
+use anyhow::{Context, Result, bail};
+
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
+#[cfg(unix)]
+use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
+
+/// Normalize and reject path traversal in archive-relative paths.
+pub fn sanitize_archive_path(path: &Path) -> Result<PathBuf> {
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Normal(c) => out.push(c),
+            Component::CurDir => {}
+            Component::ParentDir => bail!("path traversal attempted: {:?}", path),
+            _ => bail!("unsupported path component: {:?}", component),
+        }
+    }
+
+    if out.as_os_str().is_empty() {
+        bail!("empty path");
+    }
+
+    Ok(remap_usr_paths(out))
+}
+
+/// Resolves a **symlink's** target — relative or absolute, possibly
+/// containing `..` — into a safe, absolute path under [`UNION_ROOT`].
+///
+/// Not for hardlinks: use [`sanitize_archive_path`] on a hardlink's target
+/// instead (see that distinction below).
+///
+/// `owner_path` is the *raw, pre-remap* archive path of the symlink itself
+/// (e.g. `"usr/bin/xbps-trigger"`). Relative targets are resolved against
+/// its parent directory in the archive's *original* FHS namespace — not our
+/// flattened union layout — because that's the namespace the package
+/// author's path was written against. Two real, confirmed cases drive this:
+///   - Void's `xbps-triggers` ships `../../../usr/libexec/xbps-triggers` —
+///     only resolves correctly walking `..` from the *pre-remap* directory.
+///   - Chimera's and Void's own `base-files` ship real top-level usrmerge
+///     symlinks like `/lib -> usr/lib` with **no** `..` at all — but
+///     `usr/lib` is not a real directory anywhere in our flattened union
+///     tree (`remap_usr_paths` already strips the `usr/` prefix elsewhere),
+///     so leaving a target like this untouched creates a symlink that's
+///     dangling from the moment it's created. Any target with more than one
+///     path component (not just ones containing `..`) needs the same
+///     resolve-then-remap-then-absolutize treatment for this reason — only
+///     a bare filename with no directory component at all (e.g. a sibling
+///     symlink like `"sudo"`) is safe to leave untouched.
+/// A blanket "reject any `..`" rule made packages using the first pattern
+/// fail to install entirely; this still can't be used to escape the
+/// archive tree, since any `..` beyond the archive root is clamped
+/// (absorbed) rather than allowed to climb out — the same behavior a real
+/// absolute path resolution has at `/`.
+pub fn sanitize_link_target(owner_path: &Path, target: &Path) -> Result<PathBuf> {
+    if target.as_os_str().is_empty() {
+        bail!("empty link target");
+    }
+
+    if target.is_absolute() {
+        // /usr/bin/foo → /overlayer/zexlib/union/bin/foo
+        let rel = remap_usr_paths(PathBuf::from(target.to_string_lossy().as_ref()));
+        if rel.as_os_str().is_empty() {
+            bail!("empty link target");
+        }
+        return Ok(PathBuf::from(UNION_ROOT).join(rel));
+    }
+
+    // A bare filename with no directory component at all (e.g. "sudo", a
+    // same-directory sibling) has nothing that needs remapping — leave it
+    // exactly as-is.
+    if !target.to_string_lossy().contains('/') {
+        return Ok(target.to_path_buf());
+    }
+
+    let base_dir = owner_path.parent().unwrap_or_else(|| Path::new(""));
+    let mut stack: Vec<std::ffi::OsString> = base_dir
+        .components()
+        .filter_map(|c| match c {
+            Component::Normal(s) => Some(s.to_os_string()),
+            _ => None,
+        })
+        .collect();
+
+    for component in target.components() {
+        match component {
+            Component::Normal(s) => stack.push(s.to_os_string()),
+            Component::ParentDir => {
+                stack.pop();
+            }
+            Component::CurDir => {}
+            _ => bail!("unsupported path component in link target: {}", target.display()),
+        }
+    }
+
+    if stack.is_empty() {
+        bail!("link target resolves to the archive root: {}", target.display());
+    }
+
+    let resolved: PathBuf = stack.into_iter().collect();
+    let remapped = remap_usr_paths(resolved);
+    if remapped.as_os_str().is_empty() {
+        bail!("empty link target after remap");
+    }
+    Ok(PathBuf::from(UNION_ROOT).join(remapped))
+}
+
+/// Ensure `root.join(rel)` stays inside `root` after normalization.
+pub fn safe_join_under(root: &Path, rel: &Path) -> Result<PathBuf> {
+    let clean = sanitize_archive_path(rel)?;
+    let dest = root.join(&clean);
+    let root_canon = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    let dest_parent = dest.parent().unwrap_or(root);
+    let dest_canon = dest_parent
+        .canonicalize()
+        .map(|p| if dest.file_name().is_some() {
+            p.join(dest.file_name().unwrap())
+        } else {
+            p
+        })
+        .unwrap_or_else(|_| dest.clone());
+
+    if !dest_canon.starts_with(&root_canon) {
+        bail!(
+            "path escapes output directory: {} (root: {})",
+            dest.display(),
+            root.display()
+        );
+    }
+    Ok(dest)
+}
+
+/// Root directory handle for `openat2(RESOLVE_BENEATH)` confinement.
+#[cfg(unix)]
+pub struct ConfinedRoot {
+    dir: File,
+    root: PathBuf,
+}
+
+#[cfg(unix)]
+impl ConfinedRoot {
+    pub fn open(root: &Path) -> Result<Self> {
+        fs::create_dir_all(root).context("create extraction root")?;
+        let dir = OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_PATH | libc::O_DIRECTORY | libc::O_CLOEXEC)
+            .open(root)
+            .with_context(|| format!("open confined root {}", root.display()))?;
+        Ok(Self {
+            dir,
+            root: root.to_path_buf(),
+        })
+    }
+
+    pub fn write_file(&self, rel: &Path, reader: &mut dyn Read) -> Result<()> {
+        let clean = sanitize_archive_path(rel)?;
+        let mut file = openat2_beneath(self.dir.as_raw_fd(), &clean, &self.root, true)?;
+        io::copy(reader, &mut file)
+            .with_context(|| format!("writing confined file {}", clean.display()))?;
+        file.sync_data().ok();
+        Ok(())
+    }
+}
+
+#[cfg(unix)]
+#[repr(C)]
+struct OpenHow {
+    flags: u64,
+    mode: u64,
+    resolve: u64,
+}
+
+#[cfg(unix)]
+const RESOLVE_BENEATH: u64 = 0x8;
+#[cfg(unix)]
+const RESOLVE_NO_SYMLINKS: u64 = 0x4;
+
+#[cfg(unix)]
+fn openat2_beneath(dirfd: RawFd, rel: &Path, root: &Path, truncate: bool) -> Result<File> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+
+    let path = CString::new(rel.as_os_str().as_bytes())
+        .map_err(|_| anyhow::anyhow!("path contains NUL byte"))?;
+    let how = OpenHow {
+        flags: (libc::O_WRONLY | libc::O_CREAT | if truncate { libc::O_TRUNC } else { 0 }) as u64,
+        mode: 0o644,
+        resolve: RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS,
+    };
+
+    #[cfg(target_arch = "x86_64")]
+    const SYS_OPENAT2: libc::c_long = 437;
+    #[cfg(not(target_arch = "x86_64"))]
+    const SYS_OPENAT2: libc::c_long = libc::SYS_openat2;
+
+    let fd = unsafe {
+        libc::syscall(
+            SYS_OPENAT2,
+            dirfd,
+            path.as_ptr(),
+            &how as *const OpenHow,
+            std::mem::size_of::<OpenHow>(),
+        )
+    };
+
+    if fd < 0 {
+        let err = std::io::Error::last_os_error();
+        if err.raw_os_error() == Some(libc::ENOSYS) {
+            let dest = safe_join_under(root, rel)?;
+            return open_regular_file_for_write(&dest);
+        }
+        return Err(err.into());
+    }
+    Ok(unsafe { File::from_raw_fd(fd as i32) })
+}
+
+/// Open a regular file for writing with `O_NOFOLLOW` so a symlink at `path`
+/// cannot be followed during extraction.
+#[cfg(unix)]
+pub fn open_regular_file_for_write(path: &Path) -> Result<File> {
+    if let Ok(meta) = path.symlink_metadata() {
+        if meta.file_type().is_symlink() {
+            bail!("refusing to write through symlink: {}", path.display());
+        }
+    }
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).context("create parent directory for archive file")?;
+    }
+
+    OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(path)
+        .with_context(|| format!("open {} with O_NOFOLLOW", path.display()))
+}
+
+/// Copy archive entry bytes into a confined destination file.
+#[cfg(unix)]
+pub fn write_archive_file(path: &Path, reader: &mut dyn Read) -> Result<()> {
+    let mut file = open_regular_file_for_write(path)?;
+    io::copy(reader, &mut file)
+        .with_context(|| format!("writing archive file {}", path.display()))?;
+    file.sync_data().ok();
+    Ok(())
+}
+
+#[cfg(not(unix))]
+pub fn write_archive_file(path: &Path, reader: &mut dyn Read) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).context("create parent directory for archive file")?;
+    }
+    let mut file = File::create(path)
+        .with_context(|| format!("create {}", path.display()))?;
+    io::copy(reader, &mut file)
+        .with_context(|| format!("writing archive file {}", path.display()))?;
+    Ok(())
+}
+
+/// Create a symlink only when the destination path is not already a symlink.
+#[cfg(unix)]
+pub fn create_sanitized_symlink(target: &Path, link_path: &Path) -> Result<()> {
+    if link_path.symlink_metadata().is_ok() {
+        fs::remove_file(link_path)
+            .with_context(|| format!("remove existing path at {}", link_path.display()))?;
+    }
+    std::os::unix::fs::symlink(target, link_path)
+        .with_context(|| format!("symlink {} -> {}", link_path.display(), target.display()))
+}
+
+/// Zainium union layer root — final install destination for userland packages.
+pub const UNION_ROOT: &str = "/overlayer/zexlib/union";
+
+/// Remap FHS / Alpine / Void archive paths to **union-relative** layout.
+///
+/// Archive / config prefixes are rewritten so that when joined with
+/// [`UNION_ROOT`] they land under `/overlayer/zexlib/union/...`:
+///
+/// | archive path              | relative after remap | absolute on disk              |
+/// |---------------------------|----------------------|-------------------------------|
+/// | `usr/bin/foo` / `/bin/x`  | `bin/foo`            | `…/union/bin/foo`             |
+/// | `usr/sbin/bar`            | `sbin/bar`           | `…/union/sbin/bar`            |
+/// | `usr/lib/…` / `lib64/…`   | `lib/…`              | `…/union/lib/…`               |
+/// | `usr/share/…`             | `share/…`            | `…/union/share/…`             |
+/// | `usr/etc/…` / `etc/…`     | `etc/…`              | `…/union/etc/…`               |
+/// | `usr/include/…`           | `include/…`          | `…/union/include/…`           |
+/// | other `usr/…`             | strip `usr/`         | under union                   |
+///
+/// Pure structural prefix rewrite — no package-name hardcoding.
+pub fn remap_usr_paths(path: PathBuf) -> PathBuf {
+    let s = path.to_string_lossy();
+    // Normalize: drop leading ./ and /
+    let s = s.trim_start_matches("./").trim_start_matches('/');
+
+    let mapped = if let Some(rest) = s.strip_prefix("usr/local/bin/") {
+        format!("bin/{rest}")
+    } else if let Some(rest) = s.strip_prefix("usr/local/sbin/") {
+        format!("sbin/{rest}")
+    } else if let Some(rest) = s.strip_prefix("usr/local/lib/") {
+        format!("lib/{rest}")
+    } else if let Some(rest) = s.strip_prefix("usr/local/share/") {
+        format!("share/{rest}")
+    } else if let Some(rest) = s.strip_prefix("usr/bin/") {
+        format!("bin/{rest}")
+    } else if let Some(rest) = s.strip_prefix("usr/sbin/") {
+        format!("sbin/{rest}")
+    } else if let Some(rest) = s.strip_prefix("usr/lib64/") {
+        format!("lib/{rest}")
+    } else if let Some(rest) = s.strip_prefix("usr/lib/") {
+        format!("lib/{rest}")
+    } else if let Some(rest) = s.strip_prefix("usr/share/") {
+        format!("share/{rest}")
+    } else if let Some(rest) = s.strip_prefix("usr/include/") {
+        format!("include/{rest}")
+    } else if let Some(rest) = s.strip_prefix("usr/etc/") {
+        format!("etc/{rest}")
+    } else if let Some(rest) = s.strip_prefix("usr/") {
+        rest.to_string()
+    } else if let Some(rest) = s.strip_prefix("bin/") {
+        format!("bin/{rest}")
+    } else if let Some(rest) = s.strip_prefix("sbin/") {
+        format!("sbin/{rest}")
+    } else if let Some(rest) = s.strip_prefix("lib64/") {
+        format!("lib/{rest}")
+    } else if let Some(rest) = s.strip_prefix("lib/") {
+        format!("lib/{rest}")
+    } else if let Some(rest) = s.strip_prefix("etc/") {
+        format!("etc/{rest}")
+    } else if let Some(rest) = s.strip_prefix("share/") {
+        format!("share/{rest}")
+    } else {
+        s.to_string()
+    };
+
+    PathBuf::from(mapped)
+}
+
+/// Absolute install path under the union layer for an archive-relative path.
+pub fn union_abs_path(archive_rel: &Path) -> Result<PathBuf> {
+    let clean = sanitize_archive_path(archive_rel)?;
+    Ok(Path::new(UNION_ROOT).join(clean))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_parent_dir() {
+        assert!(sanitize_archive_path(Path::new("../etc/passwd")).is_err());
+    }
+
+    #[test]
+    fn remaps_usr_bin() {
+        let p = sanitize_archive_path(Path::new("usr/bin/vim")).unwrap();
+        assert_eq!(p, Path::new("bin/vim"));
+        let abs = union_abs_path(Path::new("usr/bin/vim")).unwrap();
+        assert_eq!(abs, Path::new("/overlayer/zexlib/union/bin/vim"));
+    }
+
+    #[test]
+    fn link_target_allows_legitimate_relative_parent_dirs() {
+        // Real Void package data: xbps-triggers ships a symlink whose
+        // target is `../../../usr/libexec/xbps-triggers` — this used to be
+        // rejected outright as "path traversal".
+        let owner = Path::new("usr/bin/xbps-trigger");
+        let target = Path::new("../../../usr/libexec/xbps-triggers");
+        let resolved = sanitize_link_target(owner, target).unwrap();
+        assert_eq!(resolved, Path::new("/overlayer/zexlib/union/libexec/xbps-triggers"));
+    }
+
+    #[test]
+    fn link_target_clamps_excess_parent_dirs_at_root() {
+        // Even more `..` than there are directories to climb must clamp at
+        // the archive root, not error and not escape past it.
+        let owner = Path::new("usr/bin/foo");
+        let target = Path::new("../../../../../../etc/passwd");
+        let resolved = sanitize_link_target(owner, target).unwrap();
+        assert_eq!(resolved, Path::new("/overlayer/zexlib/union/etc/passwd"));
+    }
+
+    #[test]
+    fn link_target_leaves_bare_filename_unchanged() {
+        // A bare filename with no directory component at all has nothing
+        // to remap — left exactly as-is (a plain same-directory sibling).
+        let owner = Path::new("usr/bin/sudoedit");
+        let target = Path::new("sudo");
+        let resolved = sanitize_link_target(owner, target).unwrap();
+        assert_eq!(resolved, Path::new("sudo"));
+    }
+
+    #[test]
+    fn link_target_remaps_relative_multi_component_with_no_dotdot() {
+        // Real Void/Chimera `base-files` data: a top-level usrmerge symlink
+        // like "/sbin -> usr/bin" has *no* ".." at all, but "usr/bin" isn't
+        // a real directory anywhere in our flattened union tree — it must
+        // still be resolved + remapped + absolutized, not left as a
+        // dangling literal "usr/bin" string.
+        let owner = Path::new("sbin");
+        let target = Path::new("usr/bin");
+        let resolved = sanitize_link_target(owner, target).unwrap();
+        assert_eq!(resolved, Path::new("/overlayer/zexlib/union/bin"));
+    }
+
+    #[test]
+    fn link_target_remaps_absolute() {
+        let owner = Path::new("usr/bin/foo");
+        let target = Path::new("/usr/lib/libfoo.so");
+        let resolved = sanitize_link_target(owner, target).unwrap();
+        assert_eq!(resolved, Path::new("/overlayer/zexlib/union/lib/libfoo.so"));
+    }
+
+    #[test]
+    fn remaps_usr_lib_share_etc() {
+        assert_eq!(
+            sanitize_archive_path(Path::new("usr/lib/libfoo.so")).unwrap(),
+            Path::new("lib/libfoo.so")
+        );
+        assert_eq!(
+            sanitize_archive_path(Path::new("usr/share/man/man1/x.1")).unwrap(),
+            Path::new("share/man/man1/x.1")
+        );
+        assert_eq!(
+            sanitize_archive_path(Path::new("etc/foo.conf")).unwrap(),
+            Path::new("etc/foo.conf")
+        );
+        assert_eq!(
+            sanitize_archive_path(Path::new("lib64/ld-musl.so")).unwrap(),
+            Path::new("lib/ld-musl.so")
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn rejects_symlink_destination_for_file_write() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let real = dir.path().join("real.txt");
+        let link = dir.path().join("via-link.txt");
+        fs::write(&real, b"secret").unwrap();
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        let err = open_regular_file_for_write(&link).unwrap_err();
+        assert!(err.to_string().contains("symlink"));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn writes_regular_file_with_o_nofollow() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let dest = dir.path().join("out.bin");
+        let payload = b"hello zex";
+        write_archive_file(&dest, &mut &payload[..]).unwrap();
+        assert_eq!(fs::read(&dest).unwrap(), payload);
+    }
+}

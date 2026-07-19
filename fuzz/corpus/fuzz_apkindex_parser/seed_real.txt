@@ -1,0 +1,28 @@
+C:Q1abc123def456==
+P:musl
+V:1.2.5-r0
+A:x86_64
+S:430640
+I:720896
+T:the musl c library (libc) implementation
+U:https://musl.libc.org/
+L:MIT
+o:musl
+m:Maintainer <maintainer@alpinelinux.org>
+t:1234567890
+c:abc123
+
+P:bash
+V:5.2.37-r0
+A:x86_64
+S:890623
+I:2027520
+T:The GNU Bourne Again shell
+U:https://www.gnu.org/software/bash/
+L:GPL-3.0-or-later
+o:bash
+D:so:libc.musl-x86_64.so.1 so:libncursesw.so.6 so:libreadline.so.8
+m:Maintainer <maintainer@alpinelinux.org>
+t:1234567890
+c:def456
+

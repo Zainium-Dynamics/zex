@@ -1,0 +1,78 @@
+.TH ZEX-HISTORY 1 "2026-07-19" "zex 5.0.0" "Zainium OS"
+.SH NAME
+zex-history \- show the unified install/remove/upgrade history
+.SH SYNOPSIS
+.B zex history
+.RI [ \-\-package\ <name> ]
+.RI [ \-n\ <count> ]
+.SH DESCRIPTION
+.B zex history
+prints a single, unified, cross-tier timeline of every install, remove,
+and upgrade operation, most recent first.
+.PP
+It reads
+.IR /var/lib/zex/history.json ,
+a flat JSON log written to by
+.BR zex-install (1),
+.BR zex-remove (1),
+and
+.BR zex-upgrade (1)
+(both
+.B uland
+and
+.B syshub
+modes) every time they complete an operation, whether it succeeded or
+failed.
+Each entry records the operation type, the affected package(s) and
+version(s), success/failure, an error message on failure, how long the
+operation took, and which user invoked it.
+.PP
+This complements, rather than replaces, the older tier-specific audit
+logs
+.RI ( upgrade\-audit.toml ", " remove\-audit.toml )
+— those still exist per-subsystem; this is the one place that shows
+everything together on one timeline.
+.SH OPTIONS
+.TP
+.BI \-\-package\  name
+Only show entries that touched the package
+.IR name .
+.TP
+.BI \-n\  count \fR,\  \-\-limit\  count
+Show at most
+.I count
+entries (default: 20). Applied after filtering by
+.BR \-\-package .
+.SH EXIT STATUS
+.TP
+.B 0
+Always, whether or not any history is recorded.
+.SH EXAMPLES
+Show the last 20 operations across all packages:
+.PP
+.nf
+    zex history
+.fi
+.PP
+Show every recorded operation touching
+.BR musl :
+.PP
+.nf
+    zex history --package musl
+.fi
+.PP
+Show only the last 5 operations:
+.PP
+.nf
+    zex history -n 5
+.fi
+.SH FILES
+.TP
+.I /var/lib/zex/history.json
+The unified history log. A JSON array, capped at the most recent 1000
+entries; older entries are pruned automatically.
+.SH SEE ALSO
+.BR zex (1),
+.BR zex-install (1),
+.BR zex-remove (1),
+.BR zex-rollback (1)

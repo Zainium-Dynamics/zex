@@ -1,0 +1,34 @@
+# ZEX PACKAGE RECEIPT
+# Package: vim
+# Path: /overlayer/zexlib/registry/installed/vim.toml
+
+[metadata]
+name         = "vim"
+version      = "9.1.0-r0"
+origin       = "tier2-alpine"
+install_time = "2026-06-22T10:05:22Z"
+installed_by = "root"
+
+# UNION LAYER FILE MAPPING
+# Zex will safely remove these exact files during uninstallation or uland upgrade.
+
+[files]
+bin = [
+    "/overlayer/zexlib/union/bin/vim",
+    "/overlayer/zexlib/union/bin/vimdiff",
+    "/overlayer/zexlib/union/bin/xxd"
+]
+lib = []
+sbin = []
+etc = [
+    "/overlayer/zexlib/union/etc/vim/vimrc"
+]
+share = [
+    "/overlayer/zexlib/union/share/vim/vim91/syntax/c.vim",
+    "/overlayer/zexlib/union/share/vim/vim91/syntax/rust.vim",
+    "/overlayer/zexlib/union/share/man/man1/vim.1"
+]
+
+[services]
+# Empty for vim, but would contain paths to dinit/runit service files if applicable
+daemons = []

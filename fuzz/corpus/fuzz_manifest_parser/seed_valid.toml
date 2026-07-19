@@ -1,0 +1,12 @@
+[package]
+name = "vim"
+version = "9.1.0"
+description = "Vi IMproved"
+license = "Vim"
+maintainer = "Bram Moolenaar"
+
+[install]
+bin = "/overlayer/zexlib/union/bin"
+
+[remove]
+files = ["/overlayer/zexlib/union/bin/vim"]

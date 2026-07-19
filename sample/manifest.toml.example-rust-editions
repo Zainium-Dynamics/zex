@@ -1,0 +1,72 @@
+# ============================================================
+# manifest.toml — rust-1.87.0.zex
+#
+# Rust ships multiple editions inside ONE .zex.
+# The payload layout is:
+#
+#   rust-1.87.0.zex (zexc rust crates 1.1.0 whisch is officeal zex native pure rust for zainium dynamics>
+#   ├── manifest.toml
+#   └── payload/
+#       ├── bin/              ← shared: rustc, cargo, rustup (always installed)
+#       ├── lib/              ← shared: libstd for all editions
+#       ├── 2015/             ← edition-specific toolchain files
+#       │   └── lib/rustlib/
+#       ├── 2018/
+#       │   └── lib/rustlib/
+#       ├── 2021/             ← default edition
+#       │   └── lib/rustlib/
+#       └── 2024/
+#           └── lib/rustlib/
+#
+# The installer extracts:
+#   • payload/bin/ and payload/lib/ always (shared)
+#   • payload/<selected_edition>/ based on user choice
+#
+# Commands:
+#   elevate zex install rust               → installs 2021 (default)
+#   elevate zex install rust --edition 2024
+#   elevate zex edition add rust 2024
+#   elevate zex edition remove rust 2018
+#   elevate zex edition set-default rust 2024
+# ============================================================
+
+[package]
+name             = "rust"
+version          = "1.87.0"
+description      = "Safe, concurrent, practical language (Native Musl Target)"
+license          = "MIT OR Apache-2.0"
+maintainer       = "Ali Zain <architect@zainiumdynamics.tech>"
+homepage         = "https://www.rust-lang.org"
+build_type       = "dynamic"
+libc_target      = "musl"
+edition          = "2021"          # active edition in this build's defaults
+
+blake3           = "b3:6677889900112233445566778899001122334455667788990011223344556677"
+ed25519_sig      = "sig:ed25519:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+
+requires_syshub  = "2026v3.0"
+depends          = ["musl"]
+provides         = ["rustc", "cargo", "rustup"]
+tags             = ["compiler", "lang", "rust"]
+
+# ── Install map ───────────────────────────────────────────────────────────────
+[install]
+bin    = "/overlayer/zexlib/union/bin"
+lib    = "/overlayer/zexlib/union/lib"
+share  = "/overlayer/zexlib/union/share"
+_syshub = false
+
+# Edition-specific paths — the installer merges these on top of the base
+# map when extracting payload/<edition>/
+# e.g. payload/2021/lib/rustlib → /overlayer/zexlib/union/lib/rustlib/2021/
+
+# ── Edition set ───────────────────────────────────────────────────────────────
+[editions]
+available = ["2015", "2018", "2021", "2024"]
+default   = "2021"
+
+# ── Remove map (filled by installer) ─────────────────────────────────────────
+[remove]
+files    = []
+dirs     = []
+symlinks = []

@@ -1,0 +1,22 @@
+[package]
+name = "curl"
+version = "8.11.0"
+description = "Command line tool for transferring data"
+license = "curl"
+maintainer = "Daniel Stenberg"
+homepage = "https://curl.se"
+build_type = "dynamic"
+libc_target = "musl"
+edition = "stable"
+depends = ["libssl >= 3.0", "zlib >= 1.2"]
+provides = ["curl"]
+
+[install]
+bin   = "/overlayer/zexlib/union/bin"
+lib   = "/overlayer/zexlib/union/lib"
+share = "/overlayer/zexlib/union/share"
+
+[remove]
+files    = ["/overlayer/zexlib/union/bin/curl"]
+symlinks = []
+dirs     = []

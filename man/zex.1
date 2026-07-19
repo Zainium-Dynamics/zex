@@ -1,0 +1,357 @@
+.\" zex(1) — Zainium eXecutor & Package Manager
+.\" Process with: man ./man/zex.1
+.TH ZEX 1 "2026-06-27" "zex 5.0.0" "Zainium OS"
+.SH NAME
+zex \- Zainium eXecutor & Package Manager
+.SH SYNOPSIS
+.B elevate zex
+.I <command>
+.RI [ options ]
+.RI [ args ]
+.SH DESCRIPTION
+.B zex
+is the native package manager for
+.BR ZainiumOS .
+It is a BusyBox-style multicall binary: a single ELF that dispatches to
+11 sub-commands via
+.B argv[0]
+symlinks or an explicit command name.
+.PP
+.B zex
+operates across four package tiers:
+.TP
+.B T1 — Zainium native
+Packages in the
+.I .zex
+format (tar.zst), sourced from
+.IR archive.zainiumdynamics.tech .
+These are built against musl or relibc with no glibc dependency.
+.TP
+.B T2 — Alpine Linux
+Packages in the
+.I .apk
+format from Alpine Linux mirrors. Verified via Ed25519 signature.
+.TP
+.B T3 — Void Linux (musl)
+Packages in the
+.I .xbps
+format from the Void Linux musl repository.
+.TP
+.B T4 — Chimera Linux
+Packages named
+.I .apk
+but in apk-tools v3's binary "ADB" container format \(em
+.B not
+the gzip-tar format Alpine uses. Verified via RSA-SHA512 over the ADB
+signature block.
+.PP
+All packages install into the
+.I /overlayer/zexlib/union/
+userland tree. The immutable core
+.RI ( /overlayer/syshub/ )
+is updated separately via
+.BR "elevate zex syshub" .
+.SH COMMANDS
+.TP
+.B install \fI<pkg>...\fR
+Install one or more packages. Dependencies are resolved by a breadth-first
+search with tier-affinity preference, real version-constraint checking,
+and bidirectional conflict checking; each package is downloaded from the
+highest-priority tier that provides it and cryptographically verified
+against that tier's real signature scheme, then atomically installed.
+Supports
+.B \-\-lock\-out
+/
+.B \-\-from\-lock
+/
+.B \-\-verify\-lock
+for reproducible installs. See
+.BR zex-install (1).
+.TP
+.B remove \fI<pkg>...\fR
+Remove installed packages. Reads the receipt file to find every installed
+file and removes them exactly. See
+.BR zex-remove (1).
+.TP
+.B update
+Fetch latest index from all configured mirrors, diff against installed
+packages, and apply all available upgrades to both userland and syshub.
+See
+.BR zex-update (1).
+.TP
+.B uland \-\-u
+Upgrade userland packages only (T1–T4 tiers).
+.TP
+.B syshub \-\-u
+Upgrade the immutable syshub base. Performs an atomic swap:
+build in
+.I /overlayer/syshub.new/
+then rename to live.
+.TP
+.B search \fI<query>\fR
+Search all four tiers for packages matching the query.
+See
+.BR zex-search (1).
+.TP
+.B doctor [\-\-fix]
+Audit the system for registry corruption, missing files, broken symlinks,
+and glibc contamination. With
+.B \-\-fix
+attempts automatic repair. See
+.BR zex-doctor (1).
+.TP
+.B rollback \fI<tx-id>\fR
+Revert a previous install/upgrade transaction. See
+.BR zex-rollback (1).
+.TP
+.B sweep [\-\-dry\-run] [\-\-aggressive]
+Clean package cache, temp files, and orphaned staging directories.
+See
+.BR zex-sweep (1).
+.TP
+.B inspect \fI<pkg>\fR
+Deep-inspect an installed package: version, files, shared library
+dependencies, integrity check. See
+.BR zex-inspect (1).
+.TP
+.B depends \fI<pkg>\fR
+Show the dependency tree for a package. See
+.BR zex-depends (1).
+.TP
+.B why \fI<pkg>\fR
+Show reverse dependencies — which installed packages depend on
+.IR <pkg> .
+See
+.BR zex-why (1).
+.TP
+.B pin \fI<pkg>\fR [\-\-reason \fI<text>\fR]
+Lock a package at its current version, blocking upgrades.
+.TP
+.B unpin \fI<pkg>\fR
+Release a version lock.
+.TP
+.B pins
+List all currently pinned packages.
+.TP
+.B history [\-\-package \fI<name>\fR] [\-n \fI<count>\fR]
+Show the unified install/upgrade/remove audit trail recorded across all
+commands to
+.IR /var/lib/zex/history.json .
+See
+.BR zex-history (1).
+.TP
+.B \-i \fI<file>\fR [\-\-root \fI<path>\fR]
+Install a local
+.IR .zex ", " .apk ,
+or
+.I .xbps
+file directly.
+By default files are installed into
+.IR /overlayer/zexlib/union/ .
+.TP
+.B \-\-root \fI<path>\fR
+.DT
+.BR DEV\-ONLY .
+Override the install root for local
+.B \-i
+installs.
+Intended for developer testing and CI fixtures only — not for production
+system installs.
+Production installs must use the default
+.I /overlayer/zexlib/union/
+path so Quantra's OverlayFS upperdir stays consistent.
+.TP
+.B \-e \fI<file>\fR [\-o \fI<dir>\fR]
+Extract the contents of a package archive to a directory.
+.SH FILE SYSTEM LAYOUT
+.TP
+.I /overlayer/syshub/
+Immutable base system. Contains
+.IR bin/ ", " lib/ ", " lib64/ ", " include/ ", " share/ ", " etc/ ,
+and the GCC 15.3 musl cross-compiler at
+.IR x86_64\-zainium\-linux\-musl/ .
+.TP
+.I /overlayer/zexlib/
+Mutable userland area managed by
+.BR zex .
+.TP
+.I /overlayer/zexlib/union/
+Union mount root. Userland packages install
+.IR bin/ ", " lib/ ", " share/ ,
+etc. here.
+.TP
+.I /overlayer/zexlib/registry/installed/
+One
+.I <name>.toml
+receipt file per installed package.
+.TP
+.I /overlayer/zexlib/registry/packages.toml
+Installed package index.
+.TP
+.I /overlayer/zexlib/registry/pinned.toml
+Pinned package list.
+.TP
+.I /overlayer/zexlib/transactions/
+Transaction snapshots for rollback.
+.TP
+.I /overlayer/zexlib/registry/cache/
+Downloaded package cache, split by tier.
+.TP
+.I /overlayer/zexlib/tmp/
+Temporary staging area for downloads and extraction.
+.TP
+.I /overlayer/syshub/engine/services/zex_services.toml
+Mirror configuration.
+.TP
+.I /overlayer/syshub/engine/services/syshub.toml
+Immutable base package manifest.
+.SH SECURITY
+.B zex
+verifies every package against its tier's real upstream signature scheme:
+.B Ed25519
++
+.B Blake3
+for native
+.I .zex
+(T1), RSA-PKCS1v15 over the compressed control tarball for Alpine
+.I .apk
+(T2), RSA-SHA256 over the whole file with TOFU key pinning for Void
+.I .xbps
+(T3), and RSA-SHA512 over the ADB signature block for Chimera
+.I .apk
+(T4).
+.PP
+All operations that modify
+.I /overlayer/syshub/
+or install packages require root privileges via
+.BR elevate (1).
+.PP
+Sandbox isolation is applied during post-install scripts via the
+.BR elevate (1)
+privilege layer.
+.SH EXAMPLES
+Install
+.B ripgrep:
+.PP
+.nf
+    elevate zex install ripgrep
+.fi
+.PP
+Install from a local file:
+.PP
+.nf
+    elevate zex -i /path/to/myapp-1.0.zex
+.fi
+.PP
+Search for a package:
+.PP
+.nf
+    zex search "fuzzy finder"
+.fi
+.PP
+Pin
+.B gcc
+to prevent accidental upgrade:
+.PP
+.nf
+    elevate zex pin gcc --reason "kernel ABI stability"
+.fi
+.PP
+Full system update:
+.PP
+.nf
+    elevate zex update
+.fi
+.PP
+Doctor with auto-fix:
+.PP
+.nf
+    elevate zex doctor --fix
+.fi
+.SH SEE ALSO
+.BR zex-install (1),
+.BR zex-remove (1),
+.BR zex-update (1),
+.BR zex-search (1),
+.BR zex-doctor (1),
+.BR zex-rollback (1),
+.BR zex-sweep (1),
+.BR zex-inspect (1),
+.BR zex-depends (1),
+.BR zex-why (1),
+.BR zex-history (1),
+.BR zex.toml (5),
+.BR elevate (8),
+.BR zai-env (1)
+.SH BUGS
+Report bugs at
+.IR https://github.com/zainiumdynamics/zex/issues .
+.SH AUTHOR
+Ali Zain <alizain.x404@gmail.com>
+.br
+Zainium Dynamics — Zainium OS Project
+.SH ZEX FMT — PACKAGE AUTHORING
+.B "zex fmt"
+is the secure package builder integrated into the
+.B zex
+multicall binary. It packs, signs, and verifies
+.I .zex
+packages.
+.TP
+.B "zex fmt pack" \fI<dir>\fR \fB\-\-version\fR \fI<v>\fR
+Build a signed
+.I .zex
+package from a source directory. Runs:
+.RS
+.TP 3
+1. Layout policy enforcement (no /usr/ references)
+.TP 3
+2. Secrets scan (no hardcoded credentials)
+.TP 3
+3. Rust security audit (cargo audit, clippy, unsafe count)
+.TP 3
+4. C/C++ static analysis (if applicable)
+.TP 3
+5. Permission audit (no setuid/setgid files)
+.TP 3
+6. Blake3 + SHA-512 hashing, Ed25519 signing
+.TP 3
+7. Produce
+.I <name>_<version>.zex
+and install receipt
+.RE
+.TP
+.B "zex fmt unpack" \fI<file>\fR [\fB\-o\fR \fI<dir>\fR]
+Extract and verify a
+.I .zex
+package.
+.TP
+.B "zex fmt verify" \fI<file>\fR
+Verify signature and integrity only (no extraction).
+.TP
+.B "zex fmt inspect" \fI<file>\fR
+Show embedded security report and manifest metadata.
+.TP
+.B "zex fmt review" \fI<file.locked>\fR \fB\-\-slot\fR \fI<1\-5>\fR \fB\-\-reviewer\fR \fI<id>\fR \fB\-\-status\fR \fI<approved|rejected>\fR
+Fill a maintainer review slot in a
+.I .zex.locked
+artifact.
+.TP
+.B "zex fmt keygen" [\fB\-o\fR \fI<output-dir>\fR] [\fB\-\-force\fR]
+Generate a real Ed25519 signing keypair for use by
+.BR "zex fmt pack" .
+Writes
+.I signing.key
+(hex, private, mode 0600) and
+.I trust.pub
+(base64, public) into
+.I <output-dir>
+(default: current directory).
+.B \-\-force
+overwrites existing key files. Without a real keypair on the builder
+machine,
+.B "zex fmt pack"
+silently falls back to a hardcoded, publicly-known dev key — fine for
+local testing, never for a real release. See
+.BR ZEX-FORMAT.md
+for full key-placement instructions.

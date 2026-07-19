@@ -1,0 +1,130 @@
+# ZEX Services — Universal Package Manager Configuration
+# Path: /overlayer/syshub/engine/services/zex_services.toml
+# ALL drivers read from this ONE file.
+
+tier_usage = """
+elevate zex search <package-name>
+elevate zex install <package-name>
+elevate zex remove <package-name>
+"""
+
+upgrade_usage = """
+elevate zex uland --u   # Upgrades userland packages across Tier 1 to Tier 4
+elevate zex syshub -u   # Upgrades Syshub core & Zaisys engine via native stream
+"""
+
+# TIER 1: NATIVE ZAINIUM SECURE NEXUS (Zstd-backed Native .zex Format)
+
+# 1. Core Syshub Base (Absolute Tier 0/1 For Syshub Upgrades)
+[[mirrors]]
+id              = "zainium-core-stable-syshub"
+description     = "Zainium OS Stable Core Syshub Repository"
+base_url        = "https://archive.zainiumdynamics.tech/core/stable/packages"
+index_url       = "https://archive.zainiumdynamics.tech/core/stable/syshub.toml"
+format          = "zex"
+priority        = 1
+supported_archs = ["x86_64"]
+
+# 2. Native Userland Repository (Tier 1 Userland Environment for zexlib)
+[[mirrors]]
+id              = "zainium-userland-zexlib"
+description     = "Zainium OS Native Userland Packages"
+base_url        = "https://archive.zainiumdynamics.tech/userland/x86_64/packages"
+index_url       = "https://archive.zainiumdynamics.tech/userland/x86_64/zex_ledger-x86_64.toml"
+format          = "zex"
+priority        = 2
+supported_archs = ["x86_64"]
+
+# TIER 2: ALPINE LINUX PORTS
+
+[[mirrors]]
+id              = "alpine-main"
+description     = "Alpine Linux Main Repo (kernel.org)"
+base_url        = "https://mirrors.edge.kernel.org/alpine/latest-stable/main/{arch}"
+index_url       = "https://mirrors.edge.kernel.org/alpine/latest-stable/main/{arch}/APKINDEX.tar.gz"
+format          = "apk"
+priority        = 3
+supported_archs = ["x86_64", "aarch64"]
+
+[[mirrors]]
+id              = "alpine-community"
+description     = "Alpine Linux Community Repo (kernel.org)"
+base_url        = "https://mirrors.edge.kernel.org/alpine/latest-stable/community/{arch}"
+index_url       = "https://mirrors.edge.kernel.org/alpine/latest-stable/community/{arch}/APKINDEX.tar.gz"
+format          = "apk"
+priority        = 4
+supported_archs = ["x86_64", "aarch64"]
+
+# TIER 3: VOID LINUX PORTS
+
+[[mirrors]]
+id              = "void-musl-current"
+description     = "Void Linux Main Repo (musl)"
+base_url        = "https://repo-default.voidlinux.org/current/musl"
+index_url       = "https://repo-default.voidlinux.org/current/musl/{arch}-musl-repodata"
+format          = "xbps"
+priority        = 5
+supported_archs = ["x86_64", "aarch64"]
+
+[[mirrors]]
+id              = "void-musl-nonfree"
+description     = "Void Linux Proprietary/Drivers Repo (musl)"
+base_url        = "https://repo-default.voidlinux.org/current/musl/nonfree"
+index_url       = "https://repo-default.voidlinux.org/current/musl/nonfree/{arch}-musl-repodata"
+format          = "xbps"
+priority        = 6
+supported_archs = ["x86_64", "aarch64"]
+
+# TIER 4: CHIMERA LINUX PORTS
+
+[[mirrors]]
+id              = "chimera-main"
+description     = "Chimera Linux Main Repo"
+base_url        = "https://repo.chimera-linux.org/current/main/{arch}"
+# Chimera has migrated off legacy Alpine APKINDEX.tar.gz onto apk-tools v3's
+# binary "ADB" database format -- Packages.adb (see src/cmd/install/adb.rs).
+index_url       = "https://repo.chimera-linux.org/current/main/{arch}/Packages.adb"
+format          = "adb"
+priority        = 7
+supported_archs = ["x86_64", "aarch64"]
+
+[[mirrors]]
+id              = "chimera-user"
+description     = "Chimera Linux User Repo"
+base_url        = "https://repo.chimera-linux.org/current/user/{arch}"
+index_url       = "https://repo.chimera-linux.org/current/user/{arch}/Packages.adb"
+format          = "adb"
+priority        = 8
+supported_archs = ["x86_64", "aarch64"]
+
+# SOURCE BUILD ENGINE (Rust Native Compilers)
+
+[[source_engines]]
+id              = "crates-io"
+description     = "Rust Package Registry (Static Musl Builds via Zex)"
+api_url         = "https://crates.io/api/v1/crates/{package}"
+build_tool      = "cargo"
+target_triple   = "x86_64-unknown-linux-musl"
+static_flags    = "-C target-feature=+crt-static"
+priority        = 9
+
+# Usage: elevate zex install cargo <crate-name>
+
+# HARDWARE ASSAY & DRIVER INJECTION
+[assay]
+nvidia_url             = "https://download.nvidia.com/XFree86/Linux-x86_64/"
+nvidia_driver_template = "https://download.nvidia.com/XFree86/Linux-x86_64/{version}/NVIDIA-Linux-x86_64-{version}.run"
+firmware_git_base      = "https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git/plain/"
+
+# CORE SECURITY & NETWORK ENFORCEMENT
+[network]
+http_timeout_secs = 3600
+
+[trust]
+require_blake3          = true
+require_ed25519_sigs    = true
+require_sha256          = true
+require_sha256_fallback = true
+require_sha512          = true
+require_signatures      = true
+force_https_enforcement = true

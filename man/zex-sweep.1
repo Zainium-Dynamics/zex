@@ -1,0 +1,45 @@
+.TH ZEX-SWEEP 1 "2026-06-27" "zex 5.0.0" "Zainium OS"
+.SH NAME
+zex-sweep \- clean package cache and orphaned files
+.SH SYNOPSIS
+.B elevate zex sweep
+.RI [ \-\-dry\-run ]
+.RI [ \-\-aggressive ]
+.RI [ \-y ]
+.SH DESCRIPTION
+.B zex sweep
+reclaims disk space by removing:
+.TP
+\(bu
+Downloaded package cache
+.RI ( /overlayer/zexlib/registry/cache/ )
+.TP
+\(bu
+Temporary files
+.RI ( /overlayer/zexlib/tmp/ )
+.TP
+\(bu
+Orphaned upgrade staging directories
+.RI ( /overlayer/syshub.new/ )
+.TP
+\(bu
+Old transaction records (keeps the 10 most recent)
+.TP
+\(bu
+With
+.BR \-\-aggressive :
+log files older than 30 days
+.RI ( /overlayer/zexlib/union/var/log/ )
+.SH OPTIONS
+.TP
+.B \-n, \-\-dry\-run
+Preview what would be cleaned without removing anything.
+.TP
+.B \-a, \-\-aggressive
+Also clean old log files (> 30 days).
+.TP
+.B \-y, \-\-yes
+Skip the confirmation prompt.
+.SH SEE ALSO
+.BR zex (1),
+.BR zex-doctor (1)

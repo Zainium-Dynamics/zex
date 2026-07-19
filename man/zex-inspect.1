@@ -1,0 +1,49 @@
+.TH ZEX-INSPECT 1 "2026-06-27" "zex 5.0.0" "Zainium OS"
+.SH NAME
+zex-inspect \- deep-inspect an installed package
+.SH SYNOPSIS
+.B zex inspect
+.I <package>
+.SH DESCRIPTION
+.B zex inspect
+displays detailed information about an installed package:
+.TP
+\(bu
+Package identity: name, version, description, license, maintainer.
+.TP
+\(bu
+Installation metadata: tier origin, libc target, build type, install date.
+.TP
+\(bu
+Disk usage: file count, total size.
+.TP
+\(bu
+Installed file locations (from receipt).
+.TP
+\(bu
+Shared library dependencies detected via
+.BR readelf (1).
+.TP
+\(bu
+Integrity check: verifies every declared file is present on disk.
+.PP
+Packages that are part of the immutable syshub base are inspected from the
+.I /overlayer/syshub/engine/services/syshub.toml
+manifest.
+.SH EXIT STATUS
+.TP
+.B 0
+Package found and inspected.
+.TP
+.B 1
+Package not installed.
+.SH EXAMPLES
+.PP
+.nf
+    zex inspect ripgrep
+    zex inspect bash
+.fi
+.SH SEE ALSO
+.BR zex (1),
+.BR zex-doctor (1),
+.BR readelf (1)

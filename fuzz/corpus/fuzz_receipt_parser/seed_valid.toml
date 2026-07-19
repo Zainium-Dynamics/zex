@@ -1,0 +1,13 @@
+name = "htop"
+version = "3.4.0"
+description = "Interactive process viewer"
+origin = "tier1-zainium"
+installed_at = "2026-06-27T00:00:00Z"
+libc_target = "musl"
+build_type = "dynamic"
+size = 524288
+
+[remove]
+files = ["/overlayer/zexlib/union/bin/htop"]
+symlinks = []
+dirs = []

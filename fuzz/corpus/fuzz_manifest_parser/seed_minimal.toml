@@ -1,0 +1,8 @@
+[package]
+name = "a"
+version = "1"
+description = "a"
+license = "MIT"
+maintainer = "m"
+[install]
+[remove]

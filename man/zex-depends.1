@@ -1,0 +1,29 @@
+.TH ZEX-DEPENDS 1 "2026-06-27" "zex 5.0.0" "Zainium OS"
+.SH NAME
+zex-depends \- show package dependency tree
+.SH SYNOPSIS
+.B zex depends
+.RI [ \-\-depth
+.IR N ]
+.I <package>
+.SH DESCRIPTION
+.B zex depends
+displays the full dependency tree for
+.IR <package> ,
+including transitive dependencies.
+.PP
+Each dependency is shown with its tier origin and installed/available status.
+.SH OPTIONS
+.TP
+.B \-\-depth INR
+Limit tree depth (default: unlimited).
+.SH EXAMPLES
+.PP
+.nf
+    zex depends curl
+    zex depends python3 --depth 2
+.fi
+.SH SEE ALSO
+.BR zex (1),
+.BR zex-why (1),
+.BR zex-install (1)

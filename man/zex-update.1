@@ -1,0 +1,65 @@
+.TH ZEX-UPDATE 1 "2026-06-27" "zex 5.0.0" "Zainium OS"
+.SH NAME
+zex-update \- fetch latest index and upgrade all packages
+.SH SYNOPSIS
+.B elevate zex update
+.RI [ \-\-yes ]
+.RI [ \-\-uland\-only ]
+.RI [ \-\-syshub\-only ]
+.SH DESCRIPTION
+.B zex update
+performs a full system update in two passes:
+.TP
+1.
+Refresh the package index from all configured mirrors
+.RI ( /overlayer/syshub/engine/services/zex_services.toml ).
+.TP
+2.
+Diff the fresh index against installed packages and apply all available
+upgrades, skipping any packages that are pinned.
+.PP
+Userland packages
+.RI ( /overlayer/zexlib/union/ )
+and the immutable syshub base
+.RI ( /overlayer/syshub/ )
+are updated in separate phases. The syshub phase uses an atomic
+swap: the new base is assembled in
+.I /overlayer/syshub.new/
+and then renamed to the live path, giving a crash-safe upgrade.
+.PP
+Archive extraction uses the same path-sanitization primitives as
+.BR zex-install (1)
+(traversal-safe symlink and hardlink targets), and registry updates go
+through the same safe, receipt-aware registry writer rather than
+patching TOML text directly. The pre-flight connectivity check tries
+the Tier 1 (Zainium) archive first and falls back to a well-known
+public mirror, so a slow or down Zainium endpoint alone does not cause
+a spurious "no internet" abort.
+.SH OPTIONS
+.TP
+.B \-y, \-\-yes
+Apply upgrades without prompting for confirmation.
+.TP
+.B \-\-uland\-only
+Only upgrade userland packages; skip syshub.
+.TP
+.B \-\-syshub\-only
+Only upgrade the immutable base; skip userland.
+.SH EXIT STATUS
+.TP
+.B 0
+Update completed (even if nothing needed upgrading).
+.TP
+.B 1
+Network error, verification failure, or insufficient privileges.
+.SH EXAMPLES
+.PP
+.nf
+    elevate zex update
+    elevate zex update --yes
+    elevate zex update --uland-only
+.fi
+.SH SEE ALSO
+.BR zex (1),
+.BR zex-rollback (1),
+.BR zex-doctor (1)
