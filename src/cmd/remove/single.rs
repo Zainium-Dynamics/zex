@@ -95,10 +95,34 @@ pub async fn remove_packages(names: &[String], dry_run: bool) -> Result<()> {
         if to_remove.is_empty() { return Ok(()); }
     }
 
+    // ── Compute orphaned dependencies (cascading) ─────────────────────────────
+    //
+    // Removing a package may leave its own now-unreferenced deps orphaned,
+    // and removing *those* may orphan a further layer (e.g. removing curl
+    // orphans libcurl; removing libcurl may then orphan libssl if nothing
+    // else needs it either) — iterate to a fixed point.
+    let mut excluded_names: Vec<String> = to_remove.iter().map(|r| r.name.clone()).collect();
+    let mut frontier_deps: Vec<String> = to_remove.iter().flat_map(|r| r.dependencies.clone()).collect();
+    let mut orphans: Vec<Receipt> = Vec::new();
+    loop {
+        let found = collect_safe_orphans(&frontier_deps, &excluded_names);
+        if found.is_empty() {
+            break;
+        }
+        frontier_deps.clear();
+        for name in found {
+            if let Some(r) = load_receipt(&name) {
+                frontier_deps.extend(r.dependencies.clone());
+                excluded_names.push(name);
+                orphans.push(r);
+            }
+        }
+    }
+
     // ── Dry run ───────────────────────────────────────────────────────────────
     if dry_run {
         let name_refs: Vec<&str> = to_remove.iter().map(|r| r.name.as_str()).collect();
-        let total_mb = estimate_freed_mb(&to_remove);
+        let total_mb = estimate_freed_mb(&to_remove) + estimate_freed_mb(&orphans);
         ui::print_dry_run(&name_refs, total_mb);
         return Ok(());
     }
@@ -111,16 +135,14 @@ pub async fn remove_packages(names: &[String], dry_run: bool) -> Result<()> {
     ui::print_removing_list_header();
     for r in &to_remove {
         ui::print_removing_item(&r.name, Some(&r.version));
-        // Also show reverse-dep packages that are safe to also remove
-        // (orphaned libs that were auto-installed alongside this package)
-        for orphan in collect_safe_orphans(&r.name) {
-            ui::print_removing_item(&orphan, None);
-        }
+    }
+    for orphan in &orphans {
+        ui::print_removing_item(&orphan.name, None);
     }
     println!();
 
     // ── Remove files ──────────────────────────────────────────────────────────
-    for r in &to_remove {
+    for r in to_remove.iter().chain(orphans.iter()) {
         delete_receipt_files(&r.installed_files);
     }
     ui::print_arrow_phase(&format!("Removing files from {scope_path}..."));
@@ -144,6 +166,11 @@ pub async fn remove_packages(names: &[String], dry_run: bool) -> Result<()> {
     }
 
     // ── Clean orphaned deps ───────────────────────────────────────────────────
+    //
+    // The progress bar below used to be purely cosmetic — no orphan was
+    // ever actually deleted, only shown in the list above. `orphans` (built
+    // before the dry-run check) now really does get removed alongside
+    // `to_remove` in the deletion loop that follows.
     ui::print_arrow_phase("Cleaning orphaned dependencies...");
     ui::print_remove_step("Cleaning orphaned dependencies", 200);
 
@@ -151,7 +178,7 @@ pub async fn remove_packages(names: &[String], dry_run: bool) -> Result<()> {
     let mut freed_bytes: u64 = 0;
     let mut removed_count = 0usize;
 
-    for r in &to_remove {
+    for r in to_remove.iter().chain(orphans.iter()) {
         freed_bytes += r.installed_files.iter()
             .filter_map(|p| fs::metadata(p).ok())
             .map(|m| m.len())
@@ -169,7 +196,7 @@ pub async fn remove_packages(names: &[String], dry_run: bool) -> Result<()> {
 
     let _ = crate::cmd::install::history::record(
         crate::cmd::install::history::OperationType::Remove,
-        to_remove.iter().map(|r| crate::cmd::install::history::PackageRecord {
+        to_remove.iter().chain(orphans.iter()).map(|r| crate::cmd::install::history::PackageRecord {
             name: r.name.clone(),
             version: r.version.clone(),
             format: r.format.clone(),
@@ -236,39 +263,80 @@ fn remove_from_packages_toml(name: &str) {
 }
 
 // ── Orphan detection ──────────────────────────────────────────────────────────
+//
+// A package's own `dependencies` field stores raw tokens exactly as its
+// source repo declared them — a mix of plain "pkgname=version" and virtual
+// "so:soname" capability tokens (confirmed against real receipts, e.g.
+// curl's `dependencies = ["libcurl=8.21.0-r0", "so:libc.musl-x86_64.so.1",
+// "so:libcurl.so.4", "so:libz.so.1"]`). Matching a token back to the real
+// installed package that satisfies it means checking both the package's
+// plain name *and* its own `provides` list (populated from the source
+// repo's real "p:" metadata — see `apk::find_record` for the same
+// two-step match used at resolve time; this is the local-registry
+// equivalent, since that function is private to a different module and
+// operates on repo-index records, not installed receipts).
 
-/// Collect auto-installed deps that are now unreferenced after removing `name`.
-/// Only returns packages that have NO other dependents in the installed set.
-fn collect_safe_orphans(name: &str) -> Vec<String> {
-    let Ok(dir) = fs::read_dir(INSTALLED_DIR) else { return vec![] };
+#[derive(Deserialize, Default, Clone)]
+struct MinReceipt {
+    #[serde(default)]
+    dependencies: Vec<String>,
+    #[serde(default)]
+    provides: Vec<String>,
+}
 
-    // Load all receipts to find reverse deps
-    #[derive(Deserialize, Default)]
-    struct MinReceipt { #[serde(default)] dependencies: Vec<String> }
-
-    let mut orphan_candidates: Vec<String> = Vec::new();
-    let mut all_receipts: std::collections::HashMap<String, Vec<String>> =
-        std::collections::HashMap::new();
-
-    for entry in dir.flatten() {
-        let fname = entry.file_name().to_string_lossy().to_string();
-        if !fname.ends_with(".toml") { continue; }
-        let pkg = fname.trim_end_matches(".toml").to_string();
-        if let Ok(text) = fs::read_to_string(entry.path()) {
-            if let Ok(r) = toml::from_str::<MinReceipt>(&text) {
-                if r.dependencies.contains(&name.to_string()) {
-                    orphan_candidates.push(pkg.clone());
-                }
-                all_receipts.insert(pkg, r.dependencies);
-            }
-        }
+fn strip_constraint(tok: &str) -> &str {
+    match tok.find(['=', '<', '>', '~']) {
+        Some(i) => &tok[..i],
+        None => tok,
     }
+}
 
-    // Only keep candidates that no OTHER installed package depends on
-    orphan_candidates.into_iter()
+/// Does the installed package named `provider_name` (with its own
+/// `provides` list) satisfy dependency token `dep_token`?
+fn satisfies(provider_name: &str, provider_provides: &[String], dep_token: &str) -> bool {
+    let base = strip_constraint(dep_token);
+    provider_name.eq_ignore_ascii_case(base)
+        || provider_provides.iter().any(|p| p.eq_ignore_ascii_case(base))
+}
+
+fn load_all_receipts_except(excluding: &[String]) -> std::collections::HashMap<String, MinReceipt> {
+    let Ok(dir) = fs::read_dir(INSTALLED_DIR) else { return Default::default() };
+    dir.flatten()
+        .filter_map(|entry| {
+            let fname = entry.file_name().to_string_lossy().to_string();
+            let pkg = fname.strip_suffix(".toml")?.to_string();
+            if excluding.iter().any(|e| e.eq_ignore_ascii_case(&pkg)) {
+                return None;
+            }
+            let text = fs::read_to_string(entry.path()).ok()?;
+            let r: MinReceipt = toml::from_str(&text).ok()?;
+            Some((pkg, r))
+        })
+        .collect()
+}
+
+/// Find installed packages that satisfy one of `target_deps` (the
+/// package(s) being removed own forward-dependency tokens) and that
+/// nothing else still installed depends on — true orphans, safe to also
+/// remove. `excluding` is every package already being removed in this
+/// operation (so a batch remove doesn't count members of its own batch as
+/// "still depending on" each other).
+fn collect_safe_orphans(target_deps: &[String], excluding: &[String]) -> Vec<String> {
+    let remaining = load_all_receipts_except(excluding);
+
+    let candidates: Vec<String> = remaining
+        .iter()
+        .filter(|(name, r)| target_deps.iter().any(|dep| satisfies(name, &r.provides, dep)))
+        .map(|(name, _)| name.clone())
+        .collect();
+
+    candidates
+        .into_iter()
         .filter(|candidate| {
-            !all_receipts.iter().any(|(installed_name, deps)| {
-                installed_name != name && deps.contains(candidate)
+            let cand_provides = remaining.get(candidate).map(|r| r.provides.as_slice()).unwrap_or(&[]);
+            !remaining.iter().any(|(other_name, other_r)| {
+                other_name != candidate
+                    && other_r.dependencies.iter().any(|d| satisfies(candidate, cand_provides, d))
             })
         })
         .collect()

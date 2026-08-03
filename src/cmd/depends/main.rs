@@ -206,7 +206,13 @@ pub fn run(raw_args: Vec<String>) -> Result<()> {
     if syshub_count > 0 {
         println!("  Syshub (protected)  : {Y}{syshub_count}{RST}");
     }
-    let missing = total_unique.saturating_sub(installed_count);
+    // `installed_count` and `syshub_count` can overlap in principle (a
+    // syshub-provided package the user also separately zex-installed), so
+    // don't just subtract both — subtract the union's size.
+    let accounted = visited.iter()
+        .filter(|n| syshub_set.contains(*n) || Path::new(INSTALLED_DIR).join(format!("{n}.toml")).exists())
+        .count();
+    let missing = total_unique.saturating_sub(accounted);
     if missing > 0 {
         println!("  To be installed     : {P}{missing}{RST}");
     }

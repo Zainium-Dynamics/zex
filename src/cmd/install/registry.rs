@@ -216,7 +216,7 @@ struct MasterPkgEntry {
     #[serde(default)]
     receipt: String,
     /// The *exact* mirror this package was resolved from (e.g.
-    /// "alpine-community", not just "tier2-alpine"). Upgrade checking must
+    /// "alpine-community", not just "tier3-alpine"). Upgrade checking must
     /// use this, not a generic per-tier default — a tier can have several
     /// mirrors (alpine-main vs alpine-community, chimera-main vs
     /// chimera-user), and checking the wrong one either misses the
@@ -228,13 +228,20 @@ struct MasterPkgEntry {
 
 /// Maps (format, source_mirror) to the "tierN-vendor" label the master
 /// index (and `uland --u`) expect in the `origin` field.
+///
+/// Tier numbers match `zex_services.toml`'s real mirror priorities: Void
+/// is tier2 (power-user tier, tried first), Alpine is tier3 (embedded/
+/// minimal tier), Chimera stays tier4 — updated when the priorities were
+/// reordered. `upgrade/userland.rs::match_mirror` matches on the distro
+/// name substring too (`contains("alpine")`, not just `contains("tier2")`),
+/// so this rename doesn't change upgrade-routing behavior, only the label.
 pub fn derive_origin(format: &str, source_mirror: &str) -> String {
     if format == "zex" {
         return "tier1-zainium".to_string();
     }
     let m = source_mirror.to_ascii_lowercase();
-    if m.starts_with("alpine") { "tier2-alpine".to_string() }
-    else if m.starts_with("void") { "tier3-void".to_string() }
+    if m.starts_with("void") { "tier2-void".to_string() }
+    else if m.starts_with("alpine") { "tier3-alpine".to_string() }
     else if m.starts_with("chimera") { "tier4-chimera".to_string() }
     else { format!("tier?-{format}") }
 }

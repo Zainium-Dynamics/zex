@@ -4,8 +4,8 @@
 //!
 //! Each installed package has an `origin` field in packages.toml:
 //!   "tier1-zainium"  → zainium-userland-zexlib  (format: zex)
-//!   "tier2-alpine"   → alpine-main / alpine-community (format: apk)
-//!   "tier3-void"     → void-musl-current / void-musl-nonfree (format: xbps)
+//!   "tier2-void"     → void-musl-current / void-musl-nonfree (format: xbps)
+//!   "tier3-alpine"   → alpine-main / alpine-community (format: apk)
 //!   "tier4-chimera"  → chimera-main / chimera-user (format: apk)
 //!
 //! The upgrade driver reads zex_services.toml to find the mirror per tier,
@@ -87,7 +87,7 @@ struct SystemMeta {
 #[derive(Debug, Deserialize, Clone)]
 struct PackageEntry {
     version:      String,
-    origin:       String,   // "tier1-zainium" | "tier2-alpine" | "tier3-void" | "tier4-chimera"
+    origin:       String,   // "tier1-zainium" | "tier2-void" | "tier3-alpine" | "tier4-chimera"
     #[serde(default)]
     description:  String,
     #[serde(default)]
@@ -95,7 +95,7 @@ struct PackageEntry {
     #[serde(default)]
     receipt:      String,
     /// The *exact* mirror this package was resolved from (e.g.
-    /// "alpine-community", not just "tier2-alpine"). A tier can have
+    /// "alpine-community", not just "tier3-alpine"). A tier can have
     /// several mirrors — upgrade checking must use the one the package
     /// actually came from, or it either misses it entirely or silently
     /// "upgrades" it from a different mirror/tier than it was installed
@@ -407,8 +407,8 @@ fn mirror_by_exact_id<'a>(mirrors: &'a [Mirror], id: &str, arch: &str) -> Option
 /// correctness guarantee, which is exactly why `mirror_by_exact_id` is
 /// tried first everywhere this is called.
 /// "tier1-zainium" → zainium-userland-zexlib (zex)
-/// "tier2-alpine"  → alpine-main (apk)
-/// "tier3-void"    → void-musl-current (xbps)
+/// "tier2-void"    → void-musl-current (xbps)
+/// "tier3-alpine"  → alpine-main (apk)
 /// "tier4-chimera" → chimera-main (adb)
 fn match_mirror<'a>(
     mirrors: &'a [Mirror],

@@ -1,0 +1,129 @@
+//! elfpatch.rs — Rewrites ELF `PT_INTERP`/`RPATH` for T2/T3/T4 packages.
+//!
+//! Alpine (`.apk`), Void (`.xbps`), and Chimera (`.adb`) packages are built
+//! against their own distro's FHS layout: their binaries carry
+//! `PT_INTERP` pointing at `/lib/ld-musl-x86_64.so.1` and `RPATH`/`RUNPATH`
+//! entries under `/usr/lib`. Neither resolves under Zainium's
+//! `/overlayer/` tree, so without rewriting, these packages install but
+//! their binaries can't actually run. `T1` (`.zex`) packages are excluded
+//! — they're already built against `/overlayer/` at packaging time.
+//!
+//! Built on [`oxipatch`], a from-scratch, tested patchelf-equivalent
+//! library (not reimplemented here — see `next.md`/`plan.md` for why).
+//!
+//! Must run while `staged_files` are still under the temp stage directory
+//! (before `ActivationPlan::commit()` and before
+//! `crate::immutable::try_set_immutable` runs on the committed files) —
+//! patching after commit would mean mutating already-immutable, live
+//! union files.
+
+use std::io::Read;
+use std::path::{Path, PathBuf};
+
+use oxipatch::elf::ElfFile;
+
+/// Canonical musl dynamic linker for this OS — confirmed against a real
+/// syshub-toolchain-built binary (`readelf -l .../syshub/bin/curl`).
+const ZEX_INTERP: &str = "/overlayer/syshub/x86_64-zainium-linux-musl/lib/ld-musl-x86_64.so.1";
+
+/// Where zex-installed userland packages' shared libraries live.
+const ZEX_LIB_RPATH: &str = "/overlayer/zexlib/union/lib";
+
+fn is_elf(path: &Path) -> bool {
+    let Ok(mut f) = std::fs::File::open(path) else {
+        return false;
+    };
+    let mut magic = [0u8; 4];
+    f.read_exact(&mut magic).is_ok() && magic == [0x7f, b'E', b'L', b'F']
+}
+
+fn is_fhs_lib_entry(entry: &str) -> bool {
+    entry == "/usr/lib" || entry == "/lib" || entry == "/usr/lib64" || entry == "/lib64"
+        || entry.starts_with("/usr/lib/") || entry.starts_with("/lib/")
+        || entry.starts_with("/usr/lib64/") || entry.starts_with("/lib64/")
+}
+
+/// Rewrite RPATH/RUNPATH entries that point at FHS lib dirs to
+/// [`ZEX_LIB_RPATH`], keep everything else (e.g. `$ORIGIN`-relative
+/// entries, or an already-correct entry on a re-patch), dedup preserving
+/// order, and guarantee [`ZEX_LIB_RPATH`] is present even if the binary
+/// shipped no RPATH at all (it still needs to find co-installed libs in
+/// the union tree).
+fn rebuild_rpath(existing: &str) -> String {
+    let mut out: Vec<String> = Vec::new();
+    for entry in existing.split(':').filter(|e| !e.is_empty()) {
+        let mapped = if is_fhs_lib_entry(entry) { ZEX_LIB_RPATH } else { entry };
+        if !out.iter().any(|e| e == mapped) {
+            out.push(mapped.to_string());
+        }
+    }
+    if !out.iter().any(|e| e == ZEX_LIB_RPATH) {
+        out.push(ZEX_LIB_RPATH.to_string());
+    }
+    out.join(":")
+}
+
+fn patch_one(path: &Path) -> anyhow::Result<()> {
+    let mut f = ElfFile::open(path)?;
+
+    let has_interp = f.interpreter()?.is_some();
+    let has_needed = !f.needed_libs()?.is_empty();
+
+    // A file with neither an interpreter nor any DT_NEEDED entries is
+    // fully self-contained (a static-PIE executable, e.g. built by
+    // musl-gcc -static-pie) — no dynamic linker ever runs for it, so
+    // RPATH is genuinely unused regardless of what it's set to. Skip
+    // patching entirely rather than just skipping set_interpreter:
+    // confirmed live against a real Chimera package
+    // (apk-tools-static-bin's apk.static) that growing the .dynamic
+    // section to add an RPATH entry corrupted its self-relocation table
+    // (DT_RELACOUNT) — the binary went from running fine unpatched to
+    // segfaulting on every invocation, args or not, after only the RPATH
+    // add. Ordinary shared objects (.so) also have no interpreter but do
+    // have DT_NEEDED (their own transitive deps), so they still reach the
+    // RPATH-rewrite step below unaffected — confirmed separately against
+    // real Alpine .so deps (libcurl.so, libbrotlicommon.so).
+    if !has_interp && !has_needed {
+        return Ok(());
+    }
+
+    // Only executables carry a PT_INTERP segment — plain shared objects
+    // (.so, loaded by an already-running dynamic linker, not exec'd
+    // directly) have none, and oxipatch errors if asked to set one where
+    // none exists. Confirmed against real Alpine deps (e.g.
+    // libbrotlicommon.so.1.2.0), not assumed.
+    if has_interp {
+        f.set_interpreter(ZEX_INTERP)?;
+    }
+
+    let existing = f.rpath()?.unwrap_or_default();
+    let new_rpath = rebuild_rpath(&existing);
+    // force_rpath = true → legacy DT_RPATH, matching this OS's own
+    // toolchain-built binaries (confirmed via readelf, not RUNPATH).
+    f.set_rpath(&new_rpath, true)?;
+
+    f.commit()?;
+    f.write_in_place()?;
+    Ok(())
+}
+
+/// Patch every staged ELF file's interpreter and RPATH in place.
+///
+/// `staged_files` must still be under the temp stage directory (mutable,
+/// pre-commit). Any failure is a hard error — an unpatched interpreter
+/// means a broken package, not a best-effort concern.
+pub fn patch_staged_elfs(staged_files: &[PathBuf]) -> anyhow::Result<()> {
+    for path in staged_files {
+        let is_regular = path
+            .symlink_metadata()
+            .map(|m| m.is_file())
+            .unwrap_or(false);
+        if !is_regular || !is_elf(path) {
+            continue;
+        }
+        patch_one(path).map_err(|e| {
+            anyhow::anyhow!("failed to patch ELF interpreter/RPATH for '{}': {e}", path.display())
+        })?;
+    }
+    Ok(())
+}

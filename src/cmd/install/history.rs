@@ -1,7 +1,12 @@
 //! history.rs — Transaction History Engine for Zex.
 //!
 //! Logs every install/remove/upgrade/pin operation with full metadata.
-//! Stored at /var/lib/zex/history.json as a JSON array of entries.
+//! Stored at /overlayer/zexlib/history.toml (TOML, not JSON — kept
+//! consistent with every other piece of zex-managed state: receipts,
+//! packages.toml master index, transaction snapshots — all TOML, no
+//! JSON, no SQL). Moved here from /var/lib/zex/history.json — that path
+//! sat outside /overlayer entirely, which is inconsistent with every
+//! other piece of zex state living under zexlib.
 //!
 //! Features:
 //!   • Full audit trail of every package operation
@@ -14,7 +19,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-const HISTORY_PATH: &str = "/var/lib/zex/history.json";
+const HISTORY_PATH: &str = "/overlayer/zexlib/history.toml";
 const MAX_HISTORY_ENTRIES: usize = 1000;
 
 // ─── Data Types ──────────────────────────────────────────────────────────────
@@ -69,6 +74,14 @@ pub struct PackageRecord {
     pub format: String,
 }
 
+/// TOML requires a top-level table, not a bare array — this wraps the
+/// entry list as `[[entry]]` array-of-tables.
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct HistoryFile {
+    #[serde(default, rename = "entry")]
+    entries: Vec<HistoryEntry>,
+}
+
 // ─── Core API ────────────────────────────────────────────────────────────────
 
 /// Load the history log from disk. Returns empty vec if file doesn't exist.
@@ -78,7 +91,7 @@ pub fn load_history() -> Vec<HistoryEntry> {
         return Vec::new();
     }
     match std::fs::read_to_string(path) {
-        Ok(data) => serde_json::from_str(&data).unwrap_or_default(),
+        Ok(data) => toml::from_str::<HistoryFile>(&data).map(|f| f.entries).unwrap_or_default(),
         Err(_) => Vec::new(),
     }
 }
@@ -87,14 +100,15 @@ pub fn load_history() -> Vec<HistoryEntry> {
 fn save_history(entries: &[HistoryEntry]) -> Result<()> {
     let dir = Path::new(HISTORY_PATH)
         .parent()
-        .unwrap_or(Path::new("/var/lib/zex"));
+        .unwrap_or(Path::new("/overlayer/zexlib"));
     std::fs::create_dir_all(dir)?;
 
-    let json = serde_json::to_string_pretty(entries).context("Failed to serialize history")?;
+    let file = HistoryFile { entries: entries.to_vec() };
+    let toml_str = toml::to_string_pretty(&file).context("Failed to serialize history")?;
 
     // Atomic write: write to temp, then rename
     let tmp_path = format!("{}.tmp", HISTORY_PATH);
-    std::fs::write(&tmp_path, &json).context("Failed to write history temp file")?;
+    std::fs::write(&tmp_path, &toml_str).context("Failed to write history temp file")?;
     std::fs::rename(&tmp_path, HISTORY_PATH).context("Failed to commit history file")?;
 
     Ok(())
@@ -187,10 +201,12 @@ mod tests {
             user: "ali-zain".to_string(),
         };
 
-        let json = serde_json::to_string(&entry).unwrap();
-        let restored: HistoryEntry = serde_json::from_str(&json).unwrap();
-        assert_eq!(restored.id, 1);
-        assert_eq!(restored.packages.len(), 1);
-        assert!(restored.success);
+        let file = HistoryFile { entries: vec![entry] };
+        let toml_str = toml::to_string(&file).unwrap();
+        let restored: HistoryFile = toml::from_str(&toml_str).unwrap();
+        assert_eq!(restored.entries.len(), 1);
+        assert_eq!(restored.entries[0].id, 1);
+        assert_eq!(restored.entries[0].packages.len(), 1);
+        assert!(restored.entries[0].success);
     }
 }

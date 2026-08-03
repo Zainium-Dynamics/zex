@@ -7,6 +7,7 @@ pub mod delta;
 pub mod depends;
 pub mod downloader;
 pub mod edition;
+pub mod elfpatch;
 pub mod history;
 pub mod hooks;
 pub mod immutable;

@@ -739,48 +739,78 @@ fn update_rtt_score(scores: &mut MirrorScoreStore, mirror_key: &str, sample_ms: 
 
 // ─── Syshub Core Manifest ───────────────────────────────────────────────────────
 
+/// The real on-disk shape: `[packages]` holds plain `name = "version"`
+/// entries *and* a nested `[packages.provides]` sub-table of virtual-name
+/// aliases (`libc = "musl"`, `openssl = "libressl"`, ...) — confirmed
+/// against the actual `syshub.toml` on this OS. The old struct declared
+/// `provides` as a *top-level* field (expecting `[provides]`), which never
+/// matches this file's real `[packages.provides]` nesting — `provides` was
+/// silently always empty. `#[serde(flatten)]` correctly splits the two:
+/// serde extracts the named `provides` field first, and flatten captures
+/// every remaining `[packages]` key into `versions`.
+#[derive(Debug, Deserialize)]
+struct PackagesSection {
+    #[serde(default)]
+    provides: HashMap<String, String>,
+    #[serde(flatten)]
+    versions: HashMap<String, String>,
+}
+
 #[derive(Debug, Deserialize)]
 #[non_exhaustive]
 struct SyshubManifest {
-    packages: Option<HashMap<String, String>>,
-    #[serde(default)]
-    provides: Option<HashMap<String, String>>,
+    packages: Option<PackagesSection>,
+}
+
+/// Normalize a dependency token down to a bare library/package name for
+/// matching against the syshub manifest. Handles the two real shapes seen
+/// in the wild: Alpine/Void/Chimera's `so:`-prefixed soname tokens
+/// (`so:libz.so.1`, `so:libc.musl-x86_64.so.1`), and plain package names.
+fn normalize_dep_token(name: &str) -> String {
+    let lower = name.to_ascii_lowercase();
+    let stripped = lower.strip_prefix("so:").unwrap_or(&lower);
+    // musl's soname always embeds the architecture triple
+    // (libc.musl-x86_64.so.1, libc.musl-aarch64.so.1, ...) — nobody would
+    // author that exact versioned string as a manifest alias key, so
+    // recognize the family directly rather than requiring an exact match.
+    if stripped.starts_with("libc.musl") {
+        return "libc".to_string();
+    }
+    stripped.to_string()
 }
 
 /// Checks if a package or virtual dependency is provided natively by Zainium OS's Syshub.
 pub fn is_in_syshub(name: &str) -> bool {
     let path = "/overlayer/syshub/engine/services/syshub.toml";
-    if let Ok(content) = std::fs::read_to_string(path) {
-        if let Ok(manifest) = toml::from_str::<SyshubManifest>(&content) {
-            let lower_name = name.to_ascii_lowercase();
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    let Ok(manifest) = toml::from_str::<SyshubManifest>(&content) else {
+        return false;
+    };
+    let Some(pkgs) = &manifest.packages else {
+        return false;
+    };
 
-            // First check actual packages
-            if let Some(pkgs) = &manifest.packages {
-                if pkgs.keys().any(|k| k.to_ascii_lowercase() == lower_name) {
-                    return true;
-                }
-            }
-            
-            // Note: The [packages.provides] in TOML might be nested inside the `packages` table,
-            // or parsed as a flat map if defined differently. Let's do a robust search.
-            // If the user's TOML format has `[packages.provides]`, `toml` crate will parse it as a nested table 
-            // under `packages` with key `"provides"` which might be a table itself. 
-            // So let's fall back to a manual string search if the exact TOML parse is tricky to guarantee here.
-            
-            // Fallback robust string search on the TOML content directly to be safe and blazing fast
-            let search_pkg = format!("{} ", lower_name);
-            let search_pkg_eq = format!("{}=", lower_name);
-            for line in content.lines() {
-                let trimmed = line.trim();
-                if trimmed.starts_with('#') || trimmed.starts_with('[') {
-                    continue;
-                }
-                if trimmed.to_ascii_lowercase().starts_with(&search_pkg) || trimmed.to_ascii_lowercase().starts_with(&search_pkg_eq) {
-                    return true;
-                }
-            }
+    let lower_name = name.to_ascii_lowercase();
+    let normalized = normalize_dep_token(name);
+
+    // Direct package-name match (e.g. a plain "curl" or "musl" token).
+    if pkgs.versions.keys().any(|k| k.eq_ignore_ascii_case(&lower_name)) {
+        return true;
+    }
+
+    // Virtual-name alias match (e.g. "so:libz.so.1" -> normalized
+    // "libz.so.1" -> provides["libz.so.1"] = "zlib-ng"), then confirm the
+    // real target package is actually listed under `packages`.
+    if let Some(target) = pkgs.provides.iter().find_map(|(k, v)| {
+        (k.eq_ignore_ascii_case(&normalized) || k.eq_ignore_ascii_case(&lower_name)).then_some(v)
+    }) {
+        if pkgs.versions.keys().any(|k| k.eq_ignore_ascii_case(target)) {
+            return true;
         }
     }
+
     false
 }
 

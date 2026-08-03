@@ -20,7 +20,7 @@
 //!   • Supported formats only: `.zex` (zexc), `.apk` (gzip), `.xbps` (zstd).
 
 use std::collections::HashSet;
-use std::io::{Read, Write};
+use std::io::{Read, Seek, Write};
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -220,6 +220,19 @@ pub fn install(
     // Detect the actual binary name from extracted files (Phase 4 — launch_cmd fix)
     let detected_launch = detect_launch_cmd(&staged_files, &store_path);
 
+    // ── Step 3b: ELF-patch T2/T3/T4 binaries ──────────────────────────────
+    //
+    // Alpine/Void/Chimera binaries carry a host-FHS PT_INTERP/RPATH that
+    // doesn't resolve under /overlayer/. Must happen here, while
+    // staged_files are still mutable under store_path — files become
+    // immutable right after commit() at Step 7 below.
+    if info.format != PackageFormat::Zex {
+        if let Err(e) = super::elfpatch::patch_staged_elfs(&staged_files) {
+            cleanup_snapshot(&snapshot_dir);
+            return Err(e);
+        }
+    }
+
     // ── Step 4: Compute final system paths ───────────────────────────────
     //
     // Build the list of system paths inside /overlayer/zexlib/union/ from staged files.
@@ -263,13 +276,20 @@ pub fn install(
         committed_files = new_committed;
     }
 
-    // ── Step 5: Register in DB + TOML registry ───────────────────────────
+    // ── Step 4b: Pre-flight conflict check ────────────────────────────────
     //
-    // CRITICAL: This MUST happen BEFORE remount().
-    // The OverlayFS union layer reads /overlayer/zexlib/registry/*.toml
-    // to discover which store hash dirs to mount as lower layers.
-    // If the TOML doesn't exist yet, remount() will NOT include this
-    // package in the overlay — breaking all symlinks.
+    // Must run against committed_files (final union destinations), not
+    // staged_files (temp dir) — and must run before anything is registered
+    // or committed, so an abort here has touched nothing on the live
+    // system. Also catches a package silently shadowing a file that
+    // already exists in immutable syshub (OverlayFS always serves the
+    // union/upperdir copy over syshub/lowerdir on a path collision).
+    if let Err(e) = preflight_conflict_check(&info.name, &committed_files) {
+        cleanup_snapshot(&snapshot_dir);
+        return Err(e);
+    }
+
+    // ── Step 5: Register in DB ────────────────────────────────────────────
     if !parallel {
         ui::print_install_step("Setting up desktop entry");
     }
@@ -288,54 +308,6 @@ pub fn install(
         cleanup_snapshot(&snapshot_dir);
         return Err(e);
     }
-
-    // Write TOML registry file so the remove driver can find this package
-    // AND so remount() includes this package's store hash in the overlay.
-    // Path: /overlayer/zexlib/registry/<package-name>.toml
-    // This is the single source of truth for package removal — no SQL, no JSON.
-    let reg_path = {
-        let registry_dir = std::path::Path::new("/overlayer/zexlib/registry");
-        let _ = std::fs::create_dir_all(registry_dir);
-
-        let format_label = match info.format {
-            PackageFormat::Zex => "zex",
-
-            PackageFormat::Apk => "apk",
-            PackageFormat::Xbps => "xbps",
-            PackageFormat::Adb => "adb",
-        };
-
-        let files_toml: Vec<String> = committed_files
-            .iter()
-            .map(|p| format!("\"{}\"", p.to_string_lossy()))
-            .collect();
-
-        let toml_content = format!(
-            "[package]\n\
-             name = \"{}\"\n\
-             display_name = \"{}\"\n\
-             version = \"{}\"\n\
-             format = \"{}\"\n\
-             content_hash = \"{}\"\n\
-             installed_at = \"{}\"\n\
-             \n\
-             [files]\n\
-             paths = [{}]\n",
-            info.name,
-            info.display_name,
-            info.version,
-            format_label,
-            _content_hash,
-            chrono::Utc::now().to_rfc3339(),
-            files_toml.join(", "),
-        );
-
-        let rp = registry_dir.join(format!("{}.toml", info.name));
-        if let Err(e) = std::fs::write(&rp, &toml_content) {
-            log::warn!("Failed to write registry for {}: {}", info.name, e);
-        }
-        rp
-    };
     let db_ms = db_start.elapsed().as_millis();
 
     if !parallel {
@@ -373,8 +345,23 @@ pub fn install(
     if let Err(e) = commit_result {
         // Commit failed midway — restore from snapshot if upgrading,
         // or rollback new files if fresh install.
-        // Also clean up the TOML registry we just wrote.
-        let _ = std::fs::remove_file(&reg_path);
+        if existing.is_some() {
+            // Upgrade: files are restored to the old version below via
+            // restore_snapshot, but register_package() already overwrote
+            // the registry with the new version's record before commit.
+            // Reconstructing the old PkgRecord here is a separate gap —
+            // flagged rather than silently left inconsistent.
+            log::warn!(
+                "'{}' upgrade failed after the registry was already updated — it may still describe the new version even though files were rolled back to the old one",
+                info.name
+            );
+        } else {
+            // Fresh install: nothing was live before this operation, so
+            // it's safe to fully undo the registration written above —
+            // otherwise the registry would claim a package is installed
+            // whose files were never actually committed.
+            let _ = super::registry::unregister(&info.name);
+        }
         if let Some(ref snap) = snapshot_dir {
             if let Some(old) = existing {
                 restore_snapshot(snap, union_root, old);
@@ -1018,10 +1005,35 @@ fn extract_apk(pkg_path: &Path, dest: &Path, installed: &mut Vec<PathBuf>) -> Re
     extract_tar(dec, dest, installed, true)
 }
 
+/// Void `.xbps` packages are tar archives compressed with **either** zstd
+/// or xz — confirmed live: `figlet-2.2.5_6.x86_64-musl.xbps` from the real
+/// Void mirror is XZ (`file` reports "XZ compressed data"), while other
+/// packages (e.g. `kurly`) are zstd. The old code assumed zstd
+/// unconditionally and failed on any xz-compressed package with zstd's own
+/// "Unknown frame descriptor" error (a malformed-zstd-header message,
+/// misleading here since the file was never zstd to begin with). Sniff
+/// the real magic bytes instead of assuming.
 fn extract_xbps(pkg_path: &Path, dest: &Path, installed: &mut Vec<PathBuf>) -> Result<Option<PostInstallScript>> {
-    let file = std::fs::File::open(pkg_path)?;
-    let dec = zstd::stream::read::Decoder::new(file)?;
-    extract_tar(dec, dest, installed, true)
+    const ZSTD_MAGIC: [u8; 4] = [0x28, 0xB5, 0x2F, 0xFD];
+    const XZ_MAGIC: [u8; 6] = [0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00];
+
+    let mut file = std::fs::File::open(pkg_path)?;
+    let mut magic = [0u8; 6];
+    let n = file.read(&mut magic)?;
+    file.rewind()?;
+
+    if n >= 6 && magic == XZ_MAGIC {
+        let dec = xz2::read::XzDecoder::new(file);
+        extract_tar(dec, dest, installed, true)
+    } else if n >= 4 && magic[..4] == ZSTD_MAGIC {
+        let dec = zstd::stream::read::Decoder::new(file)?;
+        extract_tar(dec, dest, installed, true)
+    } else {
+        bail!(
+            "unrecognized .xbps compression for '{}' (neither zstd nor xz magic bytes)",
+            pkg_path.display()
+        );
+    }
 }
 
 /// Extracts a Chimera Linux `.apk` package — apk-tools v3's binary "ADB"
@@ -1103,6 +1115,20 @@ fn extract_adb(pkg_path: &Path, dest: &Path, installed: &mut Vec<PathBuf>) -> Re
             _ => {
                 std::fs::write(&dest_path, entry.content.unwrap_or_default())
                     .map_err(|e| anyhow::anyhow!("failed to write '{}': {}", dest_path.display(), e))?;
+                // ADB stores the real POSIX mode per-entry (already used
+                // above for S_IFDIR/S_IFLNK type bits) but this regular-file
+                // branch never applied the permission bits — every T4
+                // binary landed non-executable. Confirmed live: a real
+                // Chimera package (`apk-tools-static-bin`) installed with
+                // `-rw-r--r--`, `bwrap ... apk.static` then failed with
+                // "Permission denied". extract_tar (apk/xbps) already does
+                // this correctly via `entry.header().mode()`; this brings
+                // extract_adb in line with it.
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let _ = std::fs::set_permissions(&dest_path, std::fs::Permissions::from_mode(entry.mode & 0o7777));
+                }
                 installed.push(dest_path);
             }
         }
@@ -1262,20 +1288,27 @@ fn extract_tar<R: Read>(
 
 // ─── Pre-flight Conflict Detection ───────────────────────────────────────────
 
-/// Check if any file in `file_list` is already owned by another installed package.
+/// Base OS immutable layer. A zex package landing on a path that already
+/// exists here would silently shadow it at read time (OverlayFS always
+/// serves the upperdir/`zexlib/union` copy over the syshub lowerdir) —
+/// that's a real, surprising behavior change and must not pass silently.
+const SYSHUB_ROOT: &str = "/overlayer/syshub";
+
+/// Check whether any of `committed_files` (final `/overlayer/zexlib/union/...`
+/// destinations, *not* staging-dir paths — those never match anything, which
+/// is why this previously went unused) is already owned by another
+/// installed package, or already exists under [`SYSHUB_ROOT`] (the
+/// immutable base OS image, which zex never tracks in its own registry so
+/// an ordinary DB-only check can't see it).
 ///
-/// Returns a list of `(owning_package_name, conflicting_file_path)` tuples.
-/// Same-package entries (reinstall/upgrade) are excluded from the check.
-///
-/// This is called BEFORE any extraction or file mutation, making it a true
-/// pre-flight guard.  If conflicts are found, the caller can abort cleanly
-/// without having touched anything on the live system.
-pub fn check_file_conflicts(pkg_name: &str, file_list: &[String]) -> Vec<(String, String)> {
+/// Returns `(owning_package_or_"syshub", conflicting_path)` tuples.
+/// Same-package entries (reinstall/upgrade) are excluded.
+pub fn check_file_conflicts(pkg_name: &str, committed_files: &[PathBuf]) -> Vec<(String, String)> {
     let db = super::backend::load_db();
+    let union_root = Path::new(crate::archive_safety::UNION_ROOT);
     let mut conflicts = Vec::new();
 
-    // Build a quick lookup set for the incoming file list
-    let incoming: HashSet<&str> = file_list.iter().map(|s| s.as_str()).collect();
+    let incoming: HashSet<&Path> = committed_files.iter().map(|p| p.as_path()).collect();
 
     for entry in &db {
         // Skip the package itself — this is a reinstall/upgrade, not a conflict.
@@ -1283,44 +1316,52 @@ pub fn check_file_conflicts(pkg_name: &str, file_list: &[String]) -> Vec<(String
             continue;
         }
         for existing_file in &entry.installed_files {
-            if incoming.contains(existing_file.as_str()) {
+            if incoming.contains(Path::new(existing_file.as_str())) {
                 conflicts.push((entry.name.clone(), existing_file.clone()));
             }
         }
     }
+
+    // No exceptions here — this check is deliberately uniform. `musl` (and
+    // anything else syshub's manifest declares via `[packages.provides]`
+    // aliases, e.g. `libc = "musl"`, `openssl = "libressl"`) is instead
+    // excluded far earlier, at dependency-resolution time
+    // (`depends.rs::dep_already_present` -> `backend::is_in_syshub`), so
+    // it's never queued/staged/committed as a zexlib package at all — see
+    // the fix to `is_in_syshub` (was silently broken for `so:`-prefixed
+    // soname tokens like Alpine's `so:libc.musl-x86_64.so.1`, which is
+    // exactly why `musl` was reaching this far in the first place and
+    // needing a carve-out here). If a *different* package still lands on
+    // a syshub path (e.g. Alpine's own libcurl/curl shadowing syshub's),
+    // that's a real, surprising conflict and stays blocked.
+    for file in committed_files {
+        if let Ok(rel) = file.strip_prefix(union_root) {
+            if Path::new(SYSHUB_ROOT).join(rel).exists() {
+                conflicts.push(("syshub (immutable base OS)".to_string(), file.to_string_lossy().into_owned()));
+            }
+        }
+    }
+
     conflicts
 }
 
-/// Run conflict detection on the file list extracted from a staged package.
-/// Called from `infuse.rs` before the commit phase.
-pub fn preflight_conflict_check(
-    pkg_name: &str,
-    staged_files: &[PathBuf],
-    force: bool,
-) -> Result<()> {
-    let paths: Vec<String> = staged_files
-        .iter()
-        .map(|p| p.to_string_lossy().into_owned())
-        .collect();
-
-    let conflicts = check_file_conflicts(pkg_name, &paths);
+/// Run conflict detection on a package's final union destinations. Must run
+/// after `committed_files` is computed (Step 4) and before registration
+/// (Step 5) — true pre-flight, nothing registered or committed yet if this
+/// aborts.
+///
+/// No `--force` bypass yet (no such flag exists anywhere in the `install`
+/// CLI today) — a real conflict is a hard error until one is added.
+pub fn preflight_conflict_check(pkg_name: &str, committed_files: &[PathBuf]) -> Result<()> {
+    let conflicts = check_file_conflicts(pkg_name, committed_files);
 
     if conflicts.is_empty() {
         return Ok(());
     }
 
-    if force {
-        log::warn!(
-            "File conflicts detected for '{}' but --force is set, proceeding: {:?}",
-            pkg_name,
-            conflicts
-        );
-        return Ok(());
-    }
-
     ui::print_file_conflicts(pkg_name, &conflicts);
     bail!(
-        "File conflict: {} file(s) already owned by other packages. Use --force to override.",
+        "File conflict: {} file(s) already owned by another package or the base OS image.",
         conflicts.len()
     )
 }

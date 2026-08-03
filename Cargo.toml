@@ -87,6 +87,9 @@ landlock      = "0.4"
 lazy_static   = "1"
 quick-xml     = "0.36"
 
+# ELF patching (T2/T3/T4 packages: rewrite PT_INTERP/RPATH for /overlayer)
+oxipatch      = { git = "https://gitlab.com/alizain.arch/oxipatch.git", rev = "5a7e3ea3f219bf05ccfb126cd67fddcca1527aa0" }
+
 [profile.release]
 opt-level        = 3
 lto              = "thin"

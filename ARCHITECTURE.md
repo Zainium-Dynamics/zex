@@ -110,9 +110,10 @@ subsequent fetch.
     └── kernel/                     ← kernel modules, firmware
 ```
 
-`/var/lib/zex/history.json` — the unified cross-tier operation history (see
-`zex history`), deliberately **outside** `/overlayer` since it's diagnostic,
-not package state.
+`/overlayer/zexlib/history.toml` — the unified cross-tier operation history
+(see `zex history`). Originally kept outside `/overlayer` as
+`/var/lib/zex/history.json`; moved under `zexlib` (and to TOML) for
+consistency with every other piece of zex state.
 
 ## Registry Architecture: Authoritative vs. Derived
 
@@ -201,8 +202,8 @@ Two related but distinct mechanisms:
 ## Unified History
 
 `src/cmd/install/history.rs` records every install/remove/upgrade to
-`/var/lib/zex/history.json` (id, timestamp, operation, packages, success,
-error, duration, user). `zex history [--package NAME] [-n COUNT]`
+`/overlayer/zexlib/history.toml` (id, timestamp, operation, packages,
+success, error, duration, user). `zex history [--package NAME] [-n COUNT]`
 (`src/cmd/history/`) is the single place to see all of it together — it
 complements, not replaces, the tier-specific audit files
 (`upgrade-audit.toml`, `remove-audit.toml`) those subsystems already keep.
