@@ -676,6 +676,7 @@ mod zex_manifest {
                 homepage: None,
                 ed25519_sig: None,
                 blake3: None,
+                ed25519_pubkey: None,
                 build_type: None,
                 libc_target: None,
                 edition: None,

@@ -19,6 +19,7 @@ pub async fn apply_uland(
     dl_tmp:   &Path,
     mp:       &MultiProgress,
     overall:  &indicatif::ProgressBar,
+    sig_mode: crate::trust::SignatureVerificationMode,
 ) -> Result<u64> {
     let mut total_bytes = 0u64;
     let show_count      = upgrades.len().min(2); // show max 2 bars at once, then truncate
@@ -45,6 +46,9 @@ pub async fn apply_uland(
         for (pkg, handle) in chunk.iter().zip(handles) {
             if let Ok(Ok((zex_path, bytes))) = handle.await {
                 total_bytes += bytes;
+                // Ed25519 signature check — against the pubkey embedded in
+                // the package's own manifest.toml.
+                crate::trust::verify_zex_archive(&zex_path, sig_mode)?;
                 extract_into(&zex_path, Path::new(UNION_PATH))?;
                 update_receipt(&pkg.name, &pkg.new_ver)?;
                 overall.inc(1);
@@ -94,6 +98,10 @@ pub async fn apply_syshub(
         for handle in handles {
             if let Ok(Ok((zex_path, bytes))) = handle.await {
                 total_bytes += bytes;
+                // Syshub core is always Strict, regardless of the
+                // userland `require_signatures` config — same invariant
+                // as `cmd::upgrade::syscore`.
+                crate::trust::verify_zex_archive(&zex_path, crate::trust::SignatureVerificationMode::Strict)?;
                 extract_into(&zex_path, &staging)?;
                 overall.inc(1);
             }

@@ -37,7 +37,6 @@ use walkdir::WalkDir;
 
 use super::{
     audit::{self, AuditEntry},
-    signing::verify_zex,
     swap,
     transaction::Transaction,
     ui,
@@ -226,8 +225,9 @@ pub async fn execute() -> Result<()> {
         for (pkg_name, zex_path, bytes) in &chunk_results {
             total_bytes += bytes;
 
-            // Ed25519 signature check
-            verify_zex(zex_path, true)?;
+            // Ed25519 signature check — against the pubkey embedded in the
+            // package's own manifest.toml (syshub core is always Strict).
+            crate::trust::verify_zex_archive(zex_path, crate::trust::SignatureVerificationMode::Strict)?;
 
             // Extract payload/* into /overlayer/syshub.new/  (merged tree)
             extract_zex_into(zex_path, staging)

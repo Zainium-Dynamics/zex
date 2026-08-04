@@ -28,7 +28,6 @@ use walkdir::WalkDir;
 
 use super::{
     audit::{self, AuditEntry},
-    signing::verify_zex,
     ui,
     vercmp::is_upgrade,
 };
@@ -333,9 +332,15 @@ pub async fn execute() -> Result<()> {
         for (pkg_name, zex_path, fmt, bytes) in &chunk_results {
             actual_bytes += bytes;
 
-            // Signature verify only for native .zex packages
+            // Signature verify only for native .zex packages — against the
+            // pubkey embedded in the package's own manifest.toml.
             if *fmt == PkgFmt::Zex {
-                verify_zex(zex_path, services.trust.require_signatures)?;
+                let mode = if services.trust.require_signatures {
+                    crate::trust::SignatureVerificationMode::Strict
+                } else {
+                    crate::trust::SignatureVerificationMode::Audit
+                };
+                crate::trust::verify_zex_archive(zex_path, mode)?;
             }
 
             // Extract into union

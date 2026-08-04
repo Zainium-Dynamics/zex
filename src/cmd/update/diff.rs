@@ -11,6 +11,14 @@ use super::vercmp::is_upgrade;
 pub struct ZexServices {
     #[serde(default)]
     pub mirrors: Vec<Mirror>,
+    #[serde(default)]
+    pub trust: TrustConf,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct TrustConf {
+    #[serde(default)]
+    pub require_signatures: bool,
 }
 
 #[derive(Debug, Deserialize, Clone)]

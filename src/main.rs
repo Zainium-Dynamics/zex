@@ -199,17 +199,6 @@ async fn main() {
         "history"  => cmd::history::run(driver_args),
         "update"   => cmd::update::run(driver_args).await,
 
-        // ── zex fmt — package builder/verifier ───────────────────────────────
-        "fmt" => {
-            // fmt is sync (no async needed for file ops)
-            // Dispatch in blocking context
-            let args = driver_args;
-            match tokio::task::spawn_blocking(move || cmd::fmt::run(args)).await {
-                Ok(()) => Ok(()),
-                Err(e) => Err(anyhow::anyhow!("fmt task failed: {e}")),
-            }
-        }
-
         // ── Upgrade: exactly two commands (syshub | uland) — no bare `upgrade` ─
         "syshub" | "uland" => {
             let mut up_args = vec!["upgrade".to_string()];

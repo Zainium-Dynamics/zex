@@ -14,5 +14,4 @@ pub mod sweep;
 pub mod inspect;
 pub mod depends;
 pub mod why;
-pub mod fmt;
 pub mod history;

@@ -73,6 +73,11 @@ pub struct PackageMeta {
     /// Blake3 of entire payload/ tree
     #[serde(default)]
     pub blake3:          Option<String>,
+    /// Ed25519 verifying key embedded by `substrate pack` (hex, 32 bytes).
+    /// Ephemeral per-build — there is no fixed publisher key any more, so
+    /// this is what `trust.rs` verifies the signature against.
+    #[serde(default)]
+    pub ed25519_pubkey:  Option<String>,
     /// Minimum syshub version required
     #[serde(default)]
     pub requires_syshub: Option<String>,

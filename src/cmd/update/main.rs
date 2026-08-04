@@ -56,6 +56,11 @@ pub async fn run(raw_args: Vec<String>) -> Result<()> {
 
     // Load services config
     let services = diff::load_services(ZEX_SERVICES)?;
+    let sig_mode = if services.trust.require_signatures {
+        crate::trust::SignatureVerificationMode::Strict
+    } else {
+        crate::trust::SignatureVerificationMode::Audit
+    };
     let client   = crate::http_client::build(concat!(
         "update/",
         env!("CARGO_PKG_VERSION"),
@@ -127,7 +132,7 @@ pub async fn run(raw_args: Vec<String>) -> Result<()> {
     if !uland_upgrades.is_empty() {
         ui::print_section_label("Userland");
         let dl_bytes = apply::apply_uland(
-            &uland_upgrades, &client, dl, &mp, &overall
+            &uland_upgrades, &client, dl, &mp, &overall, sig_mode
         ).await?;
         total_dl += dl_bytes;
     }

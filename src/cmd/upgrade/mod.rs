@@ -2,7 +2,6 @@
 pub mod audit;
 pub mod benchmark;
 pub mod checksum;
-pub mod signing;
 pub mod swap;
 pub mod transaction;
 pub mod ui;
