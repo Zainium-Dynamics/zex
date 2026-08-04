@@ -35,12 +35,19 @@ build_type       = "dynamic"
 libc_target      = "musl"
 # No edition field — vim does not use edition variants
 
-# Cryptographic identity
-blake3           = "b3:667788990011223344556677889900112233445566778899001122334455667788"
-ed25519_sig      = "sig:ed25519:11223344556677889900aabbccddeeff11223344556677889900aabbccddeeff"
+# Cryptographic identity — leave these three empty. `substrate pack`
+# generates a fresh, ephemeral Ed25519 keypair for every build (never
+# persisted anywhere), signs the payload, and fills all three in for real
+# — replacing whatever's here — right before writing the .zex. This is a
+# self-contained integrity check (this exact manifest+payload combination,
+# verified against the pubkey embedded right next to it), not a
+# publisher-authenticity signature from a fixed, known key.
+blake3           = ""
+ed25519_sig      = ""
+ed25519_pubkey   = ""
 
 # Runtime requirements
-requires_syshub  = "2026v3.0"
+requires_syshub  = "2026v1.0"
 depends          = ["musl"]
 provides         = ["vim", "vi", "vimdiff"]
 tags             = ["editor", "terminal", "text"]

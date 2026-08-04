@@ -41,8 +41,11 @@ build_type       = "dynamic"
 libc_target      = "musl"
 edition          = "2021"          # active edition in this build's defaults
 
-blake3           = "b3:6677889900112233445566778899001122334455667788990011223344556677"
-ed25519_sig      = "sig:ed25519:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+# Leave empty — filled in for real by `substrate pack` (fresh ephemeral
+# key per build, see manifest.toml.example-vim for the full explanation).
+blake3           = ""
+ed25519_sig      = ""
+ed25519_pubkey   = ""
 
 requires_syshub  = "2026v3.0"
 depends          = ["musl"]

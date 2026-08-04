@@ -2,19 +2,27 @@
 # Zainium OS — Userland Package Ledger (x86_64)
 # Served at: archive.zainiumdynamics.tech/userland/x86_64/zex_ledger-x86_64.toml
 #
-# Schema v2.0 (merged from both designs):
+# Schema v2.1:
 #   + description   : shown by `elevate zex search`
 #   + license       : SPDX identifier
 #   + maintainer    : who packaged this .zex
-#   + ed25519_sig   : per-package cryptographic signature
 #   + tags          : search/classification keywords
 #   + build_type    : "static" | "dynamic"
 #   + libc_target   : "musl" (all userland is musl-linked)
 #   + edition       : optional (Rust, GCC etc)
 #
-# Parser reads: version, file, blake3, ed25519_sig, size_bytes,
-#               depends, provides, requires_syshub, description,
-#               license, maintainer, tags, build_type, libc_target, edition
+# No blake3/ed25519_sig here (v2.0 had both per entry — removed). This
+# ledger is an index, not a trust anchor — it's how `zex search`/`install`
+# find and download a package, nothing more. Verification is fully
+# embedded inside each .zex's own manifest.toml (blake3 + ed25519_sig +
+# ed25519_pubkey, written by `substrate pack` at build time — a fresh,
+# ephemeral keypair per build, never persisted anywhere outside that one
+# manifest), checked at install time against that same file — not against
+# anything in this ledger.
+#
+# Parser reads: version, file, size_bytes, depends, provides,
+#               requires_syshub, description, license, maintainer, tags,
+#               build_type, libc_target, edition
 # ============================================================
 
 [ledger_info]
@@ -22,9 +30,15 @@ os_name          = "ZainiumOS"
 architecture     = "x86_64"
 generated_at     = "2026-06-25T12:00:00Z"
 total_packages   = 42
-ledger_version   = "2.0"
+ledger_version   = "2.1"
 libc_family      = "musl"  # all userland musl-linked via x86_64-zainium-linux-musl sysroot
-repo_pubkey      = "ed25519:pub:zainium_core_master_key_xyz123456789"
+# repo_pubkey removed: it modeled one fixed, persistent, ledger-wide
+# signing identity — the opposite of the per-package ephemeral-key model
+# above (fresh keypair per build, never persisted). There's no longer a
+# mechanism that could produce a stable value for this field. If a
+# separate, genuinely different concept (e.g. signing the ledger file
+# itself, not individual packages) is wanted later, it needs its own
+# field and its own key-management story — not this one.
 
 # ── Desktop — COSMIC ──────────────────────────────────────────────────────────
 [packages.cosmic-comp]
@@ -34,8 +48,6 @@ license         = "GPL-3.0-only"
 maintainer      = "Zainium Core Team <core@zainiumdynamics.tech>"
 file            = "cosmic-comp-1.0.0-alpha.6.zex"
 size_bytes      = 28_400_000
-blake3          = "b3:aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899"
-ed25519_sig     = "sig:ed25519:1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
 depends         = ["wayland", "libinput", "libseat", "mesa", "xwayland"]
 provides        = ["wayland-compositor"]
 requires_syshub = "2026v3.0"
@@ -50,8 +62,6 @@ license         = "GPL-3.0-only"
 maintainer      = "Zainium Core Team <core@zainiumdynamics.tech>"
 file            = "cosmic-panel-1.0.0-alpha.6.zex"
 size_bytes      = 6_200_000
-blake3          = "b3:bbccddeeff00112233445566778899aabbccddeeff00112233445566778899aa"
-ed25519_sig     = "sig:ed25519:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
 depends         = ["cosmic-comp"]
 provides        = []
 requires_syshub = "2026v3.0"
@@ -66,8 +76,6 @@ license         = "GPL-3.0-only"
 maintainer      = "Zainium Core Team <core@zainiumdynamics.tech>"
 file            = "cosmic-settings-1.0.0-alpha.6.zex"
 size_bytes      = 14_800_000
-blake3          = "b3:ccddeeff00112233445566778899aabbccddeeff00112233445566778899aabb"
-ed25519_sig     = "sig:ed25519:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
 depends         = ["cosmic-comp", "fontconfig"]
 provides        = []
 requires_syshub = "2026v3.0"
@@ -82,8 +90,6 @@ license         = "GPL-3.0-only"
 maintainer      = "Zainium Core Team <core@zainiumdynamics.tech>"
 file            = "cosmic-terminal-1.0.0-alpha.6.zex"
 size_bytes      = 7_600_000
-blake3          = "b3:eeff00112233445566778899aabbccddeeff00112233445566778899aabbccdd"
-ed25519_sig     = "sig:ed25519:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"
 depends         = ["cosmic-comp"]
 provides        = ["terminal-emulator"]
 requires_syshub = "2026v3.0"
@@ -98,8 +104,6 @@ license         = "MIT"
 maintainer      = "Zainium Core Team <core@zainiumdynamics.tech>"
 file            = "xwayland-24.1.6.zex"
 size_bytes      = 4_300_000
-blake3          = "b3:ff00112233445566778899aabbccddeeff00112233445566778899aabbccddee"
-ed25519_sig     = "sig:ed25519:1111222233334444555566667777888899990000aaaabbbbccccddddeeeeffff"
 depends         = ["mesa", "musl"]
 provides        = ["xwayland"]
 build_type      = "dynamic"
@@ -114,8 +118,6 @@ license         = "MIT"
 maintainer      = "Zainium Audio Group <audio@zainiumdynamics.tech>"
 file            = "pipewire-1.2.7.zex"
 size_bytes      = 31_200_000
-blake3          = "b3:00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
-ed25519_sig     = "sig:ed25519:99887766554433221100ffeeddccbbaa99887766554433221100ffeeddccbbaa"
 depends         = ["musl", "alsa-lib"]
 provides        = ["pipewire", "libpipewire", "pipewire-pulse", "pipewire-alsa"]
 build_type      = "dynamic"
@@ -129,8 +131,6 @@ license         = "LGPL-2.1-or-later"
 maintainer      = "Zainium Audio Group <audio@zainiumdynamics.tech>"
 file            = "alsa-lib-1.2.13.zex"
 size_bytes      = 9_800_000
-blake3          = "b3:112233445566778899aabbccddeeff00112233445566778899aabbccddeeff00"
-ed25519_sig     = "sig:ed25519:aabbccddeeff00112233445566778899aabbccddeeff00112233445566778899"
 depends         = ["musl"]
 provides        = ["libasound"]
 build_type      = "dynamic"
@@ -144,8 +144,6 @@ license         = "LGPL-2.1-or-later"
 maintainer      = "Zainium Ports Team <ports@zainiumdynamics.tech>"
 file            = "ffmpeg-7.1.1.zex"
 size_bytes      = 67_200_000
-blake3          = "b3:2233445566778899aabbccddeeff00112233445566778899aabbccddeeff0011"
-ed25519_sig     = "sig:ed25519:bbccddeeff00112233445566778899aabbccddeeff00112233445566778899aa"
 depends         = ["musl", "openssl"]
 provides        = ["ffmpeg", "libavcodec", "libavformat", "libswscale"]
 build_type      = "dynamic"
@@ -160,8 +158,6 @@ license         = "MIT OR Apache-2.0"
 maintainer      = "Ali Zain <architect@zainiumdynamics.tech>"
 file            = "rust-1.87.0.zex"
 size_bytes      = 218_700_000
-blake3          = "b3:6677889900112233445566778899001122334455667788990011223344556677"
-ed25519_sig     = "sig:ed25519:deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
 depends         = ["musl"]
 provides        = ["rustc", "cargo", "rustup"]
 requires_syshub = "2026v3.0"
@@ -177,8 +173,6 @@ license         = "PSF-2.0"
 maintainer      = "Zainium Ports Team <ports@zainiumdynamics.tech>"
 file            = "python3-3.13.3.zex"
 size_bytes      = 82_400_000
-blake3          = "b3:0011223344556677889900112233445566778899001122334455667788990011"
-ed25519_sig     = "sig:ed25519:ccbbaa99887766554433221100ffeeddccbbaa99887766554433221100ffeedd"
 depends         = ["musl", "openssl", "zlib"]
 provides        = ["python3", "python", "pip"]
 build_type      = "dynamic"
@@ -192,8 +186,6 @@ license         = "GPL-2.0-only"
 maintainer      = "Zainium Ports Team <ports@zainiumdynamics.tech>"
 file            = "git-2.49.0.zex"
 size_bytes      = 19_800_000
-blake3          = "b3:1122334455667788990011223344556677889900112233445566778899001122"
-ed25519_sig     = "sig:ed25519:ddeeff00112233445566778899aabbccddeeff00112233445566778899aabbcc"
 depends         = ["musl", "openssl", "zlib"]
 provides        = ["git"]
 build_type      = "dynamic"
@@ -207,8 +199,6 @@ license         = "Apache-2.0"
 maintainer      = "Zainium Core Team <core@zainiumdynamics.tech>"
 file            = "neovim-0.11.1.zex"
 size_bytes      = 34_100_000
-blake3          = "b3:2233445566778899001122334455667788990011223344556677889900112233"
-ed25519_sig     = "sig:ed25519:eeff00112233445566778899aabbccddeeff00112233445566778899aabbccdd"
 depends         = ["musl"]
 provides        = ["nvim", "vi", "vim"]
 build_type      = "dynamic"
@@ -223,8 +213,6 @@ license         = "curl"
 maintainer      = "Zainium Core Team <core@zainiumdynamics.tech>"
 file            = "curl-8.13.0.zex"
 size_bytes      = 8_300_000
-blake3          = "b3:44556677889900112233445566778899001122334455667788990011223344"
-ed25519_sig     = "sig:ed25519:ff00112233445566778899aabbccddeeff00112233445566778899aabbccddee"
 depends         = ["musl", "openssl", "zlib"]
 provides        = ["curl", "libcurl"]
 build_type      = "dynamic"
@@ -238,8 +226,6 @@ license         = "AFL-2.1 OR GPL-2.0-or-later"
 maintainer      = "Zainium Core Team <core@zainiumdynamics.tech>"
 file            = "dbus-1.16.2.zex"
 size_bytes      = 6_400_000
-blake3          = "b3:556677889900112233445566778899001122334455667788990011223344556677"
-ed25519_sig     = "sig:ed25519:0011223344556677889900aabbccddeeff00112233445566778899aabbccddee"
 depends         = ["musl"]
 provides        = ["dbus", "libdbus-1"]
 build_type      = "dynamic"
@@ -253,8 +239,6 @@ license         = "GPL-2.0-or-later"
 maintainer      = "Zainium Core Team <core@zainiumdynamics.tech>"
 file            = "networkmanager-1.52.0.zex"
 size_bytes      = 24_100_000
-blake3          = "b3:66778899001122334455667788990011223344556677889900112233445566"
-ed25519_sig     = "sig:ed25519:1122334455667788990011aabbccddeeff00112233445566778899aabbccddee"
 depends         = ["musl", "dbus", "openssl"]
 provides        = ["NetworkManager", "nmcli"]
 build_type      = "dynamic"
@@ -269,8 +253,6 @@ license         = "MIT"
 maintainer      = "Zainium Core Team <core@zainiumdynamics.tech>"
 file            = "fontconfig-2.16.0.zex"
 size_bytes      = 4_100_000
-blake3          = "b3:33445566778899aabbccddeeff00112233445566778899aabbccddeeff001122"
-ed25519_sig     = "sig:ed25519:2233445566778899001122ccddeeff00112233445566778899aabbccddeeff00"
 depends         = ["musl", "freetype2"]
 provides        = ["libfontconfig"]
 build_type      = "dynamic"
@@ -284,8 +266,6 @@ license         = "FTL OR GPL-2.0-or-later"
 maintainer      = "Zainium Core Team <core@zainiumdynamics.tech>"
 file            = "freetype2-2.13.3.zex"
 size_bytes      = 6_700_000
-blake3          = "b3:445566778899aabbccddeeff00112233445566778899aabbccddeeff00112233"
-ed25519_sig     = "sig:ed25519:334455667788990011223344eeff00112233445566778899aabbccddeeff0011"
 depends         = ["musl", "harfbuzz"]
 provides        = ["libfreetype"]
 build_type      = "dynamic"
@@ -299,8 +279,6 @@ license         = "MIT"
 maintainer      = "Zainium Core Team <core@zainiumdynamics.tech>"
 file            = "harfbuzz-10.4.0.zex"
 size_bytes      = 8_200_000
-blake3          = "b3:55667788990011223344556677889900112233445566778899001122334455"
-ed25519_sig     = "sig:ed25519:4455667788990011223344eeff00112233445566778899aabbccddeeff001122"
 depends         = ["musl"]
 provides        = ["libharfbuzz"]
 build_type      = "dynamic"
@@ -315,8 +293,6 @@ license         = "MPL-2.0"
 maintainer      = "Zainium Ports Team <ports@zainiumdynamics.tech>"
 file            = "firefox-138.0.4.zex"
 size_bytes      = 298_100_000
-blake3          = "b3:112233445566778899001122334455667788990011223344556677889900112233"
-ed25519_sig     = "sig:ed25519:cafebabecafebabecafebabecafebabecafebabecafebabecafebabecafebabe"
 depends         = ["musl", "dbus", "fontconfig", "libxkbcommon", "mesa"]
 provides        = ["firefox", "browser"]
 requires_syshub = "2026v3.0"
@@ -331,8 +307,6 @@ license         = "Vim"
 maintainer      = "Zainium Core Team <core@zainiumdynamics.tech>"
 file            = "vim-9.1.1366.zex"
 size_bytes      = 28_400_000
-blake3          = "b3:667788990011223344556677889900112233445566778899001122334455667788"
-ed25519_sig     = "sig:ed25519:11223344556677889900aabbccddeeff11223344556677889900aabbccddeeff"
 depends         = ["musl"]
 provides        = ["vim", "vi", "vimdiff"]
 build_type      = "dynamic"
@@ -346,8 +320,6 @@ license         = "GPL-3.0-or-later"
 maintainer      = "Zainium Core Team <core@zainiumdynamics.tech>"
 file            = "nano-8.4.zex"
 size_bytes      = 2_100_000
-blake3          = "b3:4455667788990011223344556677889900112233445566778899001122334455"
-ed25519_sig     = "sig:ed25519:5566778899001122334455ddeeff00112233445566778899aabbccddeeff0011"
 depends         = ["musl"]
 provides        = ["nano"]
 build_type      = "dynamic"
@@ -361,8 +333,6 @@ license         = "GPL-2.0-or-later"
 maintainer      = "Zainium Core Team <core@zainiumdynamics.tech>"
 file            = "htop-3.4.1.zex"
 size_bytes      = 1_800_000
-blake3          = "b3:55667788990011223344556677889900112233445566778899001122334455"
-ed25519_sig     = "sig:ed25519:6677889900112233445566eeff00112233445566778899aabbccddeeff001122"
 depends         = ["musl"]
 provides        = ["htop"]
 build_type      = "dynamic"
@@ -376,8 +346,6 @@ license         = "MIT-Modern-Variant"
 maintainer      = "Zainium Core Team <core@zainiumdynamics.tech>"
 file            = "zsh-5.9.1.zex"
 size_bytes      = 5_800_000
-blake3          = "b3:8899001122334455667788990011223344556677889900112233445566778899"
-ed25519_sig     = "sig:ed25519:7788990011223344556677ffeeddccbbaa99887766554433221100ffeeddccbb"
 depends         = ["musl"]
 provides        = ["zsh"]
 build_type      = "dynamic"
@@ -391,8 +359,6 @@ license         = "Zlib"
 maintainer      = "Zainium Core Team <core@zainiumdynamics.tech>"
 file            = "zlib-1.3.1.zex"
 size_bytes      = 1_100_000
-blake3          = "b3:889900112233445566778899001122334455667788990011223344556677889900"
-ed25519_sig     = "sig:ed25519:8899001122334455667788ffeeddccbbaa99887766554433221100ffeeddccba"
 depends         = ["musl"]
 provides        = ["libz"]
 build_type      = "dynamic"
@@ -406,8 +372,6 @@ license         = "MIT"
 maintainer      = "Zainium Core Team <core@zainiumdynamics.tech>"
 file            = "libxkbcommon-1.8.1.zex"
 size_bytes      = 3_800_000
-blake3          = "b3:990011223344556677889900112233445566778899001122334455667788990011"
-ed25519_sig     = "sig:ed25519:99001122334455667788eeddccbbaa99887766554433221100ffeeddccbbaa99"
 depends         = ["musl"]
 provides        = ["libxkbcommon", "libxkbcommon-x11"]
 build_type      = "dynamic"
