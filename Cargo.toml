@@ -1,10 +1,10 @@
 [package]
 name        = "zex"
-version     = "5.0.0"
+version     = "5.0.1"
 Licence     = "GPL 3-strict only"
 description = "The Universal Executor & Package Manager for Zainium OS"
 edition     = "2024"
-authors     = ["Ali Zain <alizain.x404@gmail.com>"]
+authors     = ["Ali Zain <heyalizain@gmail.com>"]
 
 [[bin]]
 name = "zex"
@@ -14,7 +14,7 @@ path = "src/main.rs"
 name = "zex"
 path = "src/lib.rs"
 
-# ── All deps merged from 11 drivers ──────────────────────────────────────────
+# ── All deps merged from 11 drivers 
 
 [dependencies]
 # Async runtime
@@ -43,7 +43,7 @@ bytes         = "1"
 tar           = "0.4"
 zstd          = "0.13"
 # Native .zex compressor (magic ZEX1) — pack/unpack path for Tier-1 packages
-zexc          = { version = "1.1.0", default-features = false, features = ["std", "simd"] }
+zexc          = { version = "1.2.0", default-features = false, features = ["std", "simd"] }
 flate2        = { version = "1",    default-features = false, features = ["rust_backend"] }
 xz2           = "0.1"
 
