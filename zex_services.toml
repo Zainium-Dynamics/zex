@@ -19,8 +19,8 @@ elevate zex syshub -u   # Upgrades Syshub core & Zaisys engine via native stream
 [[mirrors]]
 id              = "zainium-core-stable-syshub"
 description     = "Zainium OS Stable Core Syshub Repository"
-base_url        = "https://archive.zainiumdynamics.tech/core/stable/packages"
-index_url       = "https://archive.zainiumdynamics.tech/core/stable/syshub.toml"
+base_url        = "https://archive.zainiumdynamics.tech/core/syshub/x86_64/packages"
+index_url       = "https://archive.zainiumdynamics.tech/core/syshub/x86_64/syshub.toml"
 format          = "zex"
 priority        = 1
 supported_archs = ["x86_64"]
