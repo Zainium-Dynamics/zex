@@ -351,6 +351,21 @@ pub fn print_deps_installed(count: usize) {
     println!("  {G}✓{RST}  {count} dependencies installed");
 }
 
+pub fn print_dep_satisfied_by_syshub(name: &str) {
+    println!("  {DIM}•{RST}  {P}{name}{RST} {DIM}already provided by the immutable base — skipped{RST}");
+}
+
+/// Same message, but before any download is even attempted — used when
+/// dependency *resolution* (not the later file-conflict check) already
+/// knows `name` is satisfied by syshub, either auto-detected
+/// (`backend::is_in_syshub`) or explicitly hand-listed (`blocked.rs`,
+/// e.g. `coreutils` → Zainium's own `userutils`).
+pub fn print_dep_provided_by(name: &str, provider: &str) {
+    println!(
+        "  {DIM}•{RST}  {P}{name}{RST} {DIM}already provided by the immutable base ({provider}) — skipped{RST}"
+    );
+}
+
 // ── Error blocks ──────────────────────────────────────────────────────────────
 
 pub fn print_not_found(name: &str) {

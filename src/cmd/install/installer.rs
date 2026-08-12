@@ -26,7 +26,6 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
-use blake3::Hasher;
 use sha2::{Digest, Sha256};
 
 use super::backend::{DbEntry, PackageFormat, PackageInfo, register_package};
@@ -56,6 +55,11 @@ pub struct InstallTelemetry {
     /// The actual binary name detected from extracted files.
     /// Used to show the correct "Launch with: X" message instead of the package name.
     pub detected_launch_cmd: Option<String>,
+    /// Set when this call was a no-op because the dependency's files are
+    /// already fully provided by syshub under a different package name
+    /// (e.g. Void's `ncurses-libs` vs syshub's `ncurses`) — nothing was
+    /// staged, registered, or committed.
+    pub skipped_syshub_satisfied: bool,
 }
 
 struct InstallPackageLock {
@@ -152,6 +156,7 @@ pub fn install(
     integrity_mode: IntegrityMode,
     signature_mode: crate::trust::SignatureVerificationMode,
     xbps_sig: Option<&XbpsVerifyData>,
+    is_dependency: bool,
 ) -> Result<InstallTelemetry> {
     let _pkg_lock = acquire_package_lock(&info.name)?;
 
@@ -284,7 +289,50 @@ pub fn install(
     // system. Also catches a package silently shadowing a file that
     // already exists in immutable syshub (OverlayFS always serves the
     // union/upperdir copy over syshub/lowerdir on a path collision).
-    if let Err(e) = preflight_conflict_check(&info.name, &committed_files) {
+    //
+    // For a *dependency* (not the package the user actually asked for),
+    // a file that's already owned by syshub specifically — not by another
+    // zex-tracked package — isn't a conflict, it's that file already being
+    // provided by the base OS under a different package name than syshub
+    // uses (confirmed live: Void's `ncurses-libs`/`ncurses-base` overlap
+    // almost entirely, but not 100%, with syshub's own `ncurses` build —
+    // an all-or-nothing "skip the whole dependency" check left a residual
+    // few files still blocking the install). So for dependencies, only the
+    // specific files syshub already owns are dropped from what actually
+    // gets staged/registered — whatever's left (genuinely new files) still
+    // installs normally. A conflict against another *real* zex package is
+    // always a hard stop, same as for the package the user explicitly
+    // named — this only ever narrows what a dependency writes, never what
+    // it's allowed to overwrite.
+    let conflicts = check_file_conflicts(&info.name, &committed_files);
+    if is_dependency && !conflicts.is_empty() {
+        const SYSHUB_OWNER: &str = "syshub (immutable base OS)";
+        if conflicts.iter().any(|(owner, _)| owner != SYSHUB_OWNER) {
+            ui::print_file_conflicts(&info.name, &conflicts);
+            cleanup_snapshot(&snapshot_dir);
+            bail!(
+                "File conflict: {} file(s) already owned by another package.",
+                conflicts.iter().filter(|(o, _)| o != SYSHUB_OWNER).count()
+            );
+        }
+        let syshub_owned: HashSet<&str> = conflicts.iter().map(|(_, p)| p.as_str()).collect();
+        let pairs: Vec<(PathBuf, PathBuf)> = staged_files
+            .into_iter()
+            .zip(committed_files.into_iter())
+            .filter(|(_, final_path)| !syshub_owned.contains(final_path.to_string_lossy().as_ref()))
+            .collect();
+        let (new_staged, new_committed): (Vec<_>, Vec<_>) = pairs.into_iter().unzip();
+        staged_files = new_staged;
+        committed_files = new_committed;
+
+        if committed_files.is_empty() {
+            cleanup_snapshot(&snapshot_dir);
+            return Ok(InstallTelemetry {
+                skipped_syshub_satisfied: true,
+                ..Default::default()
+            });
+        }
+    } else if let Err(e) = preflight_conflict_check(&info.name, &committed_files) {
         cleanup_snapshot(&snapshot_dir);
         return Err(e);
     }
@@ -442,6 +490,7 @@ pub fn install(
         extract_ms,
         db_ms,
         detected_launch_cmd: detected_launch,
+        skipped_syshub_satisfied: false,
     })
 }
 
@@ -479,8 +528,16 @@ fn verify_signature(
     xbps_sig: Option<&XbpsVerifyData>,
 ) -> Result<()> {
     if info.format == PackageFormat::Zex {
-        crate::trust::verify_zex_archive(path, signature_mode)?;
-        return verify_blake3(path, info, integrity_mode);
+        // trust::verify_zex_archive already performs the complete, stronger
+        // check here: Ed25519 signature + Blake3 hash embedded in the
+        // package's own manifest.toml, verified against the ephemeral
+        // per-package signing key. The zex_ledger.toml index format carries
+        // no separate top-level `blake3` field per package, so falling
+        // through to verify_blake3() below would always find `info.blake3
+        // == None` and hard-fail every install in Strict integrity mode —
+        // that's not a missing checksum, it's a check that doesn't apply
+        // to this format.
+        return crate::trust::verify_zex_archive(path, signature_mode);
     }
 
     // Real cryptographic authenticity check — RSA signature verification
@@ -599,66 +656,6 @@ mod tests {
     }
 }
 
-fn blake3_of_file(path: &Path) -> Result<String> {
-    let mut file = std::fs::File::open(path)
-        .map_err(|e| anyhow::anyhow!("cannot open file for Blake3: {}", e))?;
-    let mut hasher = Hasher::new();
-    let mut buf = [0u8; 65536];
-    loop {
-        let n = file
-            .read(&mut buf)
-            .map_err(|e| anyhow::anyhow!("read error during Blake3: {}", e))?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
-    }
-    Ok(hasher.finalize().to_hex().to_string())
-}
-
-fn verify_blake3(path: &Path, info: &PackageInfo, integrity_mode: IntegrityMode) -> Result<()> {
-    match &info.blake3 {
-        None => {
-            if integrity_mode == IntegrityMode::Strict {
-                bail!(
-                    "strict integrity mode requires Blake3, but backend did not provide hash for '{}'",
-                    info.name
-                );
-            }
-            log::warn!(
-                "Blake3 not available for '{}' (backend: {:?}) — skipping checksum verification",
-                info.name,
-                info.format
-            );
-            Ok(())
-        }
-        Some(expected) if expected.trim().is_empty() => {
-            if integrity_mode == IntegrityMode::Strict {
-                bail!(
-                    "strict integrity mode requires non-empty Blake3 for '{}'",
-                    info.name
-                );
-            }
-            Ok(())
-        }
-        Some(expected) => {
-            let actual = blake3_of_file(path)?;
-            if !actual.eq_ignore_ascii_case(expected.trim()) {
-                bail!(
-                    "Blake3 integrity check FAILED for '{}':\
-                     \n  Expected : {}\
-                     \n  Computed : {}\
-                     \n  The downloaded file is corrupt or tampered. Aborting.",
-                    info.name,
-                    expected,
-                    actual
-                );
-            }
-            log::debug!("Blake3 verified for '{}': {}", info.name, actual);
-            Ok(())
-        }
-    }
-}
 
 fn verify_file(path: &Path, expected_size: u64) -> Result<()> {
     let actual = std::fs::metadata(path)?.len();
@@ -902,11 +899,26 @@ fn extract_zex(zex_path: &Path, dest: &Path, installed: &mut Vec<PathBuf>) -> Re
         }
 
         if entry_type.is_file() {
+            // Mode must be read before entry.read_to_end() — it doesn't
+            // consume the header, but capture it up front for clarity.
+            let mode = entry.header().mode().unwrap_or(0o644);
             let mut data = Vec::new();
             entry.read_to_end(&mut data)?;
             // Hash uses the full archive path ("payload/...") to match packer.
             payload_files.push((rel_str.to_string(), data.clone()));
             std::fs::write(&dest_path, &data)?;
+            // Same class of bug already found and fixed in extract_adb
+            // (Chimera): std::fs::write() always creates with the process
+            // umask default, never the archive's own mode — every native
+            // .zex binary landed non-executable (confirmed live: a fresh
+            // `zex install htop` produced -rw-r--r-- and `bwrap ...
+            // /overlayer/zexlib/union/bin/htop` failed with "Permission
+            // denied").
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&dest_path, std::fs::Permissions::from_mode(mode & 0o7777))?;
+            }
             installed.push(dest_path);
             continue;
         }

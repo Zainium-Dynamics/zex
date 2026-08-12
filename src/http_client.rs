@@ -13,9 +13,25 @@ use rustls::{Error, RootCertStore, SignatureScheme};
 
 
 /// SPKI SHA-256 pins (base64) for hosts that require certificate pinning.
+///
+/// `archive.zainiumdynamics.tech` moved from an Oracle-hosted origin to
+/// Cloudflare (fronting R2 storage) — this pin was stale against the old
+/// Oracle cert until refreshed against the real live cert on 2026-08-12
+/// (`echo | openssl s_client -connect archive.zainiumdynamics.tech:443
+/// -servername archive.zainiumdynamics.tech | openssl x509 -pubkey -noout
+/// | openssl pkey -pubin -outform der | openssl dgst -sha256 -binary |
+/// base64`). Every stale pin here fails *silently* wherever the caller
+/// doesn't explicitly surface the TLS error (e.g. `cmd::update::main`'s
+/// `.unwrap_or_default()` on the diff calls turned "every HTTPS request
+/// rejected" into a plain "no updates available") — if `zex` starts
+/// reporting suspiciously-empty results against this host again, check
+/// this pin against the live cert before assuming there's nothing to do.
+/// `PINS_CONFIG_PATH` below can override this without a rebuild if the
+/// cert rotates again (Cloudflare-fronted origins can rotate more often
+/// than a single hardcoded leaf-cert pin comfortably tolerates).
 const DEFAULT_PINS: &[(&str, &[&str])] = &[(
     "archive.zainiumdynamics.tech",
-    &["fVgjNLRV+TcVGFH0OsXidP54a0jjVezcM5qJ6anOBxk="],
+    &["j3xLhYimysNA/zKow20gJ0g0LsiNcHhflTSjuSBoe+Q="],
 )];
 
 const PINS_CONFIG_PATH: &str = "/overlayer/syshub/engine/services/tls_pins.toml";
@@ -27,13 +43,28 @@ struct PinsFile {
 }
 
 /// Build the shared `reqwest::Client` used by install, update, search, and upgrade.
+///
+/// The same client this crate builds for lightweight metadata calls (ping,
+/// HEAD, manifest/ledger fetches) is also the one every download path
+/// reuses for the actual package bytes (`cmd::upgrade::userland`,
+/// `cmd::update::apply` both take a shared client rather than building a
+/// download-specific one) — so `.timeout()` here is a ceiling on the
+/// *entire* request, including the full body transfer, not just a connect
+/// timeout. 300s was sized for API-style calls and silently turned any
+/// large package (gcc/rust-toolchain scale, 100MB-2GB+) on a real-world
+/// (non-datacenter-to-datacenter) connection into a guaranteed failure —
+/// confirmed live against archive.zainiumdynamics.tech, where a 113MB
+/// package alone didn't finish in 300s. 4 hours comfortably covers a 2GB
+/// package even on a slow link; this is always a manually-invoked,
+/// supervised CLI command, so a generous ceiling costs nothing in the
+/// normal case and a truly-hung connection is still bounded, just later.
 pub fn build(user_agent: &str) -> Result<reqwest::Client> {
     let pins = load_pins();
     let tls = build_rustls_config(&pins)?;
 
     reqwest::Client::builder()
         .connect_timeout(std::time::Duration::from_secs(15))
-        .timeout(std::time::Duration::from_secs(300))
+        .timeout(std::time::Duration::from_secs(4 * 60 * 60))
         .tcp_keepalive(std::time::Duration::from_secs(30))
         .user_agent(user_agent)
         .use_preconfigured_tls(tls)

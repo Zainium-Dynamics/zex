@@ -38,7 +38,6 @@ const PACKAGES_TOML:  &str = "/overlayer/zexlib/registry/packages.toml";
 const INSTALLED_DIR:  &str = "/overlayer/zexlib/registry/installed";
 const UNION_PATH:     &str = "/overlayer/zexlib/union";
 const DL_TMP:         &str = "/overlayer/zexlib/tmp/uland-dl";
-const PING_URL:       &str = "https://archive.zainiumdynamics.tech/ping";
 
 // ── zex_services.toml schema ───────────────────────────────────────────────────
 #[derive(Debug, Deserialize)]
@@ -279,7 +278,7 @@ pub async fn execute() -> Result<()> {
     fs::create_dir_all(INSTALLED_DIR)?;
 
     let mp = MultiProgress::new();
-    let overall = ui::make_overall_bar(&mp, upgrades.len() as u64);
+    let overall = ui::make_overall_bar(&mp, total_bytes);
     overall.set_position(0);
 
     let mut done: Vec<String> = Vec::new();
@@ -301,26 +300,26 @@ pub async fn execute() -> Result<()> {
                       else { content_length(&client, &pkg.url).await.unwrap_or(0) };
             let bar = ui::make_pkg_bar(&mp, cl, &label);
 
-            let url    = pkg.url.clone();
-            let dest   = dl_tmp.join(&pkg.filename);
-            let name   = pkg.name.clone();
-            let fmt    = pkg.format;
-            let client = client.clone();
+            let url       = pkg.url.clone();
+            let dest      = dl_tmp.join(&pkg.filename);
+            let name      = pkg.name.clone();
+            let fmt       = pkg.format;
+            let client    = client.clone();
+            let overall_h = overall.clone();
             let h = tokio::spawn(async move {
-                download_with_bar(&client, &url, &dest, &bar).await
+                download_with_bar(&client, &url, &dest, &bar, &overall_h).await
                     .map(|b| (name, dest, fmt, b))
             });
             handles.push(h);
         }
 
         let mut chunk_results = Vec::new();
-        for h in handles {
+        for (pkg, h) in chunk.iter().zip(handles) {
             match h.await {
                 Ok(Ok(r)) => chunk_results.push(r),
                 Ok(Err(e)) => {
-                    let who = chunk.first().map(|p| p.name.as_str()).unwrap_or("unknown");
                     fs::remove_dir_all(dl_tmp).ok();
-                    ui::print_uland_download_interrupted(who);
+                    ui::print_uland_download_interrupted(&pkg.name);
                     log_audit("uland", &done, "rolled_back",
                               Some(&e.to_string()), started.elapsed().as_millis() as u64);
                     std::process::exit(1);
@@ -359,7 +358,6 @@ pub async fn execute() -> Result<()> {
             crate::cmd::install::registry::update_version(&pkg_info.name, &pkg_info.new_ver)?;
 
             done.push(pkg_name.clone());
-            overall.inc(1);
         }
     }
 
@@ -874,16 +872,12 @@ fn set_exec_if_needed(_: &tar::Header, _: &Path) {}
 async fn online() -> bool {
     let Ok(client) = crate::http_client::build("zex-uland/ping") else { return false };
 
-    if let Ok(r) = client.get(PING_URL).send().await {
-        if r.status().is_success() {
-            return true;
-        }
-    }
-
-    // The Tier 1 (Zainium) archive ping endpoint being unreachable doesn't
-    // mean the system has no internet — Tier 2/3/4 mirrors can be fine on
-    // their own, and uland upgrades across all tiers. Fall back to a
-    // generic reachability probe before declaring the system offline.
+    // There is no more zex-server / API backend behind archive.zainiumdynamics.tech
+    // to ping (it was decommissioned — the domain now only serves static
+    // package files via Cloudflare/R2), and Tier 2/3/4 mirrors have nothing
+    // to do with that endpoint either — go straight to a generic
+    // reachability probe rather than wasting a round-trip on a permanently
+    // dead one first.
     client.head("https://mirrors.edge.kernel.org/").send().await
         .map(|r| r.status().is_success())
         .unwrap_or(false)
@@ -903,10 +897,11 @@ async fn content_length(client: &reqwest::Client, url: &str) -> Option<u64> {
 }
 
 async fn download_with_bar(
-    client: &reqwest::Client,
-    url:    &str,
-    dest:   &Path,
-    bar:    &indicatif::ProgressBar,
+    client:  &reqwest::Client,
+    url:     &str,
+    dest:    &Path,
+    bar:     &indicatif::ProgressBar,
+    overall: &indicatif::ProgressBar,
 ) -> Result<u64> {
     let resp = client.get(url).send().await?.error_for_status()?;
     if let Some(p) = dest.parent() { fs::create_dir_all(p)?; }
@@ -918,6 +913,7 @@ async fn download_with_bar(
         tot += chunk.len() as u64;
         use std::io::Write; f.write_all(&chunk)?;
         bar.set_position(tot);
+        overall.inc(chunk.len() as u64);
     }
     bar.finish();
     Ok(tot)

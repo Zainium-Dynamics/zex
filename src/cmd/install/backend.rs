@@ -749,17 +749,20 @@ fn update_rtt_score(scores: &mut MirrorScoreStore, mirror_key: &str, sample_ms: 
 /// serde extracts the named `provides` field first, and flatten captures
 /// every remaining `[packages]` key into `versions`.
 #[derive(Debug, Deserialize)]
-struct PackagesSection {
-    #[serde(default)]
-    provides: HashMap<String, String>,
-    #[serde(flatten)]
-    versions: HashMap<String, String>,
-}
-
-#[derive(Debug, Deserialize)]
 #[non_exhaustive]
 struct SyshubManifest {
-    packages: Option<PackagesSection>,
+    // Real syshub.toml is `[packages.<name>]` sub-tables (version, file,
+    // size_bytes, depends, provides, build_type, libc_target — a genuine
+    // TOML table), not `packages.<name> = "1.2.3"` flat strings. The old
+    // `HashMap<String, String>` shape here made every `toml::from_str`
+    // call fail with a type-mismatch error, which the caller's `let Ok(..)
+    // else { return false }` swallowed silently — `is_in_syshub` always
+    // returned false for every name, no matter what. Confirmed live: `zex
+    // install jq` (Alpine) tried to also install `musl` as a plain
+    // dependency and hit a real file conflict against syshub's own
+    // ld-musl-x86_64.so.1, because the "musl is already provided by the
+    // base OS" check never actually worked.
+    packages: Option<HashMap<String, toml::Value>>,
 }
 
 /// Normalize a dependency token down to a bare library/package name for
@@ -796,22 +799,27 @@ pub fn is_in_syshub(name: &str) -> bool {
     let normalized = normalize_dep_token(name);
 
     // Direct package-name match (e.g. a plain "curl" or "musl" token).
-    if pkgs.versions.keys().any(|k| k.eq_ignore_ascii_case(&lower_name)) {
+    if pkgs.keys().any(|k| k.eq_ignore_ascii_case(&lower_name)) {
         return true;
     }
 
     // Virtual-name alias match (e.g. "so:libz.so.1" -> normalized
-    // "libz.so.1" -> provides["libz.so.1"] = "zlib-ng"), then confirm the
-    // real target package is actually listed under `packages`.
-    if let Some(target) = pkgs.provides.iter().find_map(|(k, v)| {
-        (k.eq_ignore_ascii_case(&normalized) || k.eq_ignore_ascii_case(&lower_name)).then_some(v)
-    }) {
-        if pkgs.versions.keys().any(|k| k.eq_ignore_ascii_case(target)) {
-            return true;
-        }
-    }
-
-    false
+    // "libz.so.1") against each package's own `provides` array — real
+    // syshub.toml entries carry `provides` per-package
+    // (`[packages.bash] provides = ["bash", "sh"]`), not as one flat
+    // top-level alias table.
+    pkgs.values().any(|v| {
+        v.as_table()
+            .and_then(|t| t.get("provides"))
+            .and_then(|p| p.as_array())
+            .is_some_and(|arr| {
+                arr.iter().any(|item| {
+                    item.as_str().is_some_and(|s| {
+                        s.eq_ignore_ascii_case(&normalized) || s.eq_ignore_ascii_case(&lower_name)
+                    })
+                })
+            })
+    })
 }
 
 // ─── Package Database (TOML Registry) ─────────────────────────────────────────

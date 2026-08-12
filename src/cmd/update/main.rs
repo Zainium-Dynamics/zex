@@ -19,7 +19,6 @@ const INSTALLED_DIR:   &str = "/overlayer/zexlib/registry/installed";
 const SYSHUB_MANIFEST: &str = "/overlayer/syshub/engine/services/syshub.toml";
 const DL_TMP:          &str = "/overlayer/zexlib/tmp/update-dl";
 const SYSHUB_PATH:     &str = "/overlayer/syshub";
-const PING_URL:        &str = "https://archive.zainiumdynamics.tech/ping";
 
 #[derive(Parser, Debug)]
 #[command(
@@ -86,7 +85,7 @@ pub async fn run(raw_args: Vec<String>) -> Result<()> {
 
     // ── Already up-to-date check ──────────────────────────────────────────────
     if uland_upgrades.is_empty() && syshub_upgrades.is_empty() {
-        ui::print_uptodate();
+        ui::print_uptodate(&local_core_version());
         return Ok(());
     }
 
@@ -122,8 +121,7 @@ pub async fn run(raw_args: Vec<String>) -> Result<()> {
     std::fs::create_dir_all(dl)?;
 
     let mp      = indicatif::MultiProgress::new();
-    let overall = ui::make_overall_bar(&mp,
-        (uland_upgrades.len() + syshub_upgrades.len()) as u64);
+    let overall = ui::make_overall_bar(&mp, total_bytes);
     overall.set_position(0);
 
     let mut total_dl = 0u64;
@@ -178,20 +176,31 @@ pub async fn run(raw_args: Vec<String>) -> Result<()> {
     Ok(())
 }
 
+/// Reads the real local syshub core version instead of the hardcoded
+/// placeholder "2026v3.2" `print_uptodate` used to always show — that
+/// string never reflected the actual synced version, confirmed live after
+/// a real syshub upgrade to 2026v1.1 still showed "2026v3.2" here.
+fn local_core_version() -> String {
+    #[derive(serde::Deserialize)]
+    struct CoreInfo { build_version: String }
+    #[derive(serde::Deserialize)]
+    struct Manifest { core_info: CoreInfo }
+
+    std::fs::read_to_string(SYSHUB_MANIFEST)
+        .ok()
+        .and_then(|raw| toml::from_str::<Manifest>(&raw).ok())
+        .map(|m| m.core_info.build_version)
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
 async fn online() -> bool {
     let Ok(client) = crate::http_client::build("zex-update/ping") else { return false };
 
-    if let Ok(r) = client.get(PING_URL).send().await {
-        if r.status().is_success() {
-            return true;
-        }
-    }
-
-    // The Tier 1 (Zainium) archive ping endpoint being unreachable doesn't
-    // mean the system has no internet — syshub/userland updates still need
-    // real connectivity, but a slow/down Zainium endpoint alone shouldn't
-    // make `zex update` spuriously report "no internet" (matches the same
-    // fix already applied to `cmd::upgrade::userland::online`).
+    // There is no more zex-server / API backend behind archive.zainiumdynamics.tech
+    // to ping (it was decommissioned — the domain now only serves static
+    // package files via Cloudflare/R2) — go straight to a generic
+    // reachability probe rather than wasting a round-trip on a permanently
+    // dead endpoint first.
     client.head("https://mirrors.edge.kernel.org/").send().await
         .map(|r| r.status().is_success())
         .unwrap_or(false)

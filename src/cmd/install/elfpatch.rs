@@ -29,6 +29,18 @@ const ZEX_INTERP: &str = "/overlayer/syshub/x86_64-zainium-linux-musl/lib/ld-mus
 /// Where zex-installed userland packages' shared libraries live.
 const ZEX_LIB_RPATH: &str = "/overlayer/zexlib/union/lib";
 
+/// Where syshub's own immutable-base libraries live. A T2/T3/T4
+/// dependency whose files are already provided by syshub under a
+/// different package name (e.g. Void's `ncurses-libs`, syshub's own
+/// `ncurses`) is correctly skipped at install time rather than
+/// duplicated into `ZEX_LIB_RPATH` — but that means a binary linking
+/// against it (confirmed live: `tmux` needing `libncursesw.so.6`) can
+/// only find it here. Without this, every such binary fails to load at
+/// runtime with "No such file or directory" even though the library
+/// genuinely exists on disk, just outside the one directory RPATH used
+/// to search.
+const SYSHUB_LIB_RPATH: &str = "/overlayer/syshub/lib";
+
 fn is_elf(path: &Path) -> bool {
     let Ok(mut f) = std::fs::File::open(path) else {
         return false;
@@ -59,6 +71,9 @@ fn rebuild_rpath(existing: &str) -> String {
     }
     if !out.iter().any(|e| e == ZEX_LIB_RPATH) {
         out.push(ZEX_LIB_RPATH.to_string());
+    }
+    if !out.iter().any(|e| e == SYSHUB_LIB_RPATH) {
+        out.push(SYSHUB_LIB_RPATH.to_string());
     }
     out.join(":")
 }

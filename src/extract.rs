@@ -282,6 +282,15 @@ fn unpack_tar<R: Read>(reader: R, output_dir: &Path) -> io::Result<usize> {
         }
 
         if entry_type.is_file() {
+            // Capture the archive's own mode bits before the entry body is
+            // consumed — write_archive_file()/write_file() just create the
+            // destination with the process umask default (e.g. 0o644),
+            // they don't carry the tar entry's mode across. Without this,
+            // every extracted file (including binaries meant to be 0o755)
+            // silently loses its executable bit.
+            #[cfg(unix)]
+            let tar_mode = entry.header().mode().unwrap_or(0o644);
+
             #[cfg(unix)]
             if let Some(ref root) = confined {
                 root.write_file(&clean, &mut entry).map_err(io::Error::other)?;
@@ -294,11 +303,9 @@ fn unpack_tar<R: Read>(reader: R, output_dir: &Path) -> io::Result<usize> {
                 .map_err(io::Error::other)?;
             #[cfg(unix)]
             {
-                if let Ok(meta) = fs::metadata(&dest) {
-                    let mut perms = meta.permissions();
-                    perms.set_mode(perms.mode() & !0o6000);
-                    let _ = fs::set_permissions(&dest, perms);
-                }
+                let mut perms = fs::metadata(&dest)?.permissions();
+                perms.set_mode(tar_mode & !0o6000);
+                fs::set_permissions(&dest, perms)?;
             }
             count += 1;
             continue;

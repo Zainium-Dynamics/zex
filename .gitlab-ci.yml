@@ -1,0 +1,23 @@
+stages:
+  - build
+
+build:musl:
+  stage: build
+  image: rust:latest
+  variables:
+    CARGO_HOME: $CI_PROJECT_DIR/.cargo
+  cache:
+    key: cargo-musl
+    paths:
+      - .cargo/
+      - target/
+  before_script:
+    - apt-get update -yq
+    - apt-get install -yq musl-tools
+    - rustup target add x86_64-unknown-linux-musl
+  script:
+    - cargo build --release --target x86_64-unknown-linux-musl
+  artifacts:
+    paths:
+      - target/x86_64-unknown-linux-musl/release/zex
+    expire_in: 1 week

@@ -244,6 +244,7 @@ pub async fn run_from_lockfile(path: std::path::PathBuf) -> Result<()> {
             integrity_mode,
             signature_mode,
             xbps_sig.as_ref(),
+            pkg.name != lock.root.name,
         ).map_err(|e| anyhow::anyhow!("install failed for '{}': {e}", pkg.name))?;
     }
 
@@ -328,8 +329,13 @@ async fn run_single(
         }
     }
 
-    // ─── Dependency Resolution 
+    // ─── Dependency Resolution
     let dep_plan = super::depends::resolve_dependencies(&info, &client, &config, &mm).await?;
+
+    for (dep_token, provider) in &dep_plan.syshub_provided {
+        let base = super::apk::strip_constraint(dep_token);
+        ui::print_dep_provided_by(base, provider);
+    }
 
     if !dep_plan.unresolvable.is_empty() {
         let missing = dep_plan.unresolvable.join(", ");
@@ -459,8 +465,12 @@ async fn run_single(
                         integrity_mode,
                         signature_mode,
                         xbps_sig.as_ref(),
+                        true,
                     ) {
-                        Ok(_) => {
+                        Ok(t) => {
+                            if t.skipped_syshub_satisfied {
+                                ui::print_dep_satisfied_by_syshub(&dep_info.name);
+                            }
                             deps_installed += 1;
                         }
                         Err(e) => {
@@ -555,6 +565,7 @@ async fn run_single(
         integrity_mode,
         signature_mode,
         xbps_sig.as_ref(),
+        false,
     ) {
         Ok(t) => t,
         Err(e) => {
@@ -878,6 +889,7 @@ async fn run_parallel(
                     integrity_mode,
                     signature_mode,
                     xbps_sig.as_ref(),
+                    false,
                 )
             })
             .await;

@@ -3,6 +3,7 @@ pub mod activation;
 pub mod adb;
 pub mod apk;
 pub mod backend;
+pub mod blocked;
 pub mod delta;
 pub mod depends;
 pub mod downloader;

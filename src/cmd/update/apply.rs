@@ -33,11 +33,12 @@ pub async fn apply_uland(
             let cl    = pkg.size_bytes;
             let bar   = ui::make_pkg_bar(mp, cl, &label);
 
-            let url  = pkg.url.clone();
-            let dest = dl_tmp.join(&pkg.filename);
-            let cl2  = client.clone();
+            let url       = pkg.url.clone();
+            let dest      = dl_tmp.join(&pkg.filename);
+            let cl2       = client.clone();
+            let overall_h = overall.clone();
             let h = tokio::spawn(async move {
-                download_with_bar(&cl2, &url, &dest, &bar).await
+                download_with_bar(&cl2, &url, &dest, &bar, &overall_h).await
                     .map(|b| (dest, b))
             });
             handles.push(h);
@@ -51,7 +52,6 @@ pub async fn apply_uland(
                 crate::trust::verify_zex_archive(&zex_path, sig_mode)?;
                 extract_into(&zex_path, Path::new(UNION_PATH))?;
                 update_receipt(&pkg.name, &pkg.new_ver)?;
-                overall.inc(1);
             }
         }
     }
@@ -85,11 +85,12 @@ pub async fn apply_syshub(
             let label = format!("{:<22} → {}", pkg.name, pkg.new_ver);
             let bar   = ui::make_pkg_bar(mp, pkg.size_bytes, &label);
 
-            let url  = pkg.url.clone();
-            let dest = dl_tmp.join(&pkg.filename);
-            let cl2  = client.clone();
+            let url       = pkg.url.clone();
+            let dest      = dl_tmp.join(&pkg.filename);
+            let cl2       = client.clone();
+            let overall_h = overall.clone();
             let h = tokio::spawn(async move {
-                download_with_bar(&cl2, &url, &dest, &bar).await
+                download_with_bar(&cl2, &url, &dest, &bar, &overall_h).await
                     .map(|b| (dest, b))
             });
             handles.push(h);
@@ -103,7 +104,6 @@ pub async fn apply_syshub(
                 // as `cmd::upgrade::syscore`.
                 crate::trust::verify_zex_archive(&zex_path, crate::trust::SignatureVerificationMode::Strict)?;
                 extract_into(&zex_path, &staging)?;
-                overall.inc(1);
             }
         }
     }
@@ -128,10 +128,11 @@ pub async fn apply_syshub(
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 async fn download_with_bar(
-    client: &reqwest::Client,
-    url:    &str,
-    dest:   &Path,
-    bar:    &indicatif::ProgressBar,
+    client:  &reqwest::Client,
+    url:     &str,
+    dest:    &Path,
+    bar:     &indicatif::ProgressBar,
+    overall: &indicatif::ProgressBar,
 ) -> Result<u64> {
     let resp = client.get(url).send().await?.error_for_status()?;
     if let Some(p) = dest.parent() { fs::create_dir_all(p)?; }
@@ -143,6 +144,7 @@ async fn download_with_bar(
         tot += chunk.len() as u64;
         f.write_all(&chunk)?;
         bar.set_position(tot);
+        overall.inc(chunk.len() as u64);
     }
     bar.finish();
     Ok(tot)

@@ -93,13 +93,20 @@ pub fn make_pkg_bar(
 }
 
 /// Build the "Overall Progress" bar shown below the per-package rows.
-pub fn make_overall_bar(mp: &MultiProgress, total: u64) -> ProgressBar {
-    let pb = mp.add(ProgressBar::new(total));
+///
+/// Driven by cumulative bytes downloaded across every package, not by
+/// component-completion count — with only 2 downloads running concurrently,
+/// a component-count bar sits frozen at the same percentage for the entire
+/// duration of the largest file (confirmed live: stuck at "40% (2/5)" for
+/// minutes while a 107MB package was still streaming in), which reads as
+/// hung even though the per-package bar right above it is moving fine.
+pub fn make_overall_bar(mp: &MultiProgress, total_bytes: u64) -> ProgressBar {
+    let pb = mp.add(ProgressBar::new(total_bytes));
     pb.set_style(
         ProgressStyle::with_template(&format!(
             "\n  {BLD}{G}Overall Progress{RST}\n  \
              {G}[{{bar:48}}]{RST} {G}{{percent:>3}}%{RST}   \
-             {DIM}({{pos}}/{{len}} components){RST}"
+             {DIM}({{bytes}}/{{total_bytes}}){RST}"
         ))
         .unwrap()
         .progress_chars(&format!("{FILLED}{FILLED}{EMPTY}")),

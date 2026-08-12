@@ -61,12 +61,19 @@ pub fn make_pkg_bar(mp: &MultiProgress, total: u64, label: &str) -> ProgressBar 
     }
 }
 
-pub fn make_overall_bar(mp: &MultiProgress, total: u64) -> ProgressBar {
-    let pb = mp.add(ProgressBar::new(total));
+/// `total_bytes` — driven by cumulative bytes downloaded across every
+/// package, not component-completion count. A count-driven bar sits frozen
+/// at the same percentage for the entire duration of the largest file in a
+/// batch (confirmed live in the syshub upgrade path this fixes the same
+/// bug in), which reads as hung even while the per-package bar above it is
+/// moving fine.
+pub fn make_overall_bar(mp: &MultiProgress, total_bytes: u64) -> ProgressBar {
+    let pb = mp.add(ProgressBar::new(total_bytes));
     pb.set_style(
         ProgressStyle::with_template(&format!(
             "\n{G}Overall Progress{RST}\n  \
-             {G}[{{bar:48}}]{RST} {G}{{percent:>3}}%{RST}"
+             {G}[{{bar:48}}]{RST} {G}{{percent:>3}}%{RST}   \
+             {DIM}({{bytes}}/{{total_bytes}}){RST}"
         ))
         .unwrap()
         .progress_chars("\u{2588}\u{2588}\u{2591}"),
@@ -122,11 +129,10 @@ pub fn print_truncated(remaining: usize) {
     }
 }
 
-pub fn print_uptodate() {
+pub fn print_uptodate(core_version: &str) {
     println!("\nAll components are already at the latest version.\n");
     println!("{G}System Status{RST}");
-    println!("  Userland version     : {G}2026v3.2{RST}");
-    println!("  Core version         : {G}2026v3.2{RST}");
+    println!("  Core version         : {G}{core_version}{RST}");
     println!("  Up-to-date           : {G}100%{RST}\n");
     println!("{DIM}No updates available.{RST}\n");
 }

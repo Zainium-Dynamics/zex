@@ -21,6 +21,12 @@ pub struct DepPlan {
     pub packages: Vec<PackageInfo>,
     /// Deps that were skipped because they're already installed.
     pub already_installed: Vec<String>,
+    /// (dependency_token, provider_name) pairs for deps skipped because
+    /// syshub already provides them — either file-detected or explicitly
+    /// blocked (`blocked.rs`) — surfaced separately from
+    /// `already_installed` so the UI can say *why* instead of silently
+    /// dropping the dependency with no explanation.
+    pub syshub_provided: Vec<(String, String)>,
     /// Deps that couldn't be resolved (virtual packages, etc.)
     pub unresolvable: Vec<String>,
     /// Total download size of all deps in bytes.
@@ -55,7 +61,30 @@ pub struct DepPlan {
 /// so an exact-string match against a versioned token would always miss.
 fn dep_already_present(token: &str, installed_set: &HashSet<String>) -> bool {
     let base = super::apk::strip_constraint(token).to_ascii_lowercase();
-    installed_set.contains(&base) || super::backend::is_in_syshub(&base)
+    installed_set.contains(&base)
+        || super::blocked::provided_by(&base).is_some()
+        || super::backend::is_in_syshub(&base)
+}
+
+/// If `token` is skipped because syshub (not zex's own registry) already
+/// provides it — either file-detected (`is_in_syshub`) or explicitly
+/// hand-listed (`blocked::provided_by`, for cases with no file-level
+/// overlap to detect, e.g. `coreutils` vs Zainium's own `userutils`) —
+/// returns what provides it, for a "provided by the immutable base"
+/// message instead of silently dropping the dependency with no
+/// explanation at all.
+fn syshub_provider(token: &str, installed_set: &HashSet<String>) -> Option<String> {
+    let base = super::apk::strip_constraint(token).to_ascii_lowercase();
+    if installed_set.contains(&base) {
+        return None;
+    }
+    if let Some(provider) = super::blocked::provided_by(&base) {
+        return Some(provider.to_string());
+    }
+    if super::backend::is_in_syshub(&base) {
+        return Some(base);
+    }
+    None
 }
 
 fn check_version_constraint(token: &str, resolved_version: &str) -> Option<String> {
@@ -124,6 +153,7 @@ pub async fn resolve_dependencies(
         return Ok(DepPlan {
             packages: Vec::new(),
             already_installed: Vec::new(),
+            syshub_provided: Vec::new(),
             unresolvable: Vec::new(),
             total_size: 0,
             conflicts: check_conflicts(&[root]),
@@ -155,50 +185,65 @@ pub async fn resolve_dependencies(
         }
     }
 
-    // BFS: resolve each dep, then enqueue its transitive deps
-    while let Some(dep_name) = queue.pop_front() {
-        if resolved.contains_key(&dep_name) {
-            continue;
-        }
+    // BFS, resolved one *level* at a time instead of one name at a time —
+    // everything currently queued has no dependency on anything else in
+    // the same wave (that's what makes it BFS), so resolving a whole wave
+    // concurrently is safe and doesn't change the result, just how long
+    // it takes to get there. A package with a deep/wide dependency tree
+    // (confirmed live: tmux's chain was 6 packages deep) was previously
+    // paying one full round-trip per dependency, serialized.
+    while !queue.is_empty() {
+        let wave: Vec<String> = queue.drain(..).collect();
+        let wave_results = futures_util::future::join_all(
+            wave.iter().map(|dep_name| {
+                super::resolver::resolve_preferring(dep_name, client, config, mm, preferred_mirror)
+            })
+        ).await;
 
-        match super::resolver::resolve_preferring(&dep_name, client, config, mm, preferred_mirror).await {
-            Ok(super::resolver::ResolvedWithAffinity { info, fell_back_from }) => {
-                if let Some(preferred) = fell_back_from {
-                    if let Some(actual) = &info.source_mirror {
-                        cross_tier_fallbacks.push((info.name.clone(), preferred, actual.clone()));
+        for (dep_name, result) in wave.into_iter().zip(wave_results) {
+            if resolved.contains_key(&dep_name) {
+                continue;
+            }
+
+            match result {
+                Ok(super::resolver::ResolvedWithAffinity { info, fell_back_from }) => {
+                    if let Some(preferred) = fell_back_from {
+                        if let Some(actual) = &info.source_mirror {
+                            cross_tier_fallbacks.push((info.name.clone(), preferred, actual.clone()));
+                        }
+                    }
+
+                    if let Some(reason) = check_version_constraint(&dep_name, &info.version) {
+                        version_conflicts.push((info.name.clone(), reason));
+                    }
+
+                    // Two different dep tokens (e.g. a virtual "so:libfoo.so"
+                    // capability and its real package name) can resolve to the
+                    // same underlying package — don't queue it twice.
+                    if resolved.values().any(|r: &PackageInfo| r.name == info.name) {
+                        continue;
+                    }
+                    let sub_deps = info.depends.clone();
+                    resolved.insert(dep_name.clone(), info);
+
+                    // Enqueue transitive deps for the next wave.
+                    for sub_dep in sub_deps {
+                        if !dep_already_present(&sub_dep, &installed_set)
+                            && !visited.contains(&sub_dep)
+                            && &sub_dep != &root.name
+                        {
+                            queue.push_back(sub_dep.clone());
+                            visited.insert(sub_dep.clone());
+                        }
                     }
                 }
-
-                if let Some(reason) = check_version_constraint(&dep_name, &info.version) {
-                    version_conflicts.push((info.name.clone(), reason));
+                Err(super::resolver::ResolveError::NotFound(_)) => {
+                    unresolvable.push(dep_name);
                 }
-
-                // Two different dep tokens (e.g. a virtual "so:libfoo.so"
-                // capability and its real package name) can resolve to the
-                // same underlying package — don't queue it twice.
-                if resolved.values().any(|r: &PackageInfo| r.name == info.name) {
-                    continue;
+                Err(e) => {
+                    log::warn!("dependency '{}' hit infra error: {}", dep_name, e);
+                    unresolvable.push(dep_name);
                 }
-                let sub_deps = info.depends.clone();
-                resolved.insert(dep_name.clone(), info);
-
-                // Enqueue transitive deps
-                for sub_dep in sub_deps {
-                    if !dep_already_present(&sub_dep, &installed_set)
-                        && !visited.contains(&sub_dep)
-                        && &sub_dep != &root.name
-                    {
-                        queue.push_back(sub_dep.clone());
-                        visited.insert(sub_dep.clone());
-                    }
-                }
-            }
-            Err(super::resolver::ResolveError::NotFound(_)) => {
-                unresolvable.push(dep_name);
-            }
-            Err(e) => {
-                log::warn!("dependency '{}' hit infra error: {}", dep_name, e);
-                unresolvable.push(dep_name);
             }
         }
     }
@@ -212,6 +257,11 @@ pub async fn resolve_dependencies(
         .iter()
         .filter(|d| dep_already_present(d, &installed_set))
         .cloned()
+        .collect();
+    let syshub_provided: Vec<(String, String)> = root
+        .depends
+        .iter()
+        .filter_map(|d| syshub_provider(d, &installed_set).map(|provider| (d.clone(), provider)))
         .collect();
 
     // A dep that's already installed still has to satisfy whatever
@@ -233,6 +283,7 @@ pub async fn resolve_dependencies(
     Ok(DepPlan {
         packages: sorted,
         already_installed,
+        syshub_provided,
         unresolvable,
         total_size,
         conflicts,

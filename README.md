@@ -142,20 +142,6 @@ zex sweep --aggressive
 zex -e ./myapp-1.0.zex -o ./out # extract a package archive to a directory
 ```
 
-### Building packages (`zex fmt`)
-
-```bash
-zex fmt keygen -o ./keys              # generate a real Ed25519 signing keypair
-zex fmt pack ./src-dir --version 1.2.3
-zex fmt verify ./myapp-1.2.3.zex
-zex fmt inspect ./myapp-1.2.3.zex
-zex fmt unpack ./myapp-1.2.3.zex -o ./out
-```
-
-Without a real keypair in place, `zex fmt pack` silently falls back to a
-hardcoded, publicly-known dev key — fine for local testing, never for a
-real release. See [`ZEX-FORMAT.md`](./ZEX-FORMAT.md) for key placement.
-
 ## Configuration
 
 | File | Purpose |

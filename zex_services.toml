@@ -13,14 +13,14 @@ elevate zex uland --u   # Upgrades userland packages across Tier 1 to Tier 4
 elevate zex syshub -u   # Upgrades Syshub core & Zaisys engine via native stream
 """
 
-# TIER 1: NATIVE ZAINIUM SECURE NEXUS (Zstd-backed Native .zex Format)
+# TIER 1: Native Zainium 
 
 # 1. Core Syshub Base (Absolute Tier 0/1 For Syshub Upgrades)
 [[mirrors]]
 id              = "zainium-core-stable-syshub"
 description     = "Zainium OS Stable Core Syshub Repository"
-base_url        = "https://archive.zainiumdynamics.tech/core/stable/packages"
-index_url       = "https://archive.zainiumdynamics.tech/core/stable/syshub.toml"
+base_url        = "https://archive.zainiumdynamics.tech/core/syshub/x86_64/packages"
+index_url       = "https://archive.zainiumdynamics.tech/core/syshub/x86_64/syshub.toml"
 format          = "zex"
 priority        = 1
 supported_archs = ["x86_64"]

@@ -45,7 +45,10 @@ struct ParsedZexForVerify {
     manifest: ZexManifest,
     manifest_raw: String,
     sig_b3: String,
-    payload_files: Vec<(String, Vec<u8>)>,
+    /// (archive path, bytes, symlink target). `target` is `Some(..)` for
+    /// symlink entries — `bytes` is always empty for those (tar carries no
+    /// body for a symlink), matching Substrate's `core/verifier.rs` exactly.
+    payload_files: Vec<(String, Vec<u8>, Option<String>)>,
 }
 
 /// Decompress + tar-walk a `.zex` archive, pulling out `manifest.toml`,
@@ -58,7 +61,7 @@ fn parse_for_verification(data: Vec<u8>) -> Result<ParsedZexForVerify> {
 
     let mut manifest_toml: Option<String> = None;
     let mut sig_b3_file: Option<String> = None;
-    let mut payload_files: Vec<(String, Vec<u8>)> = Vec::new();
+    let mut payload_files: Vec<(String, Vec<u8>, Option<String>)> = Vec::new();
 
     for entry in archive.entries().context("tar read failed")? {
         let mut entry = entry.context("tar entry error")?;
@@ -67,6 +70,18 @@ fn parse_for_verification(data: Vec<u8>) -> Result<ParsedZexForVerify> {
         if path.contains("../") || path.contains("/..") {
             bail!("SECURITY: path traversal in package: {path}");
         }
+
+        // Symlink entries carry no body in the tar — their contribution to
+        // the payload hash is the link TARGET string instead, exactly as
+        // `substrate pack`'s packer.rs computed it at sign time. Reading
+        // link_name() must happen before read_to_end() consumes the entry.
+        let is_symlink = entry.header().entry_type().is_symlink();
+        let link_target = if is_symlink {
+            entry.link_name().context("reading symlink target")?
+                .map(|p| p.to_string_lossy().to_string())
+        } else {
+            None
+        };
 
         let mut bytes = Vec::new();
         entry.read_to_end(&mut bytes).context("reading tar entry")?;
@@ -85,7 +100,7 @@ fn parse_for_verification(data: Vec<u8>) -> Result<ParsedZexForVerify> {
                 );
             }
             p if p.starts_with("payload/") => {
-                payload_files.push((path, bytes));
+                payload_files.push((path, bytes, link_target));
             }
             _ => {}
         }
@@ -111,9 +126,12 @@ fn parse_for_verification(data: Vec<u8>) -> Result<ParsedZexForVerify> {
 ///   3. recomputed signature.b3 == the archive's own signature.b3 entry
 fn verify_embedded(parsed: &ParsedZexForVerify, key: &VerifyingKey) -> Result<bool> {
     let mut payload_hasher = blake3::Hasher::new();
-    for (path, bytes) in &parsed.payload_files {
+    for (path, bytes, target) in &parsed.payload_files {
         payload_hasher.update(path.as_bytes());
-        payload_hasher.update(bytes);
+        match target {
+            Some(t) => payload_hasher.update(t.as_bytes()),
+            None => payload_hasher.update(bytes),
+        };
     }
     let computed_blake3 = payload_hasher.finalize().to_hex().to_string();
 

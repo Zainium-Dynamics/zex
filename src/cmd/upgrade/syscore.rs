@@ -52,7 +52,6 @@ const DL_TMP:         &str = "/overlayer/zexlib/tmp/syshub-dl";
 const LOCAL_MANIFEST: &str = "/overlayer/syshub/engine/services/syshub.toml";
 const ZEX_SERVICES:   &str = "/overlayer/syshub/engine/services/zex_services.toml";
 const ROLLBACK_STAGE: &str = "/overlayer/zexlib/tmp/syshub-rollback";
-const PING_URL:       &str = "https://archive.zainiumdynamics.tech/ping";
 
 // ── TOML schemas ───────────────────────────────────────────────────────────────
 #[derive(Debug, Deserialize, Clone)]
@@ -133,7 +132,19 @@ pub async fn execute() -> Result<()> {
 
     ui::print_checking(&current_ver);
 
-    let remote_raw = reqwest::get(&mirror.index_url).await
+    // Pinned client, not a bare `reqwest::get()` — the manifest fetch is
+    // exactly the request that most needs TLS pinning (it's what tells
+    // this whole run what to trust as "the real syshub index"), and an
+    // unpinned call here was silently exempt from the same protection
+    // every other zex HTTP request goes through.
+    // Built once and reused for every request this run makes (manifest
+    // fetch, all HEAD content-length probes, all package downloads) —
+    // building a fresh client per call was measurably wasteful: each one
+    // reloads the webpki root store and re-reads the TLS pins config file
+    // from disk, and a real 5-package upgrade was doing this 10+ times
+    // for what should be one client's worth of connections.
+    let client = crate::http_client::build("zex-syshub")?;
+    let remote_raw = client.get(&mirror.index_url).send().await
         .context("fetching remote syshub.toml")?
         .error_for_status()?
         .text().await?;
@@ -155,8 +166,18 @@ pub async fn execute() -> Result<()> {
         .collect();
     ui::print_syshub_package_list(&pkg_list);
 
-    let est_mb = (upgrades.len() as f64) * 48.0;
-    ui::print_transaction_summary(upgrades.len(), est_mb);
+    // Real sizes, not a flat per-component estimate — confirmed live that
+    // "48MB × component count" was wildly off (240MB estimated vs 114.65MB
+    // actually downloaded for 5 real packages), and this same total feeds
+    // the overall progress bar below, so it needs to be accurate for that
+    // bar's percentage to mean anything. Fetched concurrently — these are
+    // header-only HEAD requests, but sequential round-trips still add up
+    // once there are more than a couple of components.
+    let head_checks: Vec<u64> = futures_util::future::join_all(
+        upgrades.iter().map(|u| content_length(&client, &u.url))
+    ).await.into_iter().map(|c| c.unwrap_or(0)).collect();
+    let real_total_bytes: u64 = head_checks.iter().sum();
+    ui::print_transaction_summary(upgrades.len(), real_total_bytes as f64 / 1_048_576.0);
 
     if !ui::print_proceed_prompt() {
         println!("\n {DIM}Upgrade cancelled.{RST}", DIM = ui::DIM, RST = ui::RST);
@@ -178,41 +199,50 @@ pub async fn execute() -> Result<()> {
 
     // ── 6. Download ALL packages (2 concurrent), extract into syshub.new ─────
     let mp = MultiProgress::new();
-    let overall = ui::make_overall_bar(&mp, upgrades.len() as u64);
+    let overall = ui::make_overall_bar(&mp, real_total_bytes);
     overall.set_position(0);
 
     let mut downloaded: Vec<String> = Vec::new();
     let mut total_bytes: u64 = 0;
 
-    for chunk in upgrades.chunks(2) {
+    // Paired with head_checks so the per-package bar's length reuses the
+    // HEAD probe already done above instead of firing a second, redundant
+    // request for the exact same URL.
+    let sized_upgrades: Vec<(&UpgradePkg, u64)> = upgrades.iter().zip(head_checks.iter().copied()).collect();
+
+    for chunk in sized_upgrades.chunks(2) {
         // ── Download chunk concurrently ───────────────────────────────────────
         let mut handles = Vec::new();
-        for pkg in chunk {
+        for (pkg, cl) in chunk {
             let label = format!("{:<20} {} → {}", pkg.name, pkg.old_ver, pkg.new_ver);
-            let cl  = content_length(&pkg.url).await.unwrap_or(0);
-            let bar = ui::make_pkg_bar(&mp, cl, &label);
+            let bar = ui::make_pkg_bar(&mp, *cl, &label);
 
-            let url  = pkg.url.clone();
-            let dest = dl_tmp.join(&pkg.filename);
-            let name = pkg.name.clone();
+            let url       = pkg.url.clone();
+            let dest      = dl_tmp.join(&pkg.filename);
+            let name      = pkg.name.clone();
+            let overall_h = overall.clone();
+            let client_h  = client.clone();
             let h = tokio::spawn(async move {
-                download_with_bar(&url, &dest, &bar).await
+                download_with_bar(&client_h, &url, &dest, &bar, &overall_h).await
                     .map(|b| (name, dest, b))
             });
             handles.push(h);
         }
 
-        // Collect results
+        // Collect results — zipped with `chunk` so a failure can be
+        // attributed to the package that actually failed, not just
+        // whichever one happened to be first in the pair (the download
+        // future's own Err carries no package identity by the time it
+        // gets here, since only the success path threads `name` back out).
         let mut chunk_results: Vec<(String, PathBuf, u64)> = Vec::new();
-        for h in handles {
+        for ((pkg, _), h) in chunk.iter().zip(handles) {
             match h.await {
                 Ok(Ok(r))  => chunk_results.push(r),
                 Ok(Err(e)) => {
-                    let who = chunk.first().map(|p| p.name.as_str()).unwrap_or("unknown");
                     // Clean up staging + dl_tmp
                     fs::remove_dir_all(staging).ok();
                     fs::remove_dir_all(dl_tmp).ok();
-                    ui::print_download_interrupted(who);
+                    ui::print_download_interrupted(&pkg.name);
                     log_audit("syshub", &downloaded, "rolled_back",
                               Some(&e.to_string()), started.elapsed().as_millis() as u64);
                     std::process::exit(1);
@@ -234,7 +264,6 @@ pub async fn execute() -> Result<()> {
                 .with_context(|| format!("extracting {pkg_name}"))?;
 
             downloaded.push(pkg_name.clone());
-            overall.inc(1);
         }
     }
 
@@ -369,6 +398,20 @@ fn diff_packages(
 fn val_str(v: &toml::Value) -> String {
     match v {
         toml::Value::String(s) => s.clone(),
+        // Real syshub.toml entries are tables ([packages.zlib] with a
+        // `version` field, size_bytes, depends, etc.), not plain strings —
+        // stringifying the whole table here previously produced a garbled
+        // "new version" (the debug-printed table itself) that broke both
+        // the upgrade-vs-current version comparison (a real upgrade like
+        // binutils 2.42->2.47 silently failed to register, since comparing
+        // "2.42" against a whole table-blob string never looks like an
+        // upgrade) and crashed the download progress bar (stray `{`/`}`
+        // characters from the table blob broke indicatif's template
+        // parser). Matches `cmd::update::diff::val_str`'s already-correct
+        // handling of this same shape.
+        toml::Value::Table(t) => t.get("version")
+            .and_then(|v| v.as_str())
+            .unwrap_or("0").to_string(),
         other => other.to_string().trim_matches('"').to_string(),
     }
 }
@@ -376,29 +419,30 @@ fn val_str(v: &toml::Value) -> String {
 async fn online() -> bool {
     let Ok(client) = crate::http_client::build("zex-syshub/ping") else { return false };
 
-    if let Ok(r) = client.get(PING_URL).send().await {
-        if r.status().is_success() {
-            return true;
-        }
-    }
-
-    // Same reasoning as cmd::upgrade::userland::online / cmd::update::online:
-    // the Tier 1 (Zainium) ping endpoint being down doesn't mean there's no
-    // internet at all.
+    // There is no more zex-server / API backend behind archive.zainiumdynamics.tech
+    // to ping (it was decommissioned — the domain now only serves static
+    // package files via Cloudflare/R2) — a `/ping` attempt against it would
+    // permanently 404, wasting a full network round-trip on every syshub
+    // upgrade before falling through here anyway. Go straight to a generic
+    // reachability probe.
     client.head("https://mirrors.edge.kernel.org/").send().await
         .map(|r| r.status().is_success())
         .unwrap_or(false)
 }
 
-async fn content_length(url: &str) -> Option<u64> {
-    let client = crate::http_client::build("zex-syshub/head").ok()?;
+async fn content_length(client: &reqwest::Client, url: &str) -> Option<u64> {
     let r = client.head(url).send().await.ok()?;
     r.headers().get(reqwest::header::CONTENT_LENGTH)?
         .to_str().ok()?.parse().ok()
 }
 
-async fn download_with_bar(url: &str, dest: &Path, bar: &indicatif::ProgressBar) -> Result<u64> {
-    let client = crate::http_client::build("zex-syshub/download")?;
+async fn download_with_bar(
+    client: &reqwest::Client,
+    url: &str,
+    dest: &Path,
+    bar: &indicatif::ProgressBar,
+    overall: &indicatif::ProgressBar,
+) -> Result<u64> {
     let resp = client.get(url).send().await?.error_for_status()?;
     if let Some(p) = dest.parent() { fs::create_dir_all(p)?; }
     let mut f   = std::io::BufWriter::new(fs::File::create(dest)?);
@@ -410,6 +454,7 @@ async fn download_with_bar(url: &str, dest: &Path, bar: &indicatif::ProgressBar)
         use std::io::Write;
         f.write_all(&chunk)?;
         bar.set_position(tot);
+        overall.inc(chunk.len() as u64);
     }
     bar.finish();
     Ok(tot)
