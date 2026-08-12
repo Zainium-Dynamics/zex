@@ -391,16 +391,35 @@ fn parse_entry_toml(name_hint: Option<&str>, value: &TomlValue) -> Option<ZexInd
     let provides = parse_depends_toml(obj.get("provides"));
     let requires_syshub = pick_string_toml(obj, &["requires_syshub", "syshub", "base_os"]);
 
+    // zex_ledger-x86_64.toml/syshub.toml are the only formats actually
+    // published (see zex-server's ledger.rs) — no JSON index exists in
+    // production, so this is the path that matters for these fields.
+    let ed25519_sig  = pick_string_toml(obj, &["ed25519_sig", "sig", "signature"]);
+    let description  = pick_string_toml(obj, &["description", "desc", "summary"]);
+    let license      = pick_string_toml(obj, &["license", "spdx"]);
+    let maintainer   = pick_string_toml(obj, &["maintainer", "author", "packager"]);
+    let tags         = parse_depends_toml(obj.get("tags").or_else(|| obj.get("keywords")));
+    let build_type   = pick_string_toml(obj, &["build_type", "link_type"]);
+    let libc_target  = pick_string_toml(obj, &["libc_target", "libc"]);
+    let edition      = pick_string_toml(obj, &["edition"]);
+
     Some(ZexIndexEntry {
         real_name,
         version,
         size,
         file,
         blake3,
+        ed25519_sig,
         depends,
         provides,
         requires_syshub,
-        ..Default::default()
+        description,
+        license,
+        maintainer,
+        tags,
+        build_type,
+        libc_target,
+        edition,
     })
 }
 
