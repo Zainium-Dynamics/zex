@@ -59,14 +59,26 @@ pub fn maybe_swap_zex(
     }
 
     // 1. Back up the live binary (keeps the old inode open for currently
-    //    running zex processes — they will finish normally on their old inode).
+    //    running zex processes — they will finish normally on their old
+    //    inode regardless of whether the directory entry goes away via
+    //    rename or via copy+unlink below — either way removes ZEX_LIVE's
+    //    directory entry, which is the only property that matters here).
+    //
+    //    Uses `atomic_place`'s existing rename-with-copy-fallback instead
+    //    of a bare `fs::rename` — confirmed live that `/overlayer/syshub`
+    //    can be a separate mount from its parent `/overlayer` (this OS
+    //    layers syshub as its own mount for ro/rw toggling), which makes a
+    //    same-filesystem-only `fs::rename` fail with EXDEV even though the
+    //    bulk per-file copy loop just below (step 10) already handles this
+    //    exact case for every other file — the swap step was the only
+    //    place in this pipeline that didn't.
     if Path::new(ZEX_LIVE).exists() {
-        fs::rename(ZEX_LIVE, ZEX_BAK)
+        atomic_place(Path::new(ZEX_LIVE), Path::new(ZEX_BAK))
             .context("renaming live zex to .bak")?;
     }
 
-    // 2. Atomically place the new binary.
-    match fs::rename(&new_bin, ZEX_LIVE) {
+    // 2. Place the new binary (same EXDEV-safe rename-or-copy).
+    match atomic_place(&new_bin, Path::new(ZEX_LIVE)) {
         Ok(_) => {
             // Ensure executable bit is set on the new binary.
             #[cfg(unix)]

@@ -1,12 +1,23 @@
-//! elfpatch.rs — Rewrites ELF `PT_INTERP`/`RPATH` for T2/T3/T4 packages.
+//! elfpatch.rs — Rewrites ELF `PT_INTERP`/`RPATH` for staged binaries.
 //!
 //! Alpine (`.apk`), Void (`.xbps`), and Chimera (`.adb`) packages are built
 //! against their own distro's FHS layout: their binaries carry
 //! `PT_INTERP` pointing at `/lib/ld-musl-x86_64.so.1` and `RPATH`/`RUNPATH`
 //! entries under `/usr/lib`. Neither resolves under Zainium's
 //! `/overlayer/` tree, so without rewriting, these packages install but
-//! their binaries can't actually run. `T1` (`.zex`) packages are excluded
-//! — they're already built against `/overlayer/` at packaging time.
+//! their binaries can't actually run.
+//!
+//! Called unconditionally by `installer.rs`, regardless of container
+//! format — NOT just for raw `.apk`/`.xbps`/`.adb`. A `.zex` container
+//! does not by itself mean "already built against `/overlayer/`": a
+//! foreign package substrate has repackaged INTO a `.zex` container
+//! (confirmed live: the real `curl-dev-8.21.0.zex`, which ships
+//! `native = false` in its own manifest.toml) still carries whatever the
+//! source distro built it against unless something rewrites it. Only a
+//! genuinely T1-native `.zex` is already correct, and this pass is a
+//! no-op against one — [`patch_one`] only rewrites entries it recognizes
+//! as FHS paths and otherwise just appends the fallback RPATH entries if
+//! they're missing.
 //!
 //! Built on [`oxipatch`], a from-scratch, tested patchelf-equivalent
 //! library (not reimplemented here — see `next.md`/`plan.md` for why).

@@ -16,15 +16,18 @@
 //!   3. Download ALL packages (2 concurrent) into /overlayer/zexlib/tmp/dl/
 //!   4. Verify all (signature + libc-boundary)
 //!   5. Extract ALL into ONE /overlayer/syshub.new/  ← merged tree
-//!   6. Detect zex self-upgrade → swap binary via swap::maybe_swap_zex()
-//!   7. Remount syshub rw
+//!   6. Remount syshub rw
+//!   7. Detect zex self-upgrade → swap binary via swap::maybe_swap_zex()
+//!      (must come after the rw remount, not before — confirmed live:
+//!      /overlayer/syshub is genuinely read-only until then, so writing
+//!      the swapped-in binary's new directory entry fails otherwise)
 //!   8. Walk syshub.new → atomic_place every file onto /overlayer/syshub/
 //!   9. Update local manifest
 //!  10. Remount syshub ro
 //!  11. Cleanup + audit
 
 use anyhow::{Context, Result, bail};
-use futures_util::StreamExt;
+use futures_util::{stream, StreamExt};
 use indicatif::MultiProgress;
 use serde::Deserialize;
 use std::{
@@ -210,61 +213,55 @@ pub async fn execute() -> Result<()> {
     // request for the exact same URL.
     let sized_upgrades: Vec<(&UpgradePkg, u64)> = upgrades.iter().zip(head_checks.iter().copied()).collect();
 
-    for chunk in sized_upgrades.chunks(2) {
-        // ── Download chunk concurrently ───────────────────────────────────────
-        let mut handles = Vec::new();
-        for (pkg, cl) in chunk {
-            let label = format!("{:<20} {} → {}", pkg.name, pkg.old_ver, pkg.new_ver);
-            let bar = ui::make_pkg_bar(&mp, *cl, &label);
+    // Sliding-window concurrency (`buffer_unordered`), not fixed pairs.
+    // The old `for chunk in sized_upgrades.chunks(2)` held BOTH slots of a
+    // pair open until BOTH finished — confirmed live: a 914KB package
+    // finished and just sat at its bar's 100% for minutes while its
+    // much-larger chunk-mate kept streaming, wasting the freed slot
+    // instead of immediately starting package #3. `buffer_unordered(2)`
+    // keeps exactly 2 downloads in flight at all times — the instant one
+    // finishes, the next queued package starts, no matter which slot or
+    // pairing it happened to land in.
+    let mut in_flight = stream::iter(sized_upgrades.into_iter().map(|(pkg, content_len)| {
+        let label = format!("{:<20} {} → {}", pkg.name, pkg.old_ver, pkg.new_ver);
+        let bar = ui::make_pkg_bar(&mp, content_len, &label);
 
-            let url       = pkg.url.clone();
-            let dest      = dl_tmp.join(&pkg.filename);
-            let name      = pkg.name.clone();
-            let overall_h = overall.clone();
-            let client_h  = client.clone();
-            let h = tokio::spawn(async move {
-                download_with_bar(&client_h, &url, &dest, &bar, &overall_h).await
-                    .map(|b| (name, dest, b))
-            });
-            handles.push(h);
+        let url       = pkg.url.clone();
+        let dest      = dl_tmp.join(&pkg.filename);
+        let name      = pkg.name.clone();
+        let overall_h = overall.clone();
+        let client_h  = client.clone();
+        async move {
+            let result = download_with_bar(&client_h, &url, &dest, &bar, &overall_h).await;
+            (name, dest, result)
         }
+    }))
+    .buffer_unordered(2);
 
-        // Collect results — zipped with `chunk` so a failure can be
-        // attributed to the package that actually failed, not just
-        // whichever one happened to be first in the pair (the download
-        // future's own Err carries no package identity by the time it
-        // gets here, since only the success path threads `name` back out).
-        let mut chunk_results: Vec<(String, PathBuf, u64)> = Vec::new();
-        for ((pkg, _), h) in chunk.iter().zip(handles) {
-            match h.await {
-                Ok(Ok(r))  => chunk_results.push(r),
-                Ok(Err(e)) => {
-                    // Clean up staging + dl_tmp
-                    fs::remove_dir_all(staging).ok();
-                    fs::remove_dir_all(dl_tmp).ok();
-                    ui::print_download_interrupted(&pkg.name);
-                    log_audit("syshub", &downloaded, "rolled_back",
-                              Some(&e.to_string()), started.elapsed().as_millis() as u64);
-                    std::process::exit(1);
-                }
-                Err(e) => bail!("task join: {e}"),
+    while let Some((pkg_name, zex_path, result)) = in_flight.next().await {
+        let bytes = match result {
+            Ok(b) => b,
+            Err(e) => {
+                // Clean up staging + dl_tmp
+                fs::remove_dir_all(staging).ok();
+                fs::remove_dir_all(dl_tmp).ok();
+                ui::print_download_interrupted(&pkg_name);
+                log_audit("syshub", &downloaded, "rolled_back",
+                          Some(&e.to_string()), started.elapsed().as_millis() as u64);
+                std::process::exit(1);
             }
-        }
+        };
+        total_bytes += bytes;
 
-        // ── Verify + extract each .zex into THE SAME syshub.new ──────────────
-        for (pkg_name, zex_path, bytes) in &chunk_results {
-            total_bytes += bytes;
+        // Ed25519 signature check — against the pubkey embedded in the
+        // package's own manifest.toml (syshub core is always Strict).
+        crate::trust::verify_zex_archive(&zex_path, crate::trust::SignatureVerificationMode::Strict)?;
 
-            // Ed25519 signature check — against the pubkey embedded in the
-            // package's own manifest.toml (syshub core is always Strict).
-            crate::trust::verify_zex_archive(zex_path, crate::trust::SignatureVerificationMode::Strict)?;
+        // Extract payload/* into /overlayer/syshub.new/  (merged tree)
+        extract_zex_into(&zex_path, staging)
+            .with_context(|| format!("extracting {pkg_name}"))?;
 
-            // Extract payload/* into /overlayer/syshub.new/  (merged tree)
-            extract_zex_into(zex_path, staging)
-                .with_context(|| format!("extracting {pkg_name}"))?;
-
-            downloaded.push(pkg_name.clone());
-        }
+        downloaded.push(pkg_name);
     }
 
     overall.finish_and_clear();
@@ -274,25 +271,48 @@ pub async fn execute() -> Result<()> {
     ui::print_phase("Verifying integrity");
     verify_libc_boundaries(staging)?;
 
-    // ── 8. Zex self-upgrade swap ──────────────────────────────────────────────
-    // If syshub.toml shows a new zex version, swap the binary NOW
-    // (before we remount rw — the swap itself uses rename which works on ro too
-    //  because we're swapping inside syshub.new → syshub, not within syshub).
+    // ── 8. Remount syshub rw ───────────────────────────────────────────────────
+    // Must happen BEFORE the swap step below, not after. `/overlayer/syshub`
+    // is genuinely mounted read-only until this call — confirmed live: the
+    // swap's own rename (and its EXDEV copy-fallback, which needs to CREATE
+    // a new file in `/overlayer/syshub/bin/`) failed with "Permission
+    // denied" every time while this remount was still ordered afterward.
+    // Old reasoning here claimed rename "works on ro too because we're
+    // swapping inside syshub.new → syshub, not within syshub" — that
+    // conflates the RENAME SOURCE (staging, always writable) with the
+    // RENAME DESTINATION (`/overlayer/syshub/bin/zex`), whose *containing
+    // directory* is exactly what the ro mount protects; the source being
+    // writable was never what mattered.
+    remount(SYSHUB_PATH, true)?;
+
+    // ── 9. Zex self-upgrade swap ───────────────────────────────────────────────
+    // If syshub.toml shows a new zex version, swap the binary now that
+    // syshub is actually writable.
     let old_zex_ver = local.packages.get("zex")
         .map(|v| val_str(v)).unwrap_or_else(|| "0".into());
     let new_zex_ver = remote.packages.get("zex")
         .map(|v| val_str(v)).unwrap_or_else(|| old_zex_ver.clone());
 
-    let zex_swapped = swap::maybe_swap_zex(staging, &old_zex_ver, &new_zex_ver)
-        .context("self-upgrade swap of zex binary")?;
+    let zex_swapped = match swap::maybe_swap_zex(staging, &old_zex_ver, &new_zex_ver) {
+        Ok(swapped) => swapped,
+        Err(e) => {
+            // Swap failed after we'd already remounted rw — leaving the
+            // base mounted rw on a hard error would silently drop the
+            // "immutable" guarantee for however long until the next
+            // upgrade attempt happens to fix it. Put it back before
+            // propagating, matching how the later file-commit rollback
+            // branch already remounts ro on its own failure path.
+            remount(SYSHUB_PATH, false).ok();
+            fs::remove_dir_all(staging).ok();
+            fs::remove_dir_all(dl_tmp).ok();
+            return Err(e).context("self-upgrade swap of zex binary");
+        }
+    };
 
     if zex_swapped {
         println!("  {G}✓{RST}  zex self-upgraded: {B}{old_zex_ver}{RST} → {G}{new_zex_ver}{RST}",
             G = ui::G, RST = ui::RST, B = ui::B);
     }
-
-    // ── 9. Remount syshub rw ──────────────────────────────────────────────────
-    remount(SYSHUB_PATH, true)?;
 
     // ── 10. Atomic overwrite: walk syshub.new → place onto syshub ─────────────
     ui::print_phase("Applying to immutable base");

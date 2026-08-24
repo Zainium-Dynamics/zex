@@ -89,7 +89,14 @@ pub async fn run(raw_args: Vec<String>) -> anyhow::Result<()> {
         Commands::Syshub { u } => {
             if u {
                 if let Err(e) = syscore::execute().await {
-                    eprintln!("✗ Syshub upgrade failed: {}", e);
+                    // `{:#}` prints the full anyhow context chain, not just
+                    // the topmost `.context(...)` — a bare `{}` here was
+                    // hiding the real underlying cause behind whichever
+                    // wrapper message happened to be outermost, confirmed
+                    // live: every failure just said "self-upgrade swap of
+                    // zex binary" with no way to tell which of several
+                    // possible causes inside that step actually fired.
+                    eprintln!("✗ Syshub upgrade failed: {:#}", e);
                     std::process::exit(1);
                 }
             } else {
@@ -99,7 +106,7 @@ pub async fn run(raw_args: Vec<String>) -> anyhow::Result<()> {
         Commands::Uland { u } => {
             if u {
                 if let Err(e) = userland::execute().await {
-                    eprintln!("✗ Userland upgrade failed: {}", e);
+                    eprintln!("✗ Userland upgrade failed: {:#}", e);
                     std::process::exit(1);
                 }
             } else {

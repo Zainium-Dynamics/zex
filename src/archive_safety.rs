@@ -115,16 +115,23 @@ pub fn sanitize_link_target(owner_path: &Path, target: &Path) -> Result<PathBuf>
 pub fn safe_join_under(root: &Path, rel: &Path) -> Result<PathBuf> {
     let clean = sanitize_archive_path(rel)?;
     let dest = root.join(&clean);
+
+    // `clean` is already guaranteed traversal-free by sanitize_archive_path
+    // (any `..` component bails there), so this is defense-in-depth, not
+    // the primary guarantee — and it must not depend on `dest`'s parent
+    // directory already existing on disk. A file entry's parent dirs
+    // aren't created until *after* this call returns (see unpack_tar), and
+    // real archives can ship a file entry with no preceding directory
+    // entry for its parent at all (confirmed live: curl-dev-8.21.0.zex's
+    // `payload/include/curl/curl.h`). The old code canonicalized
+    // `dest.parent()` and silently fell back to the raw, possibly-relative
+    // `dest` when that lookup failed (nonexistent dir) — which then never
+    // `starts_with` the always-absolute canonicalized `root`, a permanent
+    // false positive that made every such real package fail to extract.
+    // Joining `clean` onto the canonicalized root instead needs no
+    // filesystem lookup and can't produce this mismatch.
     let root_canon = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
-    let dest_parent = dest.parent().unwrap_or(root);
-    let dest_canon = dest_parent
-        .canonicalize()
-        .map(|p| if dest.file_name().is_some() {
-            p.join(dest.file_name().unwrap())
-        } else {
-            p
-        })
-        .unwrap_or_else(|_| dest.clone());
+    let dest_canon = root_canon.join(&clean);
 
     if !dest_canon.starts_with(&root_canon) {
         bail!(

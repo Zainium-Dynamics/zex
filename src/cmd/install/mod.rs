@@ -17,6 +17,7 @@ pub mod installer;
 pub mod lock_graph;
 pub mod lockfile;
 pub mod native_sig;
+pub mod pcpatch;
 pub mod pinning;
 pub mod postmortem;
 pub mod pubgrub_resolver;

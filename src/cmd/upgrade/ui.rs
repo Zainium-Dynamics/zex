@@ -64,12 +64,17 @@ pub fn make_pkg_bar(
     total_b:   u64,
     pkg_label: &str,   // e.g. "rust-1.78.0       → 1.81.0"
 ) -> ProgressBar {
+    // Package name on its own line above the bar — confirmed live that
+    // cramming it onto the same line as the bar/percent/speed/eta made it
+    // the first thing squeezed out on a normal-width terminal (the bar
+    // template's own fields have no give, so the name-column just never
+    // rendered at all rather than truncating gracefully).
     let label = format!("  {P}{:<38}{RST}", pkg_label);
     if total_b == 0 {
         let pb = mp.add(ProgressBar::new_spinner());
         pb.set_style(
             ProgressStyle::with_template(&format!(
-                "{}  {{spinner}} {{bytes}} downloaded", label
+                "{label}\n  {{spinner}} {{bytes}} downloaded"
             ))
             .unwrap()
             .tick_strings(&["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"]),
@@ -80,7 +85,7 @@ pub fn make_pkg_bar(
         let pb = mp.add(ProgressBar::new(total_b));
         pb.set_style(
             ProgressStyle::with_template(&format!(
-                "{{bytes:>10}}/{{total_bytes:<10}} {G}[{{bar:{BAR_W}}}]{RST} \
+                "{label}\n  {{bytes:>10}}/{{total_bytes:<10}} {G}[{{bar:{BAR_W}}}]{RST} \
                  {G}{{percent:>3}}%{RST}   {B}{{binary_bytes_per_sec:<12}}{RST} \
                  {DIM}{{eta}}{RST}"
             ))
@@ -269,7 +274,13 @@ pub fn print_uland_starting() {
     println!("{DIM}Downloading & Upgrading packages...{RST}\n");
 }
 
-pub fn print_uland_done(count: usize, total_gb: f64, secs: u64, new_ver: &str) {
+// `new_ver` was dropped from this signature: there is no single coherent
+// "userland version" — each upgraded package carries its own independent
+// version, and this was printing one fabricated placeholder value
+// ("2026v3.2") as if it applied to all of them. Same fix already applied
+// to `cmd::update::ui::print_uptodate` for the identical fabricated-value
+// pattern; ported here since this is a separate, independent call site.
+pub fn print_uland_done(count: usize, total_gb: f64, secs: u64) {
     println!("\n {G}✓ Userland Upgrade Completed Successfully{RST}\n");
     println!("{G}Upgrade Summary{RST}");
     println!("  Packages upgraded     : {G}{count:02}{RST}");
@@ -277,7 +288,6 @@ pub fn print_uland_done(count: usize, total_gb: f64, secs: u64, new_ver: &str) {
     let mins = secs / 60;
     let rem  = secs % 60;
     println!("  Time taken            : {B}{mins} minutes {rem} seconds{RST}");
-    println!("  New userland version  : {G}{new_ver}{RST}\n");
     println!("{G}Zainium OS is now running the latest userland components.{RST}\n");
 }
 

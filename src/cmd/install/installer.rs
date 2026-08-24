@@ -225,17 +225,38 @@ pub fn install(
     // Detect the actual binary name from extracted files (Phase 4 — launch_cmd fix)
     let detected_launch = detect_launch_cmd(&staged_files, &store_path);
 
-    // ── Step 3b: ELF-patch T2/T3/T4 binaries ──────────────────────────────
+    // ── Step 3b: ELF-patch + pkg-config-patch staged files ────────────────
     //
     // Alpine/Void/Chimera binaries carry a host-FHS PT_INTERP/RPATH that
-    // doesn't resolve under /overlayer/. Must happen here, while
-    // staged_files are still mutable under store_path — files become
-    // immutable right after commit() at Step 7 below.
-    if info.format != PackageFormat::Zex {
-        if let Err(e) = super::elfpatch::patch_staged_elfs(&staged_files) {
-            cleanup_snapshot(&snapshot_dir);
-            return Err(e);
-        }
+    // doesn't resolve under /overlayer/, and their `-dev` packages' `.pc`
+    // files carry FHS `prefix=/usr` path variables that don't either. Must
+    // happen here, while staged_files are still mutable under store_path —
+    // files become immutable right after commit() at Step 7 below.
+    //
+    // Unconditional across every PackageFormat — NOT gated on
+    // `info.format != PackageFormat::Zex` as before. That gate assumed a
+    // `.zex` container always means "already correctly built against
+    // /overlayer/ at packaging time", which is only true for genuinely
+    // T1-native packages. It's false for foreign packages substrate has
+    // repackaged INTO a `.zex` container (confirmed live: the real
+    // production `curl-dev-8.21.0.zex` ships `native = false` in its own
+    // manifest.toml and its `libcurl.pc` still had a wrong prefix baked
+    // in) — those never reached either patch pass under the old gate.
+    // Both passes are idempotent no-ops on already-correct native
+    // binaries/`.pc` files (elfpatch only rewrites genuinely-FHS entries
+    // and otherwise just appends missing fallback RPATH entries; pcpatch
+    // only rewrites lines already under a recognized foreign/wrong root),
+    // so running them unconditionally is safe.
+    if let Err(e) = super::elfpatch::patch_staged_elfs(&staged_files) {
+        cleanup_snapshot(&snapshot_dir);
+        return Err(e);
+    }
+    if let Err(e) = super::pcpatch::patch_staged_pkgconfig(
+        &staged_files,
+        crate::archive_safety::UNION_ROOT,
+    ) {
+        cleanup_snapshot(&snapshot_dir);
+        return Err(e);
     }
 
     // ── Step 4: Compute final system paths ───────────────────────────────
@@ -841,7 +862,10 @@ fn extract_zex(zex_path: &Path, dest: &Path, installed: &mut Vec<PathBuf>) -> Re
 
     let mut sig_b3_expected: Option<String> = None;
     let mut manifest_raw: Option<Vec<u8>> = None;
-    let mut payload_files: Vec<(String, Vec<u8>)> = Vec::new();
+    // (archive path, bytes, symlink target). `target` is `Some(..)` for a
+    // symlink entry — matches `trust.rs::parse_for_verification`'s shape
+    // exactly (see the hash loop below for why).
+    let mut payload_files: Vec<(String, Vec<u8>, Option<String>)> = Vec::new();
     // Symlinks/hardlinks are applied after files so targets exist.
     let mut pending_symlinks: Vec<(PathBuf, PathBuf)> = Vec::new();
     let mut pending_hardlinks: Vec<(PathBuf, PathBuf)> = Vec::new();
@@ -905,7 +929,7 @@ fn extract_zex(zex_path: &Path, dest: &Path, installed: &mut Vec<PathBuf>) -> Re
             let mut data = Vec::new();
             entry.read_to_end(&mut data)?;
             // Hash uses the full archive path ("payload/...") to match packer.
-            payload_files.push((rel_str.to_string(), data.clone()));
+            payload_files.push((rel_str.to_string(), data.clone(), None));
             std::fs::write(&dest_path, &data)?;
             // Same class of bug already found and fixed in extract_adb
             // (Chimera): std::fs::write() always creates with the process
@@ -927,6 +951,21 @@ fn extract_zex(zex_path: &Path, dest: &Path, installed: &mut Vec<PathBuf>) -> Re
             let link_target = entry.link_name()?.ok_or_else(|| {
                 anyhow::anyhow!("symlink entry missing target: {}", rel.display())
             })?;
+            // Symlink entries carry no body in the tar — their contribution
+            // to the payload hash is the raw, pre-sanitize link TARGET
+            // string instead, exactly as `substrate pack`'s packer.rs
+            // computed it at sign time (matches
+            // `trust.rs::parse_for_verification`'s identical handling —
+            // confirmed live: without this, any package containing even
+            // one symlink, e.g. zlib-dev's `libz.so -> libz.so.1.3.2`,
+            // permanently fails `zex install` with a signature.b3
+            // mismatch, even though `trust.rs`'s own earlier check on the
+            // same archive already passed).
+            payload_files.push((
+                rel_str.to_string(),
+                Vec::new(),
+                Some(link_target.to_string_lossy().to_string()),
+            ));
             let safe_target = sanitize_link_target(payload_rel, &link_target)?;
             pending_symlinks.push((dest_path, safe_target));
             continue;
@@ -936,6 +975,11 @@ fn extract_zex(zex_path: &Path, dest: &Path, installed: &mut Vec<PathBuf>) -> Re
             let link_target = entry.link_name()?.ok_or_else(|| {
                 anyhow::anyhow!("hard link entry missing target: {}", rel.display())
             })?;
+            // Hard link entries also carry no body — matches trust.rs,
+            // which doesn't special-case them and so hashes an empty byte
+            // string for this path (tar's own read_to_end on a hardlink
+            // entry yields zero bytes).
+            payload_files.push((rel_str.to_string(), Vec::new(), None));
             // Unlike symlinks, a hardlink target must resolve to a sibling
             // already extracted into *this same staging tree* — it needs
             // sanitize_archive_path's plain relative-and-remapped result,
@@ -986,9 +1030,12 @@ fn extract_zex(zex_path: &Path, dest: &Path, installed: &mut Vec<PathBuf>) -> Re
 
     payload_files.sort_by(|a, b| a.0.cmp(&b.0));
     let mut payload_hasher = blake3::Hasher::new();
-    for (path, bytes) in &payload_files {
+    for (path, bytes, target) in &payload_files {
         payload_hasher.update(path.as_bytes());
-        payload_hasher.update(bytes);
+        match target {
+            Some(t) => payload_hasher.update(t.as_bytes()),
+            None => payload_hasher.update(bytes),
+        };
     }
     let payload_blake3 = payload_hasher.finalize().to_hex().to_string();
 

@@ -1,7 +1,7 @@
 //! apply.rs — Download and apply upgrades for userland and syshub.
 
 use anyhow::Result;
-use futures_util::StreamExt;
+use futures_util::{stream, StreamExt};
 use indicatif::MultiProgress;
 use std::{fs, io::Write, path::Path};
 use walkdir::WalkDir;
@@ -22,44 +22,43 @@ pub async fn apply_uland(
     sig_mode: crate::trust::SignatureVerificationMode,
 ) -> Result<u64> {
     let mut total_bytes = 0u64;
-    let show_count      = upgrades.len().min(2); // show max 2 bars at once, then truncate
 
-    // Show first 2, then "(N more)"
-    for chunk in upgrades.chunks(2) {
-        let mut handles = Vec::new();
+    // Sliding-window concurrency (`buffer_unordered`), not fixed pairs —
+    // a fixed `chunks(2)` held both slots of a pair open until BOTH
+    // finished, so a package that finished early just sat at 100% instead
+    // of immediately picking up the next one while its chunk-mate kept
+    // streaming (same fix as cmd::upgrade::syscore/userland).
+    let mut in_flight = stream::iter(upgrades.iter()).map(|pkg| {
+        let label = format!("{:<22} → {}", pkg.name, pkg.new_ver);
+        let bar   = ui::make_pkg_bar(mp, pkg.size_bytes, &label);
 
-        for pkg in chunk {
-            let label = format!("{:<22} → {}", pkg.name, pkg.new_ver);
-            let cl    = pkg.size_bytes;
-            let bar   = ui::make_pkg_bar(mp, cl, &label);
-
-            let url       = pkg.url.clone();
-            let dest      = dl_tmp.join(&pkg.filename);
-            let cl2       = client.clone();
-            let overall_h = overall.clone();
-            let h = tokio::spawn(async move {
-                download_with_bar(&cl2, &url, &dest, &bar, &overall_h).await
-                    .map(|b| (dest, b))
-            });
-            handles.push(h);
+        let url       = pkg.url.clone();
+        let dest      = dl_tmp.join(&pkg.filename);
+        let name      = pkg.name.clone();
+        let new_ver   = pkg.new_ver.clone();
+        let cl2       = client.clone();
+        let overall_h = overall.clone();
+        async move {
+            let result = download_with_bar(&cl2, &url, &dest, &bar, &overall_h).await;
+            (name, new_ver, dest, result)
         }
+    })
+    .buffer_unordered(2);
 
-        for (pkg, handle) in chunk.iter().zip(handles) {
-            if let Ok(Ok((zex_path, bytes))) = handle.await {
-                total_bytes += bytes;
-                // Ed25519 signature check — against the pubkey embedded in
-                // the package's own manifest.toml.
-                crate::trust::verify_zex_archive(&zex_path, sig_mode)?;
-                extract_into(&zex_path, Path::new(UNION_PATH))?;
-                update_receipt(&pkg.name, &pkg.new_ver)?;
-            }
+    // `buffer_unordered` completes futures in COMPLETION order, not
+    // submission order — each result carries its own package identity
+    // (name/new_ver) rather than being matched back up by position, unlike
+    // the old chunked loop where `chunk.iter().zip(handles)` could get
+    // away with positional pairing.
+    while let Some((name, new_ver, zex_path, result)) = in_flight.next().await {
+        if let Ok(bytes) = result {
+            total_bytes += bytes;
+            // Ed25519 signature check — against the pubkey embedded in
+            // the package's own manifest.toml.
+            crate::trust::verify_zex_archive(&zex_path, sig_mode)?;
+            extract_into(&zex_path, Path::new(UNION_PATH))?;
+            update_receipt(&name, &new_ver)?;
         }
-    }
-
-    // Print truncated count for remaining
-    let shown = show_count * 2;
-    if upgrades.len() > shown {
-        ui::print_truncated(upgrades.len() - shown);
     }
 
     Ok(total_bytes)
@@ -79,32 +78,30 @@ pub async fn apply_syshub(
 
     let mut total_bytes = 0u64;
 
-    for chunk in upgrades.chunks(2) {
-        let mut handles = Vec::new();
-        for pkg in chunk {
-            let label = format!("{:<22} → {}", pkg.name, pkg.new_ver);
-            let bar   = ui::make_pkg_bar(mp, pkg.size_bytes, &label);
+    // Sliding-window concurrency — same fix as apply_uland above.
+    let mut in_flight = stream::iter(upgrades.iter()).map(|pkg| {
+        let label = format!("{:<22} → {}", pkg.name, pkg.new_ver);
+        let bar   = ui::make_pkg_bar(mp, pkg.size_bytes, &label);
 
-            let url       = pkg.url.clone();
-            let dest      = dl_tmp.join(&pkg.filename);
-            let cl2       = client.clone();
-            let overall_h = overall.clone();
-            let h = tokio::spawn(async move {
-                download_with_bar(&cl2, &url, &dest, &bar, &overall_h).await
-                    .map(|b| (dest, b))
-            });
-            handles.push(h);
+        let url       = pkg.url.clone();
+        let dest      = dl_tmp.join(&pkg.filename);
+        let cl2       = client.clone();
+        let overall_h = overall.clone();
+        async move {
+            let result = download_with_bar(&cl2, &url, &dest, &bar, &overall_h).await;
+            (dest, result)
         }
+    })
+    .buffer_unordered(2);
 
-        for handle in handles {
-            if let Ok(Ok((zex_path, bytes))) = handle.await {
-                total_bytes += bytes;
-                // Syshub core is always Strict, regardless of the
-                // userland `require_signatures` config — same invariant
-                // as `cmd::upgrade::syscore`.
-                crate::trust::verify_zex_archive(&zex_path, crate::trust::SignatureVerificationMode::Strict)?;
-                extract_into(&zex_path, &staging)?;
-            }
+    while let Some((zex_path, result)) = in_flight.next().await {
+        if let Ok(bytes) = result {
+            total_bytes += bytes;
+            // Syshub core is always Strict, regardless of the userland
+            // `require_signatures` config — same invariant as
+            // `cmd::upgrade::syscore`.
+            crate::trust::verify_zex_archive(&zex_path, crate::trust::SignatureVerificationMode::Strict)?;
+            extract_into(&zex_path, &staging)?;
         }
     }
 

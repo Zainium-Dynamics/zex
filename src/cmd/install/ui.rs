@@ -35,12 +35,16 @@ const STEP_W: usize = 46;
 /// Per-package download bar.
 /// "  vim                 28.4/28.4 MB   [██████████████████████] 100%   45.2 MB/s   0s"
 pub fn make_download_bar(mp: &MultiProgress, total_bytes: u64, label: &str) -> ProgressBar {
+    // Name on its own line above the bar — matches the same fix in
+    // cmd::upgrade::ui::make_pkg_bar / cmd::update::ui::make_pkg_bar
+    // (crammed onto the bar's own line, the name was the first thing
+    // squeezed out on a normal-width terminal).
     let lbl = format!("  {P}{label:<36}{RST}");
     if total_bytes == 0 {
         let pb = mp.add(ProgressBar::new_spinner());
         pb.set_style(
             ProgressStyle::with_template(&format!(
-                "{lbl} {{spinner}} {{bytes}} downloaded"
+                "{lbl}\n  {{spinner}} {{bytes}} downloaded"
             ))
             .unwrap()
             .tick_strings(&["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"]),
@@ -51,7 +55,7 @@ pub fn make_download_bar(mp: &MultiProgress, total_bytes: u64, label: &str) -> P
         let pb = mp.add(ProgressBar::new(total_bytes));
         pb.set_style(
             ProgressStyle::with_template(&format!(
-                "{lbl}{{bytes:>10}}/{{total_bytes:<10}} \
+                "{lbl}\n  {{bytes:>10}}/{{total_bytes:<10}} \
                  {G}[{{bar:{BAR_W}}}]{RST} \
                  {G}{{percent:>3}}%{RST}   \
                  {B}{{binary_bytes_per_sec:<12}}{RST} \

@@ -14,7 +14,7 @@
 //! 2 at a time — exactly like syscore but for the writable union layer.
 
 use anyhow::{bail, Context, Result};
-use futures_util::StreamExt;
+use futures_util::{stream, StreamExt};
 use indicatif::MultiProgress;
 use serde::Deserialize;
 use std::{
@@ -284,81 +284,79 @@ pub async fn execute() -> Result<()> {
     let mut done: Vec<String> = Vec::new();
     let mut actual_bytes: u64 = 0;
 
-    // ── 8. Download + apply in chunks of 2 ───────────────────────────────────
-    for chunk in upgrades.chunks(2) {
-        let mut handles = Vec::new();
+    // ── 8. Download + apply, 2 concurrent ─────────────────────────────────────
+    // Sliding-window concurrency (`buffer_unordered`), not fixed pairs —
+    // same fix, same reasoning, as syscore.rs's identical pattern: a fixed
+    // `chunks(2)` held BOTH slots of a pair open until BOTH finished, so a
+    // small package that finished early just sat at 100% instead of
+    // immediately picking up package #3 while its much-larger chunk-mate
+    // kept streaming.
+    let mut in_flight = stream::iter(upgrades.iter()).map(|pkg| {
+        let label = format!(
+            "{} {:<20} {} → {}",
+            tier_badge(&pkg.tier_label),
+            pkg.name,
+            pkg.old_ver,
+            pkg.new_ver
+        );
+        let url        = pkg.url.clone();
+        let dest       = dl_tmp.join(&pkg.filename);
+        let name       = pkg.name.clone();
+        let fmt        = pkg.format;
+        let size_bytes = pkg.size_bytes;
+        let client_h   = client.clone();
+        let overall_h  = overall.clone();
+        let mp_ref     = &mp;
+        async move {
+            let cl = if size_bytes > 0 { size_bytes }
+                     else { content_length(&client_h, &url).await.unwrap_or(0) };
+            let bar = ui::make_pkg_bar(mp_ref, cl, &label);
+            let result = download_with_bar(&client_h, &url, &dest, &bar, &overall_h).await;
+            (name, dest, fmt, result)
+        }
+    })
+    .buffer_unordered(2);
 
-        for pkg in chunk {
-            let label = format!(
-                "{} {:<20} {} → {}",
-                tier_badge(&pkg.tier_label),
-                pkg.name,
-                pkg.old_ver,
-                pkg.new_ver
-            );
-            let cl  = if pkg.size_bytes > 0 { pkg.size_bytes }
-                      else { content_length(&client, &pkg.url).await.unwrap_or(0) };
-            let bar = ui::make_pkg_bar(&mp, cl, &label);
+    while let Some((pkg_name, zex_path, fmt, result)) = in_flight.next().await {
+        let bytes = match result {
+            Ok(b) => b,
+            Err(e) => {
+                fs::remove_dir_all(dl_tmp).ok();
+                ui::print_uland_download_interrupted(&pkg_name);
+                log_audit("uland", &done, "rolled_back",
+                          Some(&e.to_string()), started.elapsed().as_millis() as u64);
+                std::process::exit(1);
+            }
+        };
+        actual_bytes += bytes;
 
-            let url       = pkg.url.clone();
-            let dest      = dl_tmp.join(&pkg.filename);
-            let name      = pkg.name.clone();
-            let fmt       = pkg.format;
-            let client    = client.clone();
-            let overall_h = overall.clone();
-            let h = tokio::spawn(async move {
-                download_with_bar(&client, &url, &dest, &bar, &overall_h).await
-                    .map(|b| (name, dest, fmt, b))
-            });
-            handles.push(h);
+        // Signature verify only for native .zex packages — against the
+        // pubkey embedded in the package's own manifest.toml.
+        if fmt == PkgFmt::Zex {
+            let mode = if services.trust.require_signatures {
+                crate::trust::SignatureVerificationMode::Strict
+            } else {
+                crate::trust::SignatureVerificationMode::Audit
+            };
+            crate::trust::verify_zex_archive(&zex_path, mode)?;
         }
 
-        let mut chunk_results = Vec::new();
-        for (pkg, h) in chunk.iter().zip(handles) {
-            match h.await {
-                Ok(Ok(r)) => chunk_results.push(r),
-                Ok(Err(e)) => {
-                    fs::remove_dir_all(dl_tmp).ok();
-                    ui::print_uland_download_interrupted(&pkg.name);
-                    log_audit("uland", &done, "rolled_back",
-                              Some(&e.to_string()), started.elapsed().as_millis() as u64);
-                    std::process::exit(1);
-                }
-                Err(e) => bail!("task join: {e}"),
-            }
+        // Extract into union
+        match fmt {
+            PkgFmt::Zex  => extract_zex_into(&zex_path, Path::new(UNION_PATH))?,
+            PkgFmt::Apk  => extract_apk_into(&zex_path, Path::new(UNION_PATH))?,
+            PkgFmt::Xbps => extract_xbps_into(&zex_path, Path::new(UNION_PATH))?,
+            PkgFmt::Adb  => extract_adb_into(&zex_path, Path::new(UNION_PATH))?,
         }
 
-        for (pkg_name, zex_path, fmt, bytes) in &chunk_results {
-            actual_bytes += bytes;
+        // Bump the existing receipt's version in place — this preserves
+        // installed_files/dependencies/sha256/etc, unlike writing a fresh
+        // receipt from scratch (which would silently break `zex remove`
+        // and orphan detection for this package).
+        let pkg_info = upgrades.iter().find(|u| u.name == pkg_name).unwrap();
+        crate::cmd::install::registry::update_version(&pkg_info.name, &pkg_info.new_ver)?;
 
-            // Signature verify only for native .zex packages — against the
-            // pubkey embedded in the package's own manifest.toml.
-            if *fmt == PkgFmt::Zex {
-                let mode = if services.trust.require_signatures {
-                    crate::trust::SignatureVerificationMode::Strict
-                } else {
-                    crate::trust::SignatureVerificationMode::Audit
-                };
-                crate::trust::verify_zex_archive(zex_path, mode)?;
-            }
-
-            // Extract into union
-            match fmt {
-                PkgFmt::Zex  => extract_zex_into(zex_path, Path::new(UNION_PATH))?,
-                PkgFmt::Apk  => extract_apk_into(zex_path, Path::new(UNION_PATH))?,
-                PkgFmt::Xbps => extract_xbps_into(zex_path, Path::new(UNION_PATH))?,
-                PkgFmt::Adb  => extract_adb_into(zex_path, Path::new(UNION_PATH))?,
-            }
-
-            // Bump the existing receipt's version in place — this
-            // preserves installed_files/dependencies/sha256/etc, unlike
-            // writing a fresh receipt from scratch (which would silently
-            // break `zex remove` and orphan detection for this package).
-            let pkg_info = upgrades.iter().find(|u| &u.name == pkg_name).unwrap();
-            crate::cmd::install::registry::update_version(&pkg_info.name, &pkg_info.new_ver)?;
-
-            done.push(pkg_name.clone());
-        }
+        done.push(pkg_name);
     }
 
     overall.finish_and_clear();
@@ -379,7 +377,7 @@ pub async fn execute() -> Result<()> {
     let elapsed  = started.elapsed().as_secs();
     let total_gb = actual_bytes as f64 / 1_073_741_824.0;
 
-    ui::print_uland_done(done.len(), total_gb, elapsed, "2026v3.2");
+    ui::print_uland_done(done.len(), total_gb, elapsed);
     log_audit("uland", &done, "success", None, started.elapsed().as_millis() as u64);
 
     Ok(())

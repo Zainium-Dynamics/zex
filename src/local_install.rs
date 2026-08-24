@@ -86,6 +86,33 @@ pub fn run(args: &[String]) -> Result<(), String> {
             .map_err(|e| format!("Extraction failed: {}", e))?;
         println!("✓ ({} files)", result.files_extracted);
 
+        // ── ELF-patch + pkg-config-patch, while still mutable ──────────────
+        //
+        // `zex install <name>` (cmd::install::installer.rs) runs both
+        // passes on every staged file before commit — `zex -i <file>`
+        // (this local/offline path) extracts through the same
+        // `crate::extract` engine but never called either pass, so an
+        // Alpine/Void/Chimera archive installed this way kept its
+        // original FHS `PT_INTERP`/RPATH and any `.pc` file kept its
+        // FHS `prefix=/usr`. Same timing constraint as the network path:
+        // must happen here, before `overlay_install` below copies these
+        // files to their real destination.
+        if !opts.dry_run {
+            let staged_files: Vec<PathBuf> = walkdir::WalkDir::new(&extract_dir)
+                .into_iter()
+                .filter_map(|e| e.ok())
+                .filter(|e| e.file_type().is_file())
+                .map(|e| e.path().to_path_buf())
+                .collect();
+            crate::cmd::install::elfpatch::patch_staged_elfs(&staged_files)
+                .map_err(|e| format!("ELF patch failed: {}", e))?;
+            crate::cmd::install::pcpatch::patch_staged_pkgconfig(
+                &staged_files,
+                crate::archive_safety::UNION_ROOT,
+            )
+            .map_err(|e| format!("pkg-config patch failed: {}", e))?;
+        }
+
         extract_dir
     } else {
         opts.target.clone()

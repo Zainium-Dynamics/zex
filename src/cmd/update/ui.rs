@@ -37,11 +37,14 @@ pub fn print_phase(label: &str, ms: u64) {
 
 // ── Download bars ─────────────────────────────────────────────────────────────
 pub fn make_pkg_bar(mp: &MultiProgress, total: u64, label: &str) -> ProgressBar {
+    // Name on its own line above the bar — matches the same fix in
+    // cmd::upgrade::ui::make_pkg_bar (crammed onto the bar's own line, the
+    // name was the first thing squeezed out on a normal-width terminal).
     let lbl = format!("  {DIM}•{RST} {P}{label:<36}{RST}");
     if total == 0 {
         let pb = mp.add(ProgressBar::new_spinner());
         pb.set_style(
-            ProgressStyle::with_template(&format!("{lbl} {{spinner}} {{bytes}}"))
+            ProgressStyle::with_template(&format!("{lbl}\n  {{spinner}} {{bytes}}"))
                 .unwrap()
                 .tick_strings(&["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"]),
         );
@@ -51,7 +54,7 @@ pub fn make_pkg_bar(mp: &MultiProgress, total: u64, label: &str) -> ProgressBar 
         let pb = mp.add(ProgressBar::new(total));
         pb.set_style(
             ProgressStyle::with_template(&format!(
-                "{lbl}{{total_bytes:<12}} {G}[{{bar:{BAR_W}}}]{RST} {G}{{percent:>3}}%{RST}"
+                "{lbl}\n  {{total_bytes:<12}} {G}[{{bar:{BAR_W}}}]{RST} {G}{{percent:>3}}%{RST}"
             ))
             .unwrap()
             .progress_chars("\u{2588}\u{2588}\u{2591}"),
