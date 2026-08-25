@@ -113,20 +113,44 @@ fn patch_one(path: &Path) -> anyhow::Result<()> {
         return Ok(());
     }
 
+    let existing_rpath = f.rpath()?.unwrap_or_default();
+    let new_rpath = rebuild_rpath(&existing_rpath);
+    let rpath_unchanged = existing_rpath == new_rpath;
+
     // Only executables carry a PT_INTERP segment — plain shared objects
     // (.so, loaded by an already-running dynamic linker, not exec'd
     // directly) have none, and oxipatch errors if asked to set one where
     // none exists. Confirmed against real Alpine deps (e.g.
     // libbrotlicommon.so.1.2.0), not assumed.
-    if has_interp {
-        f.set_interpreter(ZEX_INTERP)?;
+    let interp_unchanged = if has_interp {
+        f.interpreter()?.as_deref() == Some(ZEX_INTERP)
+    } else {
+        true
+    };
+
+    // Nothing to do — don't touch the file at all. This isn't just an
+    // optimization: `elfpatch::patch_staged_elfs` now runs unconditionally
+    // on every package, including genuinely T1-native binaries that were
+    // previously never patched at all. Calling set_interpreter/set_rpath/
+    // commit/write_in_place unconditionally would rewrite the .dynamic
+    // section of every one of them even when the values wouldn't actually
+    // change — exactly the operation category that corrupted a real
+    // static-PIE binary's self-relocation table (see the comment above).
+    // Skipping the write entirely when both are already correct means a
+    // T1-native binary (or a re-patched T2/T3/T4 one) with no actual
+    // change to make never risks that at all.
+    if rpath_unchanged && interp_unchanged {
+        return Ok(());
     }
 
-    let existing = f.rpath()?.unwrap_or_default();
-    let new_rpath = rebuild_rpath(&existing);
-    // force_rpath = true → legacy DT_RPATH, matching this OS's own
-    // toolchain-built binaries (confirmed via readelf, not RUNPATH).
-    f.set_rpath(&new_rpath, true)?;
+    if has_interp && !interp_unchanged {
+        f.set_interpreter(ZEX_INTERP)?;
+    }
+    if !rpath_unchanged {
+        // force_rpath = true → legacy DT_RPATH, matching this OS's own
+        // toolchain-built binaries (confirmed via readelf, not RUNPATH).
+        f.set_rpath(&new_rpath, true)?;
+    }
 
     f.commit()?;
     f.write_in_place()?;

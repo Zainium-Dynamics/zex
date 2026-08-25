@@ -24,6 +24,7 @@ pub mod pubgrub_resolver;
 pub mod registry;
 pub mod resolver;
 pub mod runtime;
+pub mod shebangpatch;
 pub mod sandbox;
 pub mod scorecard;
 pub mod telemetry;

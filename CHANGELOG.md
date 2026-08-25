@@ -7,6 +7,94 @@ Versioning follows project releases (`Cargo.toml` package version).
 
 ---
 
+## [5.0.1] — 2026-08-25
+
+Everything in this release came out of live testing against the real
+archive and a real syshub upgrade — not unit tests. Most of these bugs
+never showed up any other way, since they only trigger against real
+package content (a symlink in the payload, a `-dev` package's `.pc`
+file, a script's shebang line) that synthetic test fixtures didn't
+happen to include.
+
+### Fixed
+
+- **Packages with a symlink in them could never install.** The
+  installer's own signature check hashed every payload entry's bytes,
+  but a symlink has no body in the tar — it was silently hashed as
+  empty instead of using the link target, so the recomputed hash never
+  matched the real one. `zlib-dev` (ships `libz.so -> libz.so.1.3.2`)
+  is what caught this. Matches how `trust.rs`'s own verifier already
+  handled symlinks correctly — the installer had a second, separate
+  copy of this logic that never got the same fix.
+- **`.pc` files kept the wrong install prefix.** Alpine/Void `-dev`
+  packages ship pkg-config metadata pointing at `/usr`; even packages
+  already repackaged into our own `.zex` format sometimes carried the
+  wrong Zainium prefix (`/overlayer/syshub` instead of
+  `/overlayer/zexlib/union`). Any build tool using `pkg-config` against
+  an installed dependency got paths that don't exist. New `pcpatch.rs`
+  rewrites `prefix=`/`libdir=`/`includedir=` at install time.
+- **Scripts with a `#!/bin/sh` or `#!/usr/bin/env ...` shebang failed
+  to run at all.** Zainium has no `/bin` or `/usr/bin` — the kernel
+  resolves a shebang path literally, so `exec()` just returned "No such
+  file or directory". New `shebangpatch.rs` rewrites the interpreter
+  path to wherever it actually lives (syshub first, then the union
+  tree), and falls back from `sh` to `bash`/`dash`/`ash` if there's no
+  literal `sh` binary — same substitution every real distro's own
+  `/bin/sh` symlink already makes.
+- ELF interpreter/RPATH patching, `.pc` patching, and shebang patching
+  now all run on every installed package regardless of format. They
+  used to be skipped for anything packaged as `.zex`, on the assumption
+  that meant "already built correctly for Zainium" — true for a
+  genuinely native package, false for a foreign package we've
+  repackaged into a `.zex` container, which is exactly what was
+  shipping broken `.pc` files above.
+- Same three patches were missing entirely from the *upgrade* paths
+  (`zex update`, `zex uland --u`). A fresh install got fixed up
+  correctly; upgrading that same package to a newer version silently
+  reintroduced the broken interpreter/RPATH/`.pc`/shebang all over
+  again.
+- ELF patching now checks whether the interpreter and RPATH actually
+  need to change before touching the file at all, instead of
+  unconditionally rewriting the `.dynamic` section. Doesn't matter for
+  a foreign package that genuinely needs the rewrite, but it means a
+  native binary that was already correct never gets its ELF structure
+  touched for no reason.
+- `zex -e`/`--extract` refused to extract some perfectly valid
+  archives with "path escapes output directory" — the safety check
+  canonicalized a directory that didn't exist yet, and silently fell
+  back to comparing an absolute path against a relative one, which
+  can never match.
+- Chimera (T4) packages upgraded through `zex uland --u` lost their
+  executable bit on regular files. The same bug had already been fixed
+  for a fresh install; this was a second, separate copy of the
+  extraction code that never got the fix.
+- `zex syshub --u` could fail to replace its own binary during a
+  self-upgrade. Two separate bugs: the swap ran before syshub was
+  remounted read-write, so it was trying to write into a still-
+  read-only filesystem; and the rename it used doesn't work across
+  the syshub mount boundary, unlike the regular file-copy step a few
+  lines later which already had a fallback for exactly that.
+- Void packages were labelled `[T2-ALP]` and Alpine packages
+  `[T3-VOD]` in upgrade output — backwards.
+- Downloads in `zex update`, `zex uland --u`, and `zex syshub --u`
+  never retried on a dropped connection; one hiccup failed the whole
+  transaction. `zex install` already retried three times with
+  backoff — the upgrade paths now do the same.
+- Downloading multiple packages during an upgrade processed them in
+  fixed pairs — if one finished early, its slot sat idle until its
+  pair-mate finished instead of picking up the next package. Now a
+  finished slot picks up whatever's next immediately.
+- The per-package progress bar computed a label with the package name
+  but never actually put it in the template for a real (non-spinner)
+  download, so the name never showed up.
+- The userland upgrade summary printed a made-up "userland version"
+  number that didn't correspond to anything real — every package has
+  its own version, there's no single combined one.
+- Upgrade failure messages only printed the outermost error, hiding
+  what actually went wrong underneath.
+
+---
+
 ## [5.0.0] — 2026-07-10
 
 ### Summary

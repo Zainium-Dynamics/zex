@@ -111,6 +111,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 crate::archive_safety::UNION_ROOT,
             )
             .map_err(|e| format!("pkg-config patch failed: {}", e))?;
+            crate::cmd::install::shebangpatch::patch_staged_scripts(&staged_files)
+                .map_err(|e| format!("shebang patch failed: {}", e))?;
         }
 
         extract_dir

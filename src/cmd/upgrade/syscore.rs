@@ -456,7 +456,36 @@ async fn content_length(client: &reqwest::Client, url: &str) -> Option<u64> {
         .to_str().ok()?.parse().ok()
 }
 
+/// Retries the whole download from byte 0 on failure (not a range-resume)
+/// — `cmd::install::downloader::download` already retries exactly this
+/// failure mode (3 retries, backoff) for the `zex install` path; this
+/// upgrade-path downloader never did, so a single mid-stream hiccup
+/// (confirmed live, repeatedly, in this environment) hard-failed the
+/// entire syshub upgrade instead of just costing a short delay. `overall`'s
+/// position may briefly over-count by a failed attempt's partial bytes on
+/// a retry — an acceptable trade-off against aborting outright.
 async fn download_with_bar(
+    client: &reqwest::Client,
+    url: &str,
+    dest: &Path,
+    bar: &indicatif::ProgressBar,
+    overall: &indicatif::ProgressBar,
+) -> Result<u64> {
+    const DELAYS_MS: [u64; 4] = [0, 500, 1_000, 2_000];
+    let mut last_err: Option<anyhow::Error> = None;
+    for &delay in &DELAYS_MS {
+        if delay > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+        }
+        match download_once(client, url, dest, bar, overall).await {
+            Ok(tot) => { bar.finish(); return Ok(tot); }
+            Err(e) => last_err = Some(e),
+        }
+    }
+    Err(last_err.unwrap())
+}
+
+async fn download_once(
     client: &reqwest::Client,
     url: &str,
     dest: &Path,
@@ -476,7 +505,6 @@ async fn download_with_bar(
         bar.set_position(tot);
         overall.inc(chunk.len() as u64);
     }
-    bar.finish();
     Ok(tot)
 }
 

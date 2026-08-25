@@ -3,7 +3,7 @@
 use anyhow::Result;
 use futures_util::{stream, StreamExt};
 use indicatif::MultiProgress;
-use std::{fs, io::Write, path::Path};
+use std::{fs, io::Write, path::{Path, PathBuf}};
 use walkdir::WalkDir;
 
 use super::diff::UpgradePkg;
@@ -56,7 +56,15 @@ pub async fn apply_uland(
             // Ed25519 signature check — against the pubkey embedded in
             // the package's own manifest.toml.
             crate::trust::verify_zex_archive(&zex_path, sig_mode)?;
-            extract_into(&zex_path, Path::new(UNION_PATH))?;
+            let written = extract_into(&zex_path, Path::new(UNION_PATH))?;
+            // No separate staging root here (UNION_PATH is live), so this
+            // is the only "just written" window there is — same reasoning
+            // as cmd::upgrade::userland's identical extract_*_into fix.
+            crate::cmd::install::elfpatch::patch_staged_elfs(&written)?;
+            crate::cmd::install::pcpatch::patch_staged_pkgconfig(
+                &written, crate::archive_safety::UNION_ROOT,
+            )?;
+            crate::cmd::install::shebangpatch::patch_staged_scripts(&written)?;
             update_receipt(&name, &new_ver)?;
         }
     }
@@ -77,6 +85,7 @@ pub async fn apply_syshub(
     fs::create_dir_all(&staging)?;
 
     let mut total_bytes = 0u64;
+    let mut staged_files: Vec<PathBuf> = Vec::new();
 
     // Sliding-window concurrency — same fix as apply_uland above.
     let mut in_flight = stream::iter(upgrades.iter()).map(|pkg| {
@@ -101,9 +110,17 @@ pub async fn apply_syshub(
             // `require_signatures` config — same invariant as
             // `cmd::upgrade::syscore`.
             crate::trust::verify_zex_archive(&zex_path, crate::trust::SignatureVerificationMode::Strict)?;
-            extract_into(&zex_path, &staging)?;
+            staged_files.extend(extract_into(&zex_path, &staging)?);
         }
     }
+
+    // Patch while still in `staging`, mutable, before the atomic overwrite
+    // below commits these files onto the live (and, once remounted ro at
+    // the end, immutable) syshub base — same timing constraint as
+    // `cmd::upgrade::syscore`'s identical staged elfpatch/pcpatch pass.
+    crate::cmd::install::elfpatch::patch_staged_elfs(&staged_files)?;
+    crate::cmd::install::pcpatch::patch_staged_pkgconfig(&staged_files, syshub_path)?;
+    crate::cmd::install::shebangpatch::patch_staged_scripts(&staged_files)?;
 
     // Atomic overwrite into live syshub
     remount(syshub_path, true)?;
@@ -124,7 +141,36 @@ pub async fn apply_syshub(
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/// Retries the whole download from byte 0 on failure (not a range-resume)
+/// — `cmd::install::downloader::download` already retries exactly this
+/// failure mode (3 retries, backoff); this `zex update` downloader never
+/// did, so a single mid-stream hiccup (confirmed live, repeatedly, in this
+/// environment) hard-failed the whole update instead of just costing a
+/// short delay. `overall`'s position may briefly over-count by a failed
+/// attempt's partial bytes on a retry — an acceptable trade-off against
+/// aborting outright.
 async fn download_with_bar(
+    client:  &reqwest::Client,
+    url:     &str,
+    dest:    &Path,
+    bar:     &indicatif::ProgressBar,
+    overall: &indicatif::ProgressBar,
+) -> Result<u64> {
+    const DELAYS_MS: [u64; 4] = [0, 500, 1_000, 2_000];
+    let mut last_err: Option<anyhow::Error> = None;
+    for &delay in &DELAYS_MS {
+        if delay > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+        }
+        match download_once(client, url, dest, bar, overall).await {
+            Ok(tot) => { bar.finish(); return Ok(tot); }
+            Err(e) => last_err = Some(e),
+        }
+    }
+    Err(last_err.unwrap())
+}
+
+async fn download_once(
     client:  &reqwest::Client,
     url:     &str,
     dest:    &Path,
@@ -143,7 +189,6 @@ async fn download_with_bar(
         bar.set_position(tot);
         overall.inc(chunk.len() as u64);
     }
-    bar.finish();
     Ok(tot)
 }
 
@@ -155,9 +200,16 @@ async fn download_with_bar(
 /// and symlink targets directly onto `dest` with no `..`/absolute-path
 /// checks at all, a real path-traversal gap for a function that can write
 /// into the live syshub base or userland union tree.
-fn extract_into(zex_path: &Path, dest: &Path) -> Result<()> {
+/// Returns the regular files it wrote (dirs/symlinks excluded) so callers
+/// can run `elfpatch`/`pcpatch` over them — this extractor previously
+/// never did either, unlike `installer.rs`/`local_install.rs`/
+/// `cmd::upgrade::userland`'s equivalents, so a package upgraded through
+/// `zex update` (as opposed to freshly installed via `zex install`) kept
+/// its host-FHS `PT_INTERP`/RPATH and unpatched `.pc` `prefix=` intact.
+fn extract_into(zex_path: &Path, dest: &Path) -> Result<Vec<PathBuf>> {
     let dec = crate::zex_codec::open_decoder(zex_path)?;
     let mut archive = tar::Archive::new(dec);
+    let mut written: Vec<PathBuf> = Vec::new();
     for entry in archive.entries()? {
         let mut entry = entry?;
         let raw  = entry.path()?.into_owned();
@@ -185,6 +237,7 @@ fn extract_into(zex_path: &Path, dest: &Path) -> Result<()> {
                     fs::set_permissions(&dst, fs::Permissions::from_mode(0o755))?;
                 }
             }
+            written.push(dst);
         } else if typ.is_symlink() {
             if let Some(t) = entry.link_name()? {
                 let safe_target = crate::archive_safety::sanitize_link_target(inner, &t)?;
@@ -192,7 +245,7 @@ fn extract_into(zex_path: &Path, dest: &Path) -> Result<()> {
             }
         }
     }
-    Ok(())
+    Ok(written)
 }
 
 /// Bumps a package's registered version after a successful update.

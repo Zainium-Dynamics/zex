@@ -434,10 +434,21 @@ fn match_mirror<'a>(
         .map(|m| (m, fmt))
 }
 
+// Tier ↔ distro pairing here must match `zex_services.toml`'s own tier
+// comments exactly: "TIER 2: VOID LINUX PORTS (power-user tier —
+// prioritized over Alpine)" / "TIER 3: ALPINE LINUX PORTS". Confirmed
+// live: a real installed Void package (`kurly`, `origin = "tier2-void"`)
+// showed up in `zex uland --u`'s output badged "[T2-ALP]" — T2 mislabeled
+// as Alpine — because both `tier_label`'s "tier2"/"alpine" pairing and
+// `tier_badge`'s T2/T3 badge text were backwards relative to that
+// convention. The bare-distro-name fallback (`|| origin.contains("void")`)
+// matters too, not just the numbers: an `origin` string built as just
+// "alpine-main" with no "tier3" prefix would previously have matched
+// `tier2`'s `|| origin.contains("alpine")` arm and landed on T2 as well.
 fn tier_label(origin: &str) -> String {
     if origin.contains("tier1") || origin.contains("zainium") { "T1".into() }
-    else if origin.contains("tier2") || origin.contains("alpine")  { "T2".into() }
-    else if origin.contains("tier3") || origin.contains("void")    { "T3".into() }
+    else if origin.contains("tier2") || origin.contains("void")    { "T2".into() }
+    else if origin.contains("tier3") || origin.contains("alpine")  { "T3".into() }
     else if origin.contains("tier4") || origin.contains("chimera") { "T4".into() }
     else { "T?".into() }
 }
@@ -445,8 +456,8 @@ fn tier_label(origin: &str) -> String {
 fn tier_badge(label: &str) -> String {
     match label {
         "T1" => format!("{}[T1-ZAI]{}", ui::G,   ui::RST),
-        "T2" => format!("{}[T2-ALP]{}", ui::B,   ui::RST),
-        "T3" => format!("{}[T3-VOD]{}", ui::P,   ui::RST),
+        "T2" => format!("{}[T2-VOD]{}", ui::B,   ui::RST),
+        "T3" => format!("{}[T3-ALP]{}", ui::P,   ui::RST),
         "T4" => format!("{}[T4-CHI]{}", ui::Y,   ui::RST),
         _    => format!("{}[T?]{}", ui::DIM, ui::RST),
     }
@@ -690,6 +701,7 @@ fn extract_zex_into(src: &Path, dest: &Path) -> Result<()> {
     #[cfg(unix)] use std::os::unix::fs::symlink;
     let dec = crate::zex_codec::open_decoder(src)?;
     let mut archive = tar::Archive::new(dec);
+    let mut written: Vec<PathBuf> = Vec::new();
     for entry in archive.entries()? {
         let mut entry = entry?;
         let raw   = entry.path()?.into_owned();
@@ -705,6 +717,7 @@ fn extract_zex_into(src: &Path, dest: &Path) -> Result<()> {
             let mut out = fs::File::create(&dst)?;
             std::io::copy(&mut entry, &mut out)?;
             set_exec_if_needed(&entry.header(), &dst);
+            written.push(dst);
         } else if typ.is_symlink() {
             if let Some(t) = entry.link_name()? {
                 let _ = fs::remove_file(&dst);
@@ -712,7 +725,7 @@ fn extract_zex_into(src: &Path, dest: &Path) -> Result<()> {
             }
         }
     }
-    Ok(())
+    patch_written(&written)
 }
 
 /// APK files are tar.gz. Paths like `usr/bin/foo` are remapped onto the
@@ -725,6 +738,7 @@ fn extract_apk_into(src: &Path, dest: &Path) -> Result<()> {
     // through all of them instead of stopping after the signature.
     let dec  = flate2::read::MultiGzDecoder::new(file);
     let mut archive = tar::Archive::new(dec);
+    let mut written: Vec<PathBuf> = Vec::new();
     for entry in archive.entries()? {
         let mut entry = entry?;
         let raw = entry.path()?.into_owned();
@@ -744,6 +758,7 @@ fn extract_apk_into(src: &Path, dest: &Path) -> Result<()> {
             let mut out = fs::File::create(&dst)?;
             std::io::copy(&mut entry, &mut out)?;
             set_exec_if_needed(&entry.header(), &dst);
+            written.push(dst);
         } else if typ.is_symlink() {
             if let Some(t) = entry.link_name()? {
                 let safe = crate::archive_safety::sanitize_link_target(&raw, &t)
@@ -753,7 +768,7 @@ fn extract_apk_into(src: &Path, dest: &Path) -> Result<()> {
             }
         }
     }
-    Ok(())
+    patch_written(&written)
 }
 
 /// XBPS files are zstd-compressed tars. Same FHS → union remapping as APK.
@@ -761,6 +776,7 @@ fn extract_xbps_into(src: &Path, dest: &Path) -> Result<()> {
     #[cfg(unix)] use std::os::unix::fs::symlink;
     let dec  = zstd::stream::read::Decoder::new(fs::File::open(src)?)?;
     let mut archive = tar::Archive::new(dec);
+    let mut written: Vec<PathBuf> = Vec::new();
     for entry in archive.entries()? {
         let mut entry = entry?;
         let raw = entry.path()?.into_owned();
@@ -786,6 +802,7 @@ fn extract_xbps_into(src: &Path, dest: &Path) -> Result<()> {
             let mut out = fs::File::create(&dst)?;
             std::io::copy(&mut entry, &mut out)?;
             set_exec_if_needed(&entry.header(), &dst);
+            written.push(dst);
         } else if typ.is_symlink() {
             if let Some(t) = entry.link_name()? {
                 let safe = crate::archive_safety::sanitize_link_target(&raw, &t)
@@ -795,7 +812,7 @@ fn extract_xbps_into(src: &Path, dest: &Path) -> Result<()> {
             }
         }
     }
-    Ok(())
+    patch_written(&written)
 }
 
 /// Chimera's `.apk` is apk-tools v3's binary "ADB" container, not the
@@ -810,6 +827,7 @@ fn extract_adb_into(src: &Path, dest: &Path) -> Result<()> {
     const S_IFDIR: u32 = 0o040000;
     const S_IFLNK: u32 = 0o120000;
 
+    let mut written: Vec<PathBuf> = Vec::new();
     for entry in entries {
         let rel = match crate::archive_safety::sanitize_archive_path(Path::new(&entry.rel_path)) {
             Ok(p) => p,
@@ -849,9 +867,36 @@ fn extract_adb_into(src: &Path, dest: &Path) -> Result<()> {
             }
             _ => {
                 fs::write(&dst, entry.content.unwrap_or_default())?;
+                // ADB stores the real POSIX mode per-entry (already used
+                // above for S_IFDIR/S_IFLNK) but this regular-file branch
+                // never applied it — the same bug already found and fixed
+                // in installer.rs's own extract_adb (every T4 binary
+                // landed non-executable), just never ported to this
+                // separate uland-upgrade copy of the same extraction
+                // logic.
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let _ = fs::set_permissions(&dst, fs::Permissions::from_mode(entry.mode & 0o7777));
+                }
+                written.push(dst);
             }
         }
     }
+    patch_written(&written)
+}
+
+/// Shared post-extraction pass for all four `extract_*_into` functions
+/// above — none of them use a separate staging root (they write straight
+/// to the live union tree), so `written` must be patched right after the
+/// loop that wrote it, same timing constraint as `installer.rs`'s staged
+/// version. Fatal on failure (`?`), not logged-and-ignored: a binary that
+/// fails ELF-patching is exactly as broken as one that failed to write at
+/// all, and every other operation in these loops already aborts via `?`.
+fn patch_written(written: &[PathBuf]) -> Result<()> {
+    crate::cmd::install::elfpatch::patch_staged_elfs(written)?;
+    crate::cmd::install::pcpatch::patch_staged_pkgconfig(written, crate::archive_safety::UNION_ROOT)?;
+    crate::cmd::install::shebangpatch::patch_staged_scripts(written)?;
     Ok(())
 }
 
@@ -894,7 +939,37 @@ async fn content_length(client: &reqwest::Client, url: &str) -> Option<u64> {
         .to_str().ok()?.parse().ok()
 }
 
+/// Retries the whole download from byte 0 on failure (not a range-resume)
+/// — `cmd::install::downloader::download` already retries exactly this
+/// failure mode (3 retries, backoff) for the `zex install` path; this
+/// upgrade-path downloader never did, so a single mid-stream hiccup
+/// (confirmed live, repeatedly, in this environment) hard-failed the
+/// entire upgrade transaction instead of just costing a short delay.
+/// `overall`'s position may briefly over-count by a failed attempt's
+/// partial bytes on a retry — an acceptable trade-off against the
+/// alternative of aborting outright.
 async fn download_with_bar(
+    client:  &reqwest::Client,
+    url:     &str,
+    dest:    &Path,
+    bar:     &indicatif::ProgressBar,
+    overall: &indicatif::ProgressBar,
+) -> Result<u64> {
+    const DELAYS_MS: [u64; 4] = [0, 500, 1_000, 2_000];
+    let mut last_err: Option<anyhow::Error> = None;
+    for &delay in &DELAYS_MS {
+        if delay > 0 {
+            tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+        }
+        match download_once(client, url, dest, bar, overall).await {
+            Ok(tot) => { bar.finish(); return Ok(tot); }
+            Err(e) => last_err = Some(e),
+        }
+    }
+    Err(last_err.unwrap())
+}
+
+async fn download_once(
     client:  &reqwest::Client,
     url:     &str,
     dest:    &Path,
@@ -913,7 +988,6 @@ async fn download_with_bar(
         bar.set_position(tot);
         overall.inc(chunk.len() as u64);
     }
-    bar.finish();
     Ok(tot)
 }
 

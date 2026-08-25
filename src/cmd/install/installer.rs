@@ -258,6 +258,15 @@ pub fn install(
         cleanup_snapshot(&snapshot_dir);
         return Err(e);
     }
+    // Shebang scripts (`#!/bin/sh`, `#!/usr/bin/env ...`) — exec() resolves
+    // that path literally with no fallback, and Zainium has no `/bin` or
+    // `/usr/bin` at all, so an unpatched script fails with ENOENT despite
+    // installing "successfully". Same timing/staging constraint as the
+    // two passes above.
+    if let Err(e) = super::shebangpatch::patch_staged_scripts(&staged_files) {
+        cleanup_snapshot(&snapshot_dir);
+        return Err(e);
+    }
 
     // ── Step 4: Compute final system paths ───────────────────────────────
     //
