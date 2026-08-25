@@ -9,7 +9,7 @@ updates, and audits packages across four package tiers — native Zainium
 format). Every tier is verified against its real upstream signature scheme
 before anything is installed.
 
-- **Version:** 5.0.0
+- **Version:** 6.0.0
 - **Language:** Rust 2024 edition
 - **Target:** `x86_64-unknown-linux-musl` (pinned in `.cargo/config.toml`; no glibc anywhere in the toolchain)
 - **License:** GPL-3.0, strict-only

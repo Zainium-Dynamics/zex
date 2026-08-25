@@ -7,7 +7,7 @@ Versioning follows project releases (`Cargo.toml` package version).
 
 ---
 
-## [5.0.1] — 2026-08-25
+## [6.0.0] — 2026-08-25
 
 Everything in this release came out of live testing against the real
 archive and a real syshub upgrade — not unit tests. Most of these bugs
