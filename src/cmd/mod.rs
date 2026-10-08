@@ -7,6 +7,7 @@ pub mod install;
 pub mod upgrade;
 pub mod remove;
 pub mod search;
+pub mod refresh;
 pub mod doctor;
 pub mod rollback;
 pub mod update;

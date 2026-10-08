@@ -37,6 +37,7 @@ reqwest       = { version = "0.12", default-features = false, features = ["rustl
 rustls        = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-webpki = "0.103"
 webpki-roots  = "0.26"
+hickory-resolver = { version = "0.24", default-features = false, features = ["tokio-runtime", "system-config"] }
 bytes         = "1"
 
 # Archive / compression

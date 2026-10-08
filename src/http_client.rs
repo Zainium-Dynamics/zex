@@ -12,29 +12,14 @@ use rustls::DigitallySignedStruct;
 use rustls::{Error, RootCertStore, SignatureScheme};
 
 
-/// SPKI SHA-256 pins (base64) for hosts that require certificate pinning.
-///
-/// `archive.zainiumdynamics.tech` moved from an Oracle-hosted origin to
-/// Cloudflare (fronting R2 storage) — this pin was stale against the old
-/// Oracle cert until refreshed against the real live cert on 2026-08-12
-/// (`echo | openssl s_client -connect archive.zainiumdynamics.tech:443
-/// -servername archive.zainiumdynamics.tech | openssl x509 -pubkey -noout
-/// | openssl pkey -pubin -outform der | openssl dgst -sha256 -binary |
-/// base64`). Every stale pin here fails *silently* wherever the caller
-/// doesn't explicitly surface the TLS error (e.g. `cmd::update::main`'s
-/// `.unwrap_or_default()` on the diff calls turned "every HTTPS request
-/// rejected" into a plain "no updates available") — if `zex` starts
-/// reporting suspiciously-empty results against this host again, check
-/// this pin against the live cert before assuming there's nothing to do.
-/// `PINS_CONFIG_PATH` below can override this without a rebuild if the
-/// cert rotates again (Cloudflare-fronted origins can rotate more often
-/// than a single hardcoded leaf-cert pin comfortably tolerates).
-const DEFAULT_PINS: &[(&str, &[&str])] = &[(
-    "archive.zainiumdynamics.tech",
-    &["j3xLhYimysNA/zKow20gJ0g0LsiNcHhflTSjuSBoe+Q="],
-)];
-
+/// Optional SPKI SHA-256 pins (base64) per host, `[host]` table in this file.
+/// No pins are built in: Cloudflare rotates the archive's leaf cert, and a
+/// stale pin rejected every request to it. Without the file, hosts get plain
+/// WebPKI verification; `zex refresh` shows any pin mismatch per mirror.
 const PINS_CONFIG_PATH: &str = "/overlayer/syshub/engine/services/tls_pins.toml";
+
+/// zex is static, so musl's resolver only reads /etc/resolv.conf, which Zainium doesn't have.
+const RESOLV_CONF_PATH: &str = "/overlayer/syshub/etc/resolv.conf";
 
 #[derive(Debug, serde::Deserialize, Default)]
 struct PinsFile {
@@ -62,28 +47,46 @@ pub fn build(user_agent: &str) -> Result<reqwest::Client> {
     let pins = load_pins();
     let tls = build_rustls_config(&pins)?;
 
-    reqwest::Client::builder()
+    let mut builder = reqwest::Client::builder()
         .connect_timeout(std::time::Duration::from_secs(15))
         .timeout(std::time::Duration::from_secs(4 * 60 * 60))
         .tcp_keepalive(std::time::Duration::from_secs(30))
         .user_agent(user_agent)
-        .use_preconfigured_tls(tls)
-        .build()
-        .context("building HTTP client")
+        .use_preconfigured_tls(tls);
+    if let Some(resolver) = ZainiumResolver::from_resolv_conf() {
+        builder = builder.dns_resolver(Arc::new(resolver));
+    }
+    builder.build().context("building HTTP client")
+}
+
+/// DNS from Zainium's resolv.conf, IPv4 first.
+struct ZainiumResolver(hickory_resolver::TokioAsyncResolver);
+
+impl ZainiumResolver {
+    fn from_resolv_conf() -> Option<Self> {
+        let raw = std::fs::read(RESOLV_CONF_PATH).ok()?;
+        let (config, mut opts) = hickory_resolver::system_conf::parse_resolv_conf(raw)
+            .map_err(|e| log::warn!("{RESOLV_CONF_PATH}: {e}"))
+            .ok()?;
+        opts.ip_strategy = hickory_resolver::config::LookupIpStrategy::Ipv4thenIpv6;
+        Some(Self(hickory_resolver::TokioAsyncResolver::tokio(config, opts)))
+    }
+}
+
+impl reqwest::dns::Resolve for ZainiumResolver {
+    fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
+        let resolver = self.0.clone();
+        Box::pin(async move {
+            let lookup = resolver.lookup_ip(name.as_str()).await?;
+            let addrs: reqwest::dns::Addrs =
+                Box::new(lookup.into_iter().map(|ip| std::net::SocketAddr::new(ip, 0)));
+            Ok(addrs)
+        })
+    }
 }
 
 fn load_pins() -> HashMap<String, Vec<Vec<u8>>> {
     let mut pins: HashMap<String, Vec<Vec<u8>>> = HashMap::new();
-
-    for (host, b64_list) in DEFAULT_PINS {
-        let decoded: Vec<Vec<u8>> = b64_list
-            .iter()
-            .filter_map(|b64| base64::engine::general_purpose::STANDARD.decode(b64).ok())
-            .collect();
-        if !decoded.is_empty() {
-            pins.insert((*host).to_string(), decoded);
-        }
-    }
 
     if let Ok(raw) = std::fs::read_to_string(PINS_CONFIG_PATH) {
         if let Ok(file) = toml::from_str::<PinsFile>(&raw) {
@@ -195,13 +198,6 @@ fn spki_hash(cert: &CertificateDer<'_>) -> Result<Vec<u8>, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn default_pins_load_for_archive_host() {
-        let pins = load_pins();
-        assert!(pins.contains_key("archive.zainiumdynamics.tech"));
-        assert!(!pins["archive.zainiumdynamics.tech"].is_empty());
-    }
 
     #[test]
     fn builds_http_client() {

@@ -56,6 +56,7 @@ fn print_help() {
     println!("    {G}uland --u{R}          Upgrade userland packages");
     println!("    {G}syshub --u{R}         Upgrade immutable core");
     println!("    {G}search{R}  {D}<query>{R}       Search repositories");
+    println!("    {G}refresh{R}             Refresh indexes of all 4 tiers");
     println!("    {G}rollback{R} {D}<tx_id>{R}      Revert a transaction");
     println!();
     println!("  {Y}Inspection:{R}");
@@ -190,6 +191,7 @@ async fn main() {
         "install"  => { cmd::install::run(driver_args).await; Ok(()) }
         "remove"   => { cmd::remove::run(driver_args).await; Ok(()) }
         "search"   => { cmd::search::run(driver_args).await; Ok(()) }
+        "refresh"  => cmd::refresh::run(driver_args).await,
         "doctor"   => { cmd::doctor::run(driver_args); Ok(()) }
         "rollback" => { cmd::rollback::run(driver_args); Ok(()) }
         "sweep"    => cmd::sweep::run(driver_args).await,

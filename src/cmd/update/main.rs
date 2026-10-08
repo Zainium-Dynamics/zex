@@ -71,6 +71,9 @@ pub async fn run(raw_args: Vec<String>) -> Result<()> {
     #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
     let arch = "x86_64";
 
+    // Every tier's index first, so a dead mirror or stale TLS pin is visible before the diff
+    crate::cmd::refresh::refresh_all(&client, arch).await;
+
     // ── Diff: userland ────────────────────────────────────────────────────────
     let uland_upgrades = if !cli.syshub_only {
         { let r: anyhow::Result<Vec<super::diff::UpgradePkg>> = diff::diff_userland(&services, &client, arch, INSTALLED_DIR).await; r }
