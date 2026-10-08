@@ -367,6 +367,19 @@ pub fn install(
         return Err(e);
     }
 
+    // ── Step 4c: xbps alternatives (Void's `vim` -> vim-normal and similar) ─
+    if info.format == PackageFormat::Xbps {
+        match stage_xbps_alternatives(pkg_path, &store_path, union_root, &committed_files) {
+            Ok(links) => {
+                for (staged, final_path) in links {
+                    staged_files.push(staged);
+                    committed_files.push(final_path);
+                }
+            }
+            Err(e) => log::warn!("'{}': alternatives not applied: {e:#}", info.name),
+        }
+    }
+
     // ── Step 5: Register in DB ────────────────────────────────────────────
     if !parallel {
         ui::print_install_step("Setting up desktop entry");
@@ -1081,6 +1094,86 @@ fn extract_apk(pkg_path: &Path, dest: &Path, installed: &mut Vec<PathBuf>) -> Re
 /// "Unknown frame descriptor" error (a malformed-zstd-header message,
 /// misleading here since the file was never zstd to begin with). Sniff
 /// the real magic bytes instead of assuming.
+/// Stages the symlinks of a package's xbps alternatives groups whose link
+/// doesn't exist yet (first provider wins, as with xbps itself); returns
+/// (staged, final union path) pairs to commit with the rest of the package.
+fn stage_xbps_alternatives(
+    pkg_path: &Path,
+    store_path: &Path,
+    union_root: &Path,
+    committed: &[PathBuf],
+) -> Result<Vec<(PathBuf, PathBuf)>> {
+    let Some(props) = read_xbps_member(pkg_path, "props.plist")? else {
+        return Ok(Vec::new());
+    };
+    let props: plist::Value = plist::from_bytes(&props).context("parsing props.plist")?;
+    let Some(groups) = props
+        .as_dictionary()
+        .and_then(|d| d.get("alternatives"))
+        .and_then(|a| a.as_dictionary())
+    else {
+        return Ok(Vec::new());
+    };
+
+    let alt_root = store_path.join(".zex-alternatives");
+    let mut out = Vec::new();
+    for entries in groups.values().filter_map(|v| v.as_array()) {
+        for entry in entries.iter().filter_map(|e| e.as_string()) {
+            // "link:target"; a relative link lives in the target's directory
+            let Some((link, target)) = entry.split_once(':') else { continue };
+            let target = Path::new(target);
+            let link_path = if link.starts_with('/') {
+                PathBuf::from(link)
+            } else {
+                target.parent().unwrap_or(Path::new("/")).join(link)
+            };
+            let rel = crate::archive_safety::remap_usr_paths(link_path);
+            let final_path = union_root.join(&rel);
+            if final_path.symlink_metadata().is_ok() || committed.contains(&final_path) {
+                continue;
+            }
+            let final_target = union_root.join(crate::archive_safety::remap_usr_paths(target.to_path_buf()));
+            let value = if final_target.parent() == final_path.parent() {
+                PathBuf::from(final_target.file_name().unwrap_or_default())
+            } else {
+                final_target
+            };
+            let staged = alt_root.join(&rel);
+            if let Some(parent) = staged.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::os::unix::fs::symlink(&value, &staged)
+                .with_context(|| format!("alternative link {}", staged.display()))?;
+            out.push((staged, final_path));
+        }
+    }
+    Ok(out)
+}
+
+/// Reads one metadata member (e.g. props.plist) out of a zstd or xz .xbps archive.
+fn read_xbps_member(pkg_path: &Path, name: &str) -> Result<Option<Vec<u8>>> {
+    let mut file = std::fs::File::open(pkg_path)?;
+    let mut magic = [0u8; 6];
+    let n = file.read(&mut magic)?;
+    file.rewind()?;
+    let reader: Box<dyn Read> = if n >= 6 && magic == [0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00] {
+        Box::new(xz2::read::XzDecoder::new(file))
+    } else {
+        Box::new(zstd::stream::read::Decoder::new(file)?)
+    };
+    let mut archive = tar::Archive::new(reader);
+    for entry in archive.entries()? {
+        let mut entry = entry?;
+        let path = entry.path()?.into_owned();
+        if path.to_string_lossy().trim_start_matches("./") == name {
+            let mut buf = Vec::new();
+            entry.read_to_end(&mut buf)?;
+            return Ok(Some(buf));
+        }
+    }
+    Ok(None)
+}
+
 fn extract_xbps(pkg_path: &Path, dest: &Path, installed: &mut Vec<PathBuf>) -> Result<Option<PostInstallScript>> {
     const ZSTD_MAGIC: [u8; 4] = [0x28, 0xB5, 0x2F, 0xFD];
     const XZ_MAGIC: [u8; 6] = [0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00];

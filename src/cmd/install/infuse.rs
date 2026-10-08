@@ -744,6 +744,46 @@ async fn run_parallel(
         return Ok(());
     }
 
+    // Same dependency check run_single does, per requested package; deps go ahead of the roots
+    let mut deps: Vec<super::backend::PackageInfo> = Vec::new();
+    let mut roots: Vec<super::backend::PackageInfo> = Vec::new();
+    for info in resolved {
+        let plan = match super::depends::resolve_dependencies(&info, &client, &config, &mm).await {
+            Ok(plan) => plan,
+            Err(e) => {
+                if let Some(mut t) = txns.remove(&info.name) {
+                    t.mark_failed(&format!("dependency resolution failed: {e}"));
+                }
+                ui::print_install_error(&info.display_name, &e);
+                continue;
+            }
+        };
+        for (dep_token, provider) in &plan.syshub_provided {
+            ui::print_dep_provided_by(super::apk::strip_constraint(dep_token), provider);
+        }
+        if !plan.unresolvable.is_empty() {
+            let err_msg = format!("strict dependency check failed: missing {}", plan.unresolvable.join(", "));
+            if let Some(mut t) = txns.remove(&info.name) {
+                t.mark_failed(&err_msg);
+            }
+            ui::print_install_error(&info.display_name, &anyhow::anyhow!(err_msg));
+            continue;
+        }
+        for dep in plan.packages {
+            if !deps.iter().any(|d| d.name.eq_ignore_ascii_case(&dep.name)) {
+                deps.push(dep);
+            }
+        }
+        roots.push(info);
+    }
+    deps.retain(|d| !roots.iter().any(|r| r.name.eq_ignore_ascii_case(&d.name)));
+    if roots.is_empty() {
+        finalize_leftover_txns(&mut txns, "no package passed dependency resolution");
+        return Ok(());
+    }
+    deps.extend(roots);
+    let resolved = deps;
+
     for txn in txns.values() {
         let matching: Vec<&super::backend::PackageInfo> = resolved
             .iter()
