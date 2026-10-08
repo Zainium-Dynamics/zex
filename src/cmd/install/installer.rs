@@ -23,6 +23,7 @@ use std::collections::HashSet;
 use std::io::{Read, Seek, Write};
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
@@ -31,6 +32,13 @@ use sha2::{Digest, Sha256};
 use super::backend::{DbEntry, PackageFormat, PackageInfo, register_package};
 use super::sandbox;
 use super::ui;
+
+/// Set by `zex install --force`: file conflicts overwrite instead of aborting.
+static FORCE: AtomicBool = AtomicBool::new(false);
+
+pub fn set_force(on: bool) {
+    FORCE.store(on, Ordering::Relaxed);
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IntegrityMode {
@@ -1511,12 +1519,20 @@ pub fn check_file_conflicts(pkg_name: &str, committed_files: &[PathBuf]) -> Vec<
 /// (Step 5) — true pre-flight, nothing registered or committed yet if this
 /// aborts.
 ///
-/// No `--force` bypass yet (no such flag exists anywhere in the `install`
-/// CLI today) — a real conflict is a hard error until one is added.
+/// With `zex install --force` the conflicting files are overwritten instead
+/// (a base OS file is shadowed by the union copy).
 pub fn preflight_conflict_check(pkg_name: &str, committed_files: &[PathBuf]) -> Result<()> {
     let conflicts = check_file_conflicts(pkg_name, committed_files);
 
     if conflicts.is_empty() {
+        return Ok(());
+    }
+
+    if FORCE.load(Ordering::Relaxed) {
+        ui::print_forced_conflicts(pkg_name, &conflicts);
+        for (_, path) in &conflicts {
+            let _ = crate::immutable::try_clear_immutable(Path::new(path));
+        }
         return Ok(());
     }
 

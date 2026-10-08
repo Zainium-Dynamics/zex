@@ -67,6 +67,10 @@ struct Cli {
     #[arg(long = "cache-only", default_value_t = false)]
     cache_only: bool,
 
+    /// Overwrite files another package or the base OS already has instead of aborting.
+    #[arg(long, short = 'f', default_value_t = false)]
+    force: bool,
+
 
 
 
@@ -90,6 +94,7 @@ pub async fn run(raw_args: Vec<String>) {
     }
 
     let cli = Cli::parse_from(&raw_args);
+    super::installer::set_force(cli.force);
 
     if cli.emit_scorecard || cli.report_gates {
         let cfg = match super::backend::BackendConfig::load() {

@@ -607,6 +607,13 @@ pub fn print_file_conflicts(pkg: &str, conflicts: &[(String, String)]) {
     println!("\n  Use {P}--force{RST} to override.\n");
 }
 
+pub fn print_forced_conflicts(pkg: &str, conflicts: &[(String, String)]) {
+    println!("\n {Y}!{RST} {P}'{pkg}'{RST} overwrites (--force):");
+    for (owner, path) in conflicts {
+        println!("  {DIM}•{RST} {B}{path}{RST} {DIM}(owned by {owner}){RST}");
+    }
+}
+
 pub fn print_snapshot_list(snapshots: &[super::immutable::SnapshotManifest]) {
     if snapshots.is_empty() {
         println!("\n {DIM}No snapshots available.{RST}\n");
