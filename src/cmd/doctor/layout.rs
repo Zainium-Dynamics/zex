@@ -10,12 +10,13 @@
 //!           syshub/bin/    (ldd symlink, zainium-relibc-gcc-* wrappers)
 //!           syshub/include/ (relibc headers)
 //!
-//! musl    → syshub/x86_64-linux-musl/lib/    (libc.so, ld-musl-x86_64.so.1)
-//!           syshub/x86_64-linux-musl/include/
-//!           syshub/x86_64-linux-musl/bin/    (ldd, zainium-musl-gcc-x86_64)
-//!           syshub/bin/x86_64-zainium-linux-musl-gcc   (cross-compiler wrapper)
-//!           syshub/bin/x86_64-zainium-linux-musl-g++
-//!           syshub/lib/gcc/  (GCC internal libs for musl cross-compiler)
+//! musl    → syshub/x86_64-zainium-linux-musl/lib/    (libc.so, ld-musl-x86_64.so.1)
+//!           syshub/x86_64-zainium-linux-musl/include/
+//!           syshub/x86_64-zainium-linux-musl/bin/    (ldd only)
+//!           syshub/bin/x86_64-zainium-linux-musl-gcc   (cross-compiler, and
+//!             every other -gcc-*/binutils tool — all live directly under
+//!             the general syshub/bin/, not under the sysroot)
+//!           syshub/lib/libgcc_s.so.1  (also general syshub/lib/, not the sysroot)
 
 // ── Base roots ────────────────────────────────────────────────────────────────
 pub const SYSHUB:           &str = "/overlayer/syshub";
@@ -40,28 +41,44 @@ pub const RELIBC_CRITICAL: &[&str] = &[
 pub const RELIBC_LIB64_SYMLINK_TARGET: &str = "lib";
 
 // ── musl install locations ────────────────────────────────────────────────────
-/// musl sysroot root — real name is x86_64-zainium-linux-musl (verified from ls)
-/// Layout:
-///   bin/   — ar, as, ld, ld.bfd, ldd→../lib/ld-musl-x86_64.so.1, musl-gcc,
-///             nm, objcopy, objdump, ranlib, readelf, strip
+/// musl sysroot root — real name is x86_64-zainium-linux-musl (verified from ls).
+/// Layout (corrected against a real root — the previous version of this
+/// comment had the cross-compiler/binutils/specs location wrong):
+///   bin/   — ldd only. The cross-compiler (`x86_64-zainium-linux-musl-gcc`
+///             and friends: `-g++`, `-gcc-16`, `-gcc-ar`, `-gcc-nm`,
+///             `-gcc-ranlib`) and binutils (`x86_64-zainium-linux-musl-ar`,
+///             `-as`, `-ld`, `-ld.bfd`, `-nm`, `-objcopy`, `-objdump`,
+///             `-ranlib`, `-readelf`, `-strip`, `-size`, `-strings`,
+///             `-addr2line`, `-c++`, `-c++filt`, `-elfedit`, `-gprof`) all
+///             live directly under the general `syshub/bin/`, not here.
 ///   include/ — full musl + GCC C++ headers (c++/15.3.0/)
-///   lib/   — libc.so, ld-musl-x86_64.so.1→libc.so, libgcc_s.so.1,
-///             libstdc++.so.6, crt*.o, Scrt1.o, rcrt1.o,
-///             gcc/x86_64-zainium-linux-musl/15.3.0/ (GCC internals),
-///             ldscripts/, musl-gcc.specs, zainium-musl-x86_64.specs
+///   lib/   — libc.so, ld-musl-x86_64.so.1, libc.a + the other static
+///             libs (libm.a, libpthread.a, libcrypt.a, libdl.a, libresolv.a,
+///             librt.a, libutil.a, libxnet.a), crt1.o/crti.o/crtn.o,
+///             Scrt1.o, rcrt1.o. `libgcc_s.so.1` and any GCC specs file
+///             are NOT here — `libgcc_s.so.1` lives in the general
+///             `syshub/lib/`, and no `.specs` file exists in this build
+///             at all.
 pub const MUSL_SYSROOT_X86:   &str = "/overlayer/syshub/x86_64-zainium-linux-musl";
 pub const MUSL_LIB_X86:       &str = "/overlayer/syshub/x86_64-zainium-linux-musl/lib";
 pub const MUSL_BIN_X86:       &str = "/overlayer/syshub/x86_64-zainium-linux-musl/bin";
-pub const MUSL_SPECS_X86:     &str = "/overlayer/syshub/x86_64-zainium-linux-musl/lib/zainium-musl-x86_64.specs";
-pub const MUSL_GCC_LIB:       &str = "/overlayer/syshub/x86_64-zainium-linux-musl/lib/gcc/x86_64-zainium-linux-musl";
 
-/// Critical files that MUST exist inside the musl sysroot
+/// Critical files that MUST exist for a working musl toolchain — only the
+/// libc itself lives inside the musl sysroot proper
+/// (`x86_64-zainium-linux-musl/lib/`); the cross-compiler, binutils, and
+/// libgcc all live directly under the general `syshub/bin/`/`syshub/lib/`,
+/// not namespaced under the sysroot. Confirmed live against a real root:
+/// the sysroot's own `bin/` contains only `ldd`, there is no `musl-gcc`
+/// anywhere by that name (the real cross-compiler is
+/// `x86_64-zainium-linux-musl-gcc`), and no `.specs` file exists in this
+/// build at all — the previous list checked all three of these at the
+/// wrong path (or a name that never existed), so a real, correctly-built
+/// system permanently failed this check.
 pub const MUSL_CRITICAL: &[&str] = &[
     "/overlayer/syshub/x86_64-zainium-linux-musl/lib/libc.so",
     "/overlayer/syshub/x86_64-zainium-linux-musl/lib/ld-musl-x86_64.so.1",
-    "/overlayer/syshub/x86_64-zainium-linux-musl/lib/libgcc_s.so.1",
-    "/overlayer/syshub/x86_64-zainium-linux-musl/bin/musl-gcc",
-    "/overlayer/syshub/x86_64-zainium-linux-musl/lib/zainium-musl-x86_64.specs",
+    "/overlayer/syshub/lib/libgcc_s.so.1",
+    "/overlayer/syshub/bin/x86_64-zainium-linux-musl-gcc",
 ];
 
 // ── syshub layout — standard dirs that must exist ────────────────────────────

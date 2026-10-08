@@ -243,8 +243,8 @@ pub async fn execute() -> Result<()> {
             Ok(b) => b,
             Err(e) => {
                 // Clean up staging + dl_tmp
-                fs::remove_dir_all(staging).ok();
-                fs::remove_dir_all(dl_tmp).ok();
+                cleanup_dir(staging);
+                cleanup_dir(dl_tmp);
                 ui::print_download_interrupted(&pkg_name);
                 log_audit("syshub", &downloaded, "rolled_back",
                           Some(&e.to_string()), started.elapsed().as_millis() as u64);
@@ -270,6 +270,25 @@ pub async fn execute() -> Result<()> {
     // ── 7. Verify the merged syshub.new tree ──────────────────────────────────
     ui::print_phase("Verifying integrity");
     verify_libc_boundaries(staging)?;
+
+    // Shebang scripts — confirmed live against a real syshub upgrade
+    // (LLVM's `scan-build`/`scan-build-py`, shipped with `#!/usr/bin/env
+    // perl`/`#!/usr/bin/env python3`) that syshub packages are NOT exempt
+    // from this bug just because they're syshub-tier. That trust is
+    // reasonable for ELF interpreter/RPATH and `.pc` prefixes (syshub's
+    // own toolchain genuinely builds those correctly, which is why
+    // elfpatch/pcpatch were deliberately never wired in here) — but a
+    // script vendored from some upstream project (LLVM's own Python/Perl
+    // tooling, here) was never touched by that toolchain at all and
+    // carries whatever shebang its original authors wrote, regardless of
+    // which tier packaged it.
+    let staged_files: Vec<PathBuf> = WalkDir::new(staging)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+        .map(|e| e.path().to_path_buf())
+        .collect();
+    crate::cmd::install::shebangpatch::patch_staged_scripts(&staged_files)?;
 
     // ── 8. Remount syshub rw ───────────────────────────────────────────────────
     // Must happen BEFORE the swap step below, not after. `/overlayer/syshub`
@@ -303,8 +322,8 @@ pub async fn execute() -> Result<()> {
             // propagating, matching how the later file-commit rollback
             // branch already remounts ro on its own failure path.
             remount(SYSHUB_PATH, false).ok();
-            fs::remove_dir_all(staging).ok();
-            fs::remove_dir_all(dl_tmp).ok();
+            cleanup_dir(staging);
+            cleanup_dir(dl_tmp);
             return Err(e).context("self-upgrade swap of zex binary");
         }
     };
@@ -322,8 +341,18 @@ pub async fn execute() -> Result<()> {
     let live = Path::new(SYSHUB_PATH);
     let mut commit_err: Option<anyhow::Error> = None;
 
+    // Symlinks, not just regular files — confirmed live against a real
+    // syshub upgrade (llvm/mesa's versioned `.so` symlinks) that the old
+    // `!entry.file_type().is_file()` filter skipped every symlink in
+    // staging outright, leaving them stranded in `syshub.new` (never
+    // applied to the live tree at all) and only not visibly breaking
+    // anything because the old and new symlinks here happened to point at
+    // the same target filename. `checkpoint` already handles symlink
+    // paths correctly; only the walk's filter and the placement call
+    // needed to catch up to that.
     'apply: for entry in WalkDir::new(staging).into_iter().filter_map(|e| e.ok()) {
-        if !entry.file_type().is_file() { continue; }
+        let file_type = entry.file_type();
+        if !file_type.is_file() && !file_type.is_symlink() { continue; }
         let rel       = entry.path().strip_prefix(staging).unwrap();
         let live_path = live.join(rel);
 
@@ -331,7 +360,12 @@ pub async fn execute() -> Result<()> {
             commit_err = Some(e);
             break 'apply;
         }
-        if let Err(e) = swap::atomic_place(entry.path(), &live_path) {
+        let place_result = if file_type.is_symlink() {
+            swap::atomic_place_symlink(entry.path(), &live_path)
+        } else {
+            swap::atomic_place(entry.path(), &live_path)
+        };
+        if let Err(e) = place_result {
             commit_err = Some(e);
             break 'apply;
         }
@@ -342,8 +376,8 @@ pub async fn execute() -> Result<()> {
         remount(SYSHUB_PATH, false).ok();
         tx.rollback().ok();
         swap::restore_bak().ok();   // put old zex back
-        fs::remove_dir_all(staging).ok();
-        fs::remove_dir_all(dl_tmp).ok();
+        cleanup_dir(staging);
+        cleanup_dir(dl_tmp);
         log_audit("syshub", &downloaded, "rolled_back",
                   Some(&err.to_string()), started.elapsed().as_millis() as u64);
         bail!("Syshub overwrite failed — fully rolled back: {err}");
@@ -364,8 +398,8 @@ pub async fn execute() -> Result<()> {
     // ── 13. Commit + cleanup ──────────────────────────────────────────────────
     tx.commit();
     swap::cleanup_bak();
-    fs::remove_dir_all(staging).ok();
-    fs::remove_dir_all(dl_tmp).ok();
+    cleanup_dir(staging);
+    cleanup_dir(dl_tmp);
 
     let elapsed  = started.elapsed().as_secs();
     let total_mb = total_bytes as f64 / 1_048_576.0;
@@ -572,6 +606,21 @@ fn verify_libc_boundaries(staging: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Best-effort cleanup that still surfaces a failure instead of silently
+/// swallowing it — confirmed live that a bare `fs::remove_dir_all(...)
+/// .ok()` left a stale `syshub.new` behind on a real drive with no
+/// indication anything had gone wrong. Cleanup staying non-fatal is
+/// still correct (the upgrade itself already succeeded or already
+/// rolled back by the time this runs), but silent is not.
+fn cleanup_dir(path: &Path) {
+    if let Err(e) = fs::remove_dir_all(path) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            eprintln!("  {Y}WARN: could not clean up {}: {e}{RST}",
+                path.display(), Y = ui::Y, RST = ui::RST);
+        }
+    }
 }
 
 fn remount(path: &str, rw: bool) -> Result<()> {

@@ -142,3 +142,28 @@ pub fn atomic_place(src: &Path, dst: &Path) -> Result<()> {
     }
     Ok(())
 }
+
+/// Same job as `atomic_place`, but for a symlink `src` — `fs::copy`
+/// dereferences a symlink and copies whatever it points to, so
+/// `atomic_place`'s own EXDEV fallback silently turns a symlink into a
+/// regular-file copy of its target instead of recreating the link. This
+/// only shows up cross-mount (same as `atomic_place`'s own EXDEV case),
+/// which is why it went unnoticed: confirmed live that a real syshub
+/// upgrade's commit step was skipping every symlink outright (a stricter
+/// bug than the copy-vs-symlink mixup — the walk only ever looked at
+/// regular files at all), and only didn't visibly break anything because
+/// the affected symlinks (soname `.so` links) happened to still point at
+/// the same target filename in the new version.
+pub fn atomic_place_symlink(src: &Path, dst: &Path) -> Result<()> {
+    let target = fs::read_link(src)
+        .with_context(|| format!("reading symlink target of {}", src.display()))?;
+    if let Some(p) = dst.parent() {
+        fs::create_dir_all(p)?;
+    }
+    let _ = fs::remove_file(dst); // clear whatever's currently at dst, if anything
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&target, dst)
+        .with_context(|| format!("symlink {} → {}", dst.display(), target.display()))?;
+    let _ = fs::remove_file(src);
+    Ok(())
+}

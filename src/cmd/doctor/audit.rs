@@ -51,7 +51,7 @@ impl AuditResult {
             + self.missing_syshub_dirs.len()
             + self.missing_musl_files.len()
             + self.missing_relibc_files.len()
-            
+
     }
 
     pub fn registry_ok(&self) -> bool {

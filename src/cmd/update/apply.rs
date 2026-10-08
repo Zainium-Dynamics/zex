@@ -125,12 +125,23 @@ pub async fn apply_syshub(
     // Atomic overwrite into live syshub
     remount(syshub_path, true)?;
     let live = Path::new(syshub_path);
+    // Symlinks too, not just regular files — same bug, same fix, as
+    // cmd::upgrade::syscore's identical commit walk: `fs::copy` on a
+    // symlink dereferences it and copies the target's content instead of
+    // recreating the link, and a bare `!is_file()` filter skipped
+    // symlinks here entirely, leaving them stranded in staging.
     for entry in WalkDir::new(&staging).into_iter().filter_map(|e| e.ok()) {
-        if !entry.file_type().is_file() { continue; }
+        let file_type = entry.file_type();
+        if !file_type.is_file() && !file_type.is_symlink() { continue; }
         let rel  = entry.path().strip_prefix(&staging).unwrap();
         let dst  = live.join(rel);
         if let Some(p) = dst.parent() { fs::create_dir_all(p)?; }
-        if fs::rename(entry.path(), &dst).is_err() {
+        if file_type.is_symlink() {
+            let target = fs::read_link(entry.path())?;
+            let _ = fs::remove_file(&dst);
+            #[cfg(unix)]
+            std::os::unix::fs::symlink(&target, &dst)?;
+        } else if fs::rename(entry.path(), &dst).is_err() {
             fs::copy(entry.path(), &dst)?;
         }
     }
