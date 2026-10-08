@@ -14,7 +14,7 @@
 //!
 //! The router `run()` dispatches to the appropriate path.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -781,6 +781,7 @@ async fn run_parallel(
         finalize_leftover_txns(&mut txns, "no package passed dependency resolution");
         return Ok(());
     }
+    let root_names: HashSet<String> = roots.iter().map(|r| r.name.clone()).collect();
     deps.extend(roots);
     let resolved = deps;
 
@@ -907,6 +908,7 @@ async fn run_parallel(
         let client = Arc::clone(&client);
         let cfg = Arc::clone(&config);
         let mut txn = txns.remove(&info.name);
+        let is_dependency = !root_names.contains(&info.name);
         ui::print_parallel_pkg_steps(&info.name);
 
         install_handles.push(tokio::spawn(async move {
@@ -929,7 +931,7 @@ async fn run_parallel(
                     integrity_mode,
                     signature_mode,
                     xbps_sig.as_ref(),
-                    false,
+                    is_dependency,
                 )
             })
             .await;
