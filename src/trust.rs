@@ -285,10 +285,10 @@ mod tests {
     /// Builds a fully valid signed `ParsedZexForVerify` (as if produced by
     /// `substrate pack`) plus the verifying key, for a single payload file.
     fn build_valid() -> (ParsedZexForVerify, VerifyingKey) {
-        let payload_files = vec![("payload/bin/hello".to_string(), b"hello world".to_vec())];
+        let payload_files = vec![("payload/bin/hello".to_string(), b"hello world".to_vec(), None)];
 
         let mut hasher = blake3::Hasher::new();
-        for (path, bytes) in &payload_files {
+        for (path, bytes, _) in &payload_files {
             hasher.update(path.as_bytes());
             hasher.update(bytes);
         }

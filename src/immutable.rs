@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use log::debug;
 
 const FS_IOC_GETFLAGS: libc::c_ulong = 0x8008_6601;
-const FS_IOC_SETFLAGS: libc::c_ulong = 0x8008_6602;
+const FS_IOC_SETFLAGS: libc::c_ulong = 0x4008_6602;
 const FS_IMMUTABLE_FL: i32 = 0x0000_0010;
 
 /// Clear the immutable bit on `path` so it can be replaced; a no-op when unset or unsupported.
