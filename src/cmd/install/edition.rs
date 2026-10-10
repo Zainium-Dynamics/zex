@@ -130,14 +130,15 @@ pub fn remove_edition(pkg_name: &str, edition: &str) -> Result<()> {
         .unwrap_or_default();
 
     // Delete files
+    let live = |p: &String| crate::archive_safety::live_path(std::path::Path::new(p));
     for file in &rm.files {
-        let _ = fs::remove_file(file);
+        let _ = fs::remove_file(live(file));
     }
     for link in &rm.symlinks {
-        let _ = fs::remove_file(link);
+        let _ = fs::remove_file(live(link));
     }
     for dir in rm.dirs.iter().rev() {
-        let _ = fs::remove_dir(dir); // only succeeds if empty
+        let _ = fs::remove_dir(live(dir)); // only succeeds if empty
     }
 
     // Update default if needed
@@ -283,17 +284,19 @@ fn extract_single_edition(
 
         // Map edition-relative path using install map
         let dest = super::zex_manifest::resolve_install_dest_pub(inner_rel, install_map)?;
+        // recorded as the union path, written through the merged mount
+        let live = crate::archive_safety::live_path(&dest);
         let typ = entry.header().entry_type();
-        if typ.is_dir() { fs::create_dir_all(&dest)?; continue; }
-        if let Some(p) = dest.parent() { fs::create_dir_all(p)?; }
+        if typ.is_dir() { fs::create_dir_all(&live)?; continue; }
+        if let Some(p) = live.parent() { fs::create_dir_all(p)?; }
         if typ.is_file() {
-            let mut out = fs::File::create(&dest)?;
+            let mut out = fs::File::create(&live)?;
             std::io::copy(&mut entry, &mut out)?;
             rm.files.push(dest.to_string_lossy().into_owned());
         } else if typ.is_symlink() {
             if let Some(t) = entry.link_name()? {
-                let _ = fs::remove_file(&dest);
-                #[cfg(unix)] symlink(&t, &dest)?;
+                let _ = fs::remove_file(&live);
+                #[cfg(unix)] symlink(&t, &live)?;
                 rm.symlinks.push(dest.to_string_lossy().into_owned());
             }
         }

@@ -126,7 +126,7 @@ async fn zex_store_removal(name: &str) -> bool {
                         let _ = std::fs::remove_file(&system_path);
                     }
                     // Remove union hardlink
-                    let union_file = union_path.join(rel);
+                    let union_file = crate::archive_safety::live_path(&union_path.join(rel));
                     if union_file.exists() || union_file.symlink_metadata().is_ok() {
                         let _ = std::fs::remove_file(&union_file);
                     }

@@ -81,10 +81,16 @@ pub async fn run(raw_args: Vec<String>) -> Result<()> {
     } else { vec![] };
 
     // ── Diff: syshub ──────────────────────────────────────────────────────────
-    let syshub_upgrades = if !cli.uland_only {
-        { let r: anyhow::Result<Vec<super::diff::UpgradePkg>> = diff::diff_syshub(&services, &client, SYSHUB_MANIFEST).await; r }
-            .unwrap_or_default()
-    } else { vec![] };
+    let (mut syshub_upgrades, syshub_remote_raw) = if !cli.uland_only {
+        diff::diff_syshub(&services, &client, SYSHUB_MANIFEST).await.unwrap_or_default()
+    } else { (vec![], String::new()) };
+    // the base can only be upgraded on an installed system; userland still updates on a live one
+    if !syshub_upgrades.is_empty() {
+        if let Err(e) = crate::syshub_pending::ensure_available() {
+            eprintln!(" \x1b[93m⚠\x1b[0m  Skipping {} System Hub update(s): {e}", syshub_upgrades.len());
+            syshub_upgrades.clear();
+        }
+    }
 
     // ── Already up-to-date check ──────────────────────────────────────────────
     if uland_upgrades.is_empty() && syshub_upgrades.is_empty() {
@@ -142,7 +148,7 @@ pub async fn run(raw_args: Vec<String>) -> Result<()> {
     if !syshub_upgrades.is_empty() {
         ui::print_section_label("System Hub");
         let dl_bytes = apply::apply_syshub(
-            &syshub_upgrades, &client, dl, &mp, &overall, SYSHUB_PATH
+            &syshub_upgrades, &client, dl, &mp, &overall, SYSHUB_PATH, &syshub_remote_raw
         ).await?;
         total_dl += dl_bytes;
     }
@@ -162,6 +168,7 @@ pub async fn run(raw_args: Vec<String>) -> Result<()> {
 
     // ── Clean up ──────────────────────────────────────────────────────────────
     std::fs::remove_dir_all(dl).ok();
+    crate::triggers::flush();
 
     let elapsed = started.elapsed().as_secs();
     let mins    = elapsed / 60;

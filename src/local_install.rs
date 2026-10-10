@@ -137,6 +137,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
     if !opts.dry_run {
         println!("  ▶ Generating receipt...");
         generate_receipt(&pkg_name, &result.installed_paths).map_err(|e| format!("Receipt error: {}", e))?;
+        crate::triggers::note(&result.installed_paths);
+        crate::triggers::flush();
     }
 
     // Cleanup temp extraction if we extracted
@@ -289,6 +291,9 @@ fn overlay_install(
         } else {
             root.join(relative)
         };
+        // written through the merged mount; recorded as the union path
+        let union_dest = dest;
+        let dest = crate::archive_safety::live_path(&union_dest);
 
         if src_path.is_dir() {
             if dry_run {
@@ -329,7 +334,7 @@ fn overlay_install(
             std::os::unix::fs::symlink(&safe_target, &dest)
                 .map_err(|e| format!("Symlink create error: {}", e))?;
             installed += 1;
-            paths.push(dest);
+            paths.push(union_dest);
             continue;
         }
 
@@ -374,7 +379,7 @@ fn overlay_install(
 
         fs::rename(&tmp, &dest).map_err(|e| format!("Rename error: {}", e))?;
         installed += 1;
-        paths.push(dest);
+        paths.push(union_dest);
     }
 
     Ok(InstallResultExtended {

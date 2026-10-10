@@ -151,13 +151,15 @@ pub fn print_success(
     println!("\n {G}\u{2713} Full system update completed successfully{RST}\n");
     println!("{G}Update Summary{RST}");
     if uland  > 0 { println!("  Userland packages upgraded : {G}{uland}{RST}"); }
-    if syshub > 0 { println!("  Core components upgraded   : {Y}{syshub}{RST}"); }
+    if syshub > 0 { println!("  Core components staged     : {Y}{syshub}{RST}"); }
     println!("  Total downloaded           : {B}{gb:.2} GB{RST}");
     println!("  Time taken                 : {B}{mins} minutes {secs} seconds{RST}\n");
-    println!("{G}Zainium OS is now fully up to date.{RST}");
-    if reboot {
-        println!("{Y}Reboot is recommended.{RST}");
+    if syshub > 0 {
+        println!("{Y}Reboot to apply the System Hub update to the immutable base.{RST}");
+    } else {
+        println!("{G}Zainium OS is now fully up to date.{RST}");
     }
+    let _ = reboot;
     println!();
 }
 

@@ -191,15 +191,28 @@ pub fn print_phase(label: &str) {
     println!("{}", phase_bar(label, STEP_W));
 }
 
-pub fn print_syshub_done(count: usize, total_mb: f64, secs: u64, new_ver: &str) {
-    println!("\n {G}✓ System Hub Upgrade Completed Successfully{RST}\n");
+pub fn print_syshub_done(count: usize, total_mb: f64, secs: u64, new_ver: &str, txn: &str) {
+    println!("\n {G}✓ System Hub upgrade downloaded and verified{RST}\n");
     println!("{G}Upgrade Summary{RST}");
-    println!("  Core components upgraded : {G}{count:02}{RST}");
+    println!("  Core components staged   : {G}{count:02}{RST}");
     println!("  Total downloaded         : {B}{total_mb:.2} MB{RST}");
     println!("  Time taken               : {B}{secs} seconds{RST}");
-    println!("  New core version         : {G}{new_ver}{RST}\n");
-    println!("{DIM}Immutable base is now up to date.{RST}");
-    println!("{Y}Reboot is recommended to apply core changes.{RST}\n");
+    println!("  New core version         : {G}{new_ver}{RST}");
+    println!("  Transaction              : {DIM}{txn}{RST}\n");
+    println!("{Y}Reboot to apply it to the immutable base.{RST}");
+    println!("{DIM}Undo after reboot with: elevate zex syshub --rollback{RST}\n");
+}
+
+pub fn print_pending_waiting(txn: &str) {
+    println!(" {Y}⚠{RST}  Upgrade {DIM}{txn}{RST} is already waiting for a reboot; a new one will replace it.\n");
+}
+
+pub fn print_rollback_requested() {
+    println!("\n {G}✓{RST} Rollback requested: the last applied System Hub upgrade is undone at the next boot.\n");
+}
+
+pub fn print_pending_cancelled(txn: &str) {
+    println!("\n {G}✓{RST} Staged upgrade {DIM}{txn}{RST} cancelled; the base was never touched.\n");
 }
 
 // ── Error display ─────────────────────────────────────────────────────────────

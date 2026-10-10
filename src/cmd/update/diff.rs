@@ -116,9 +116,9 @@ pub async fn diff_syshub(
     services:        &ZexServices,
     client:          &reqwest::Client,
     local_manifest:  &str,
-) -> Result<Vec<UpgradePkg>> {
+) -> Result<(Vec<UpgradePkg>, String)> {
     let Some(mirror) = services.mirror_by_id("zainium-core-stable-syshub") else {
-        return Ok(vec![]);
+        return Ok((vec![], String::new()));
     };
 
     let remote_raw = client.get(&mirror.index_url).send().await?
@@ -146,7 +146,7 @@ pub async fn diff_syshub(
         });
     }
     upgrades.sort_by_key(|u| u.name.clone());
-    Ok(upgrades)
+    Ok((upgrades, remote_raw))
 }
 
 fn val_str(v: &toml::Value) -> String {

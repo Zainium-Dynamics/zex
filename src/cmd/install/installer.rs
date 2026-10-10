@@ -424,20 +424,28 @@ pub fn install(
             log::info!("Config file exists, saving new version as {}", target_dest.display());
         }
 
-        // Ensure parent directory exists
-        if let Some(parent) = target_dest.parent() {
+        let live_dest = crate::archive_safety::live_path(&target_dest);
+        if let Some(parent) = live_dest.parent() {
             std::fs::create_dir_all(parent)
-                .map_err(|e| anyhow::anyhow!("failed to create union directory '{}' for '{}': {}", parent.display(), target_dest.display(), e))?;
+                .map_err(|e| anyhow::anyhow!("failed to create directory '{}' for '{}': {}", parent.display(), live_dest.display(), e))?;
         }
 
-        plan.add(staged_path.to_path_buf(), target_dest);
+        plan.add(staged_path.to_path_buf(), live_dest);
     }
 
     let commit_result = plan.commit();
 
     if commit_result.is_ok() {
         for path in &committed_files {
-            let _ = crate::immutable::try_set_immutable(path);
+            let _ = crate::immutable::try_set_immutable(&crate::archive_safety::live_path(path));
+        }
+        crate::triggers::note(&committed_files);
+        if info.format == PackageFormat::Zex {
+            if let Ok(m) = super::zex_manifest::read_from_zex(pkg_path) {
+                if let Some(cmd) = m.hooks.post_install.as_deref() {
+                    crate::triggers::note_hook(&info.name, cmd);
+                }
+            }
         }
     }
 
@@ -815,8 +823,9 @@ fn restore_snapshot(snap_dir: &Path, _dest: &Path, old: &DbEntry) {
     );
 
     for file_path in &old.installed_files {
-        let src_on_system = Path::new(file_path);
-        let rel = src_on_system.strip_prefix("/").unwrap_or(src_on_system);
+        let live = crate::archive_safety::live_path(Path::new(file_path));
+        let src_on_system = live.as_path();
+        let rel = Path::new(file_path).strip_prefix("/").unwrap_or(Path::new(file_path));
         let snap_copy = snap_dir.join(rel);
 
         if !snap_copy.exists() {
@@ -853,10 +862,11 @@ fn cleanup_snapshot(snap_dir: &Option<PathBuf>) {
 /// This is the new replacement for the old `rollback()` — works on committed files.
 fn rollback_committed(paths: &[PathBuf]) {
     for p in paths.iter().rev() {
-        let _ = std::fs::remove_file(p);
+        let p = crate::archive_safety::live_path(p);
+        let _ = std::fs::remove_file(&p);
         let mut curr = p.parent();
         while let Some(parent) = curr {
-            if parent == Path::new("/") {
+            if parent == Path::new("/") || parent == Path::new(crate::archive_safety::LIVE_ROOT) {
                 break;
             }
             if std::fs::remove_dir(parent).is_err() {
@@ -1462,6 +1472,7 @@ fn extract_tar<R: Read>(
 /// serves the upperdir/`zexlib/union` copy over the syshub lowerdir) —
 /// that's a real, surprising behavior change and must not pass silently.
 const SYSHUB_ROOT: &str = "/overlayer/syshub";
+const BASE_OWNER: &str = "syshub (immutable base OS)";
 
 /// Check whether any of `committed_files` (final `/overlayer/zexlib/union/...`
 /// destinations, *not* staging-dir paths — those never match anything, which
@@ -1503,10 +1514,12 @@ pub fn check_file_conflicts(pkg_name: &str, committed_files: &[PathBuf]) -> Vec<
     // needing a carve-out here). If a *different* package still lands on
     // a syshub path (e.g. Alpine's own libcurl/curl shadowing syshub's),
     // that's a real, surprising conflict and stays blocked.
+    // a base file shows in the merged view but has no copy in the union layer
     for file in committed_files {
         if let Ok(rel) = file.strip_prefix(union_root) {
-            if Path::new(SYSHUB_ROOT).join(rel).exists() {
-                conflicts.push(("syshub (immutable base OS)".to_string(), file.to_string_lossy().into_owned()));
+            let merged = Path::new(SYSHUB_ROOT).join(rel);
+            if merged.symlink_metadata().is_ok() && file.symlink_metadata().is_err() {
+                conflicts.push((BASE_OWNER.to_string(), file.to_string_lossy().into_owned()));
             }
         }
     }
@@ -1526,6 +1539,16 @@ pub fn preflight_conflict_check(pkg_name: &str, committed_files: &[PathBuf]) -> 
 
     if conflicts.is_empty() {
         return Ok(());
+    }
+
+    // userland never replaces a base file, even with --force: removing it later would hide the base copy
+    let base: Vec<(String, String)> = conflicts.iter().filter(|(o, _)| o == BASE_OWNER).cloned().collect();
+    if !base.is_empty() {
+        ui::print_file_conflicts(pkg_name, &base);
+        bail!(
+            "File conflict: {} file(s) belong to the base OS; userland packages cannot replace them (not even with --force).",
+            base.len()
+        );
     }
 
     if FORCE.load(Ordering::Relaxed) {

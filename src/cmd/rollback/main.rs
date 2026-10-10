@@ -66,7 +66,10 @@ pub fn run(raw_args: Vec<String>) {
             std::process::exit(1);
         }
     } else {
-        if let Err(e) = transaction::rollback_userland(&tx_id) {
+        let result = transaction::rollback_userland(&tx_id);
+        crate::triggers::note_all();
+        crate::triggers::flush();
+        if let Err(e) = result {
             ui::print_error(e.to_string().as_str());
             std::process::exit(1);
         }

@@ -42,7 +42,9 @@ pub async fn run(raw_args: Vec<String>) {
         std::process::exit(1);
     }
 
-    if let Err(e) = single::remove_packages(&cli.packages, cli.dry_run).await {
+    let result = single::remove_packages(&cli.packages, cli.dry_run).await;
+    crate::triggers::flush();
+    if let Err(e) = result {
         ui::print_error(e.to_string().as_str());
         std::process::exit(1);
     }

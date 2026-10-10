@@ -45,6 +45,12 @@ enum Commands {
     Syshub {
         #[arg(short = 'u', long = "upgrade", alias = "u", help = "Perform upgrade")]
         u: bool,
+        /// Undo the last applied upgrade at the next boot
+        #[arg(long)]
+        rollback: bool,
+        /// Drop a downloaded upgrade that has not been applied yet
+        #[arg(long)]
+        cancel: bool,
     },
     /// Upgrade Userland packages across all tiers
     Uland {
@@ -86,7 +92,25 @@ pub async fn run(raw_args: Vec<String>) -> anyhow::Result<()> {
     }
 
     match cli.command {
-        Commands::Syshub { u } => {
+        Commands::Syshub { rollback: true, .. } => {
+            if let Err(e) = crate::syshub_pending::request_rollback() {
+                eprintln!("✗ Syshub rollback failed: {:#}", e);
+                std::process::exit(1);
+            }
+            super::ui::print_rollback_requested();
+        }
+        Commands::Syshub { cancel: true, .. } => {
+            let Some(txn) = crate::syshub_pending::waiting() else {
+                println!("No staged System Hub upgrade to cancel.");
+                return Ok(());
+            };
+            if let Err(e) = crate::syshub_pending::clear() {
+                eprintln!("✗ Cancel failed: {:#}", e);
+                std::process::exit(1);
+            }
+            super::ui::print_pending_cancelled(&txn);
+        }
+        Commands::Syshub { u, .. } => {
             if u {
                 if let Err(e) = syscore::execute().await {
                     // `{:#}` prints the full anyhow context chain, not just
@@ -105,7 +129,10 @@ pub async fn run(raw_args: Vec<String>) -> anyhow::Result<()> {
         }
         Commands::Uland { u } => {
             if u {
-                if let Err(e) = userland::execute().await {
+                let result = userland::execute().await;
+                crate::triggers::note_all();
+                crate::triggers::flush();
+                if let Err(e) = result {
                     eprintln!("✗ Userland upgrade failed: {:#}", e);
                     std::process::exit(1);
                 }

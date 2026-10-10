@@ -1,5 +1,6 @@
-use anyhow::Result;
-use std::path::PathBuf;
+use anyhow::{Context, Result};
+use std::fs;
+use std::path::{Path, PathBuf};
 
 pub struct ActivationPlan {
     /// Pairs of (staged_path, final_path)
@@ -17,54 +18,44 @@ impl ActivationPlan {
         self.moves.push((staged_path, final_path));
     }
 
-    /// Atomically commit all file moves.
-    /// If any move fails, the entire transaction rolls back.
+    /// Place every file; on the first failure, remove what this plan already placed.
     pub fn commit(&self) -> Result<()> {
-        let mut completed: Vec<(&PathBuf, &PathBuf)> = Vec::new();
-
+        let mut placed: Vec<&PathBuf> = Vec::new();
         for (staged_path, final_path) in &self.moves {
-            // Remove existing if it's a symlink or file
-            if final_path.exists() || final_path.symlink_metadata().is_ok() {
-            if let Err(e) = std::fs::remove_file(final_path) {
-                // Try to rollback
-                let _ = self.rollback(&completed);
-                anyhow::bail!(
-                    "Failed to remove existing file at {}: {}",
-                    final_path.display(),
-                    e
-                );
+            if let Err(e) = place(staged_path, final_path) {
+                for p in placed.iter().rev() {
+                    let _ = fs::remove_file(p);
+                }
+                return Err(e.context("transaction rolled back"));
             }
+            placed.push(final_path);
         }
-
-        // Move the file
-        match std::fs::rename(staged_path, final_path) {
-            Ok(_) => {
-                completed.push((staged_path, final_path));
-            }
-            Err(e) => {
-                // Critical Failure - Rollback immediately
-                let _ = self.rollback(&completed);
-                anyhow::bail!(
-                    "Failed to move file from {} to {}: {}. Transaction rolled back.",
-                    staged_path.display(),
-                    final_path.display(),
-                    e
-                );
-            }
-        }
+        Ok(())
     }
-
-    Ok(())
 }
 
-/// Undo a partial activation.
-fn rollback(&self, completed_moves: &[(&PathBuf, &PathBuf)]) -> Result<()> {
-    for (staged_path, final_path) in completed_moves {
-        // Move back from final_path to staged_path
-        let _ = std::fs::rename(final_path, staged_path);
-        // In a full implementation, we'd restore the old files here using a backup list.
-        // For now, ensuring we don't leave broken half-states.
+/// Write next to the target, then rename over it: the swap is atomic and a running
+/// program keeps its old copy. Staging may sit on another filesystem than the target.
+fn place(staged: &Path, target: &Path) -> Result<()> {
+    let name = target.file_name().unwrap_or_default().to_string_lossy();
+    let tmp = target.with_file_name(format!(".{name}.zexnew"));
+    let _ = fs::remove_file(&tmp);
+
+    let meta = fs::symlink_metadata(staged).with_context(|| format!("stat {}", staged.display()))?;
+    if meta.file_type().is_symlink() {
+        let link = fs::read_link(staged)?;
+        std::os::unix::fs::symlink(&link, &tmp).with_context(|| format!("symlink {}", tmp.display()))?;
+    } else if fs::rename(staged, &tmp).is_err() {
+        fs::copy(staged, &tmp).with_context(|| format!("copy {} -> {}", staged.display(), tmp.display()))?;
     }
-    Ok(())
-}
+
+    // a directory can't be renamed over; an old file or link can
+    if fs::symlink_metadata(target).map(|m| m.is_dir()).unwrap_or(false) {
+        let _ = fs::remove_file(&tmp);
+        anyhow::bail!("{} is a directory", target.display());
+    }
+    fs::rename(&tmp, target).with_context(|| {
+        let _ = fs::remove_file(&tmp);
+        format!("place {}", target.display())
+    })
 }

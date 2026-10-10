@@ -15,16 +15,9 @@
 //!   2. Prompt user
 //!   3. Download ALL packages (2 concurrent) into /overlayer/zexlib/tmp/dl/
 //!   4. Verify all (signature + libc-boundary)
-//!   5. Extract ALL into ONE /overlayer/syshub.new/  ← merged tree
-//!   6. Remount syshub rw
-//!   7. Detect zex self-upgrade → swap binary via swap::maybe_swap_zex()
-//!      (must come after the rw remount, not before — confirmed live:
-//!      /overlayer/syshub is genuinely read-only until then, so writing
-//!      the swapped-in binary's new directory entry fails otherwise)
-//!   8. Walk syshub.new → atomic_place every file onto /overlayer/syshub/
-//!   9. Update local manifest
-//!  10. Remount syshub ro
-//!  11. Cleanup + audit
+//!   5. Extract ALL into /overlayer/.syshub-pending/root/  ← merged tree
+//!   6. Stage the new syshub.toml with it, write the manifest + READY, lock it
+//!   7. quantra-ramfs applies it to the base layer at the next boot (never into zexlib)
 
 use anyhow::{Context, Result, bail};
 use futures_util::{stream, StreamExt};
@@ -40,16 +33,13 @@ use walkdir::WalkDir;
 
 use super::{
     audit::{self, AuditEntry},
-    swap,
+
     transaction::Transaction,
     ui,
     vercmp::is_upgrade,
 };
 
 // ── Paths ──────────────────────────────────────────────────────────────────────
-const SYSHUB_PATH:    &str = "/overlayer/syshub";
-/// Single staging root — ALL packages are extracted here before any overwrite.
-const STAGING_NEW:    &str = "/overlayer/syshub.new";
 /// Per-download temp dir — .zex files land here before extraction.
 const DL_TMP:         &str = "/overlayer/zexlib/tmp/syshub-dl";
 const LOCAL_MANIFEST: &str = "/overlayer/syshub/engine/services/syshub.toml";
@@ -109,6 +99,11 @@ pub async fn execute() -> Result<()> {
     }
 
     ui::print_syshub_header();
+
+    crate::syshub_pending::ensure_available()?;
+    if let Some(txn) = crate::syshub_pending::waiting() {
+        ui::print_pending_waiting(&txn);
+    }
 
     // ── 1. Internet check ─────────────────────────────────────────────────────
     if !online().await {
@@ -190,10 +185,9 @@ pub async fn execute() -> Result<()> {
     ui::print_syshub_starting();
 
     // ── 5. Prepare directories ────────────────────────────────────────────────
-    // ONE syshub.new for everything
-    let staging = Path::new(STAGING_NEW);
-    if staging.exists() { fs::remove_dir_all(staging)?; }
-    fs::create_dir_all(staging)?;
+    // one staged tree for everything, outside zexlib; replaces any upgrade not applied yet
+    let staging_root = crate::syshub_pending::begin()?;
+    let staging = staging_root.as_path();
 
     // Per-download temp dir for .zex files
     let dl_tmp = Path::new(DL_TMP);
@@ -290,122 +284,32 @@ pub async fn execute() -> Result<()> {
         .collect();
     crate::cmd::install::shebangpatch::patch_staged_scripts(&staged_files)?;
 
-    // ── 8. Remount syshub rw ───────────────────────────────────────────────────
-    // Must happen BEFORE the swap step below, not after. `/overlayer/syshub`
-    // is genuinely mounted read-only until this call — confirmed live: the
-    // swap's own rename (and its EXDEV copy-fallback, which needs to CREATE
-    // a new file in `/overlayer/syshub/bin/`) failed with "Permission
-    // denied" every time while this remount was still ordered afterward.
-    // Old reasoning here claimed rename "works on ro too because we're
-    // swapping inside syshub.new → syshub, not within syshub" — that
-    // conflates the RENAME SOURCE (staging, always writable) with the
-    // RENAME DESTINATION (`/overlayer/syshub/bin/zex`), whose *containing
-    // directory* is exactly what the ro mount protects; the source being
-    // writable was never what mattered.
-    remount(SYSHUB_PATH, true)?;
-
-    // ── 9. Zex self-upgrade swap ───────────────────────────────────────────────
-    // If syshub.toml shows a new zex version, swap the binary now that
-    // syshub is actually writable.
-    let old_zex_ver = local.packages.get("zex")
-        .map(|v| val_str(v)).unwrap_or_else(|| "0".into());
-    let new_zex_ver = remote.packages.get("zex")
-        .map(|v| val_str(v)).unwrap_or_else(|| old_zex_ver.clone());
-
-    let zex_swapped = match swap::maybe_swap_zex(staging, &old_zex_ver, &new_zex_ver) {
-        Ok(swapped) => swapped,
+    // ── 8. Stage the new manifest and hand the upgrade to the next boot ───────
+    let staged_manifest = staging.join(LOCAL_MANIFEST.trim_start_matches("/overlayer/syshub/"));
+    if let Some(parent) = staged_manifest.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(&staged_manifest, &remote_raw).context("staging updated syshub.toml")?;
+    ui::print_phase("Staging upgrade for next boot");
+    let txn = match crate::syshub_pending::commit(&remote.core_info.build_version) {
+        Ok(txn) => txn,
         Err(e) => {
-            // Swap failed after we'd already remounted rw — leaving the
-            // base mounted rw on a hard error would silently drop the
-            // "immutable" guarantee for however long until the next
-            // upgrade attempt happens to fix it. Put it back before
-            // propagating, matching how the later file-commit rollback
-            // branch already remounts ro on its own failure path.
-            remount(SYSHUB_PATH, false).ok();
-            cleanup_dir(staging);
+            crate::syshub_pending::clear().ok();
             cleanup_dir(dl_tmp);
-            return Err(e).context("self-upgrade swap of zex binary");
+            log_audit("syshub", &downloaded, "rolled_back",
+                      Some(&e.to_string()), started.elapsed().as_millis() as u64);
+            return Err(e).context("staging syshub upgrade");
         }
     };
 
-    if zex_swapped {
-        println!("  {G}✓{RST}  zex self-upgraded: {B}{old_zex_ver}{RST} → {G}{new_zex_ver}{RST}",
-            G = ui::G, RST = ui::RST, B = ui::B);
-    }
-
-    // ── 10. Atomic overwrite: walk syshub.new → place onto syshub ─────────────
-    ui::print_phase("Applying to immutable base");
-
-    let mut tx = Transaction::new(Path::new(ROLLBACK_STAGE))
-        .context("creating rollback transaction")?;
-    let live = Path::new(SYSHUB_PATH);
-    let mut commit_err: Option<anyhow::Error> = None;
-
-    // Symlinks, not just regular files — confirmed live against a real
-    // syshub upgrade (llvm/mesa's versioned `.so` symlinks) that the old
-    // `!entry.file_type().is_file()` filter skipped every symlink in
-    // staging outright, leaving them stranded in `syshub.new` (never
-    // applied to the live tree at all) and only not visibly breaking
-    // anything because the old and new symlinks here happened to point at
-    // the same target filename. `checkpoint` already handles symlink
-    // paths correctly; only the walk's filter and the placement call
-    // needed to catch up to that.
-    'apply: for entry in WalkDir::new(staging).into_iter().filter_map(|e| e.ok()) {
-        let file_type = entry.file_type();
-        if !file_type.is_file() && !file_type.is_symlink() { continue; }
-        let rel       = entry.path().strip_prefix(staging).unwrap();
-        let live_path = live.join(rel);
-
-        if let Err(e) = tx.checkpoint(&live_path) {
-            commit_err = Some(e);
-            break 'apply;
-        }
-        let place_result = if file_type.is_symlink() {
-            swap::atomic_place_symlink(entry.path(), &live_path)
-        } else {
-            swap::atomic_place(entry.path(), &live_path)
-        };
-        if let Err(e) = place_result {
-            commit_err = Some(e);
-            break 'apply;
-        }
-    }
-
-    if let Some(err) = commit_err {
-        // Rollback everything
-        remount(SYSHUB_PATH, false).ok();
-        tx.rollback().ok();
-        swap::restore_bak().ok();   // put old zex back
-        cleanup_dir(staging);
-        cleanup_dir(dl_tmp);
-        log_audit("syshub", &downloaded, "rolled_back",
-                  Some(&err.to_string()), started.elapsed().as_millis() as u64);
-        bail!("Syshub overwrite failed — fully rolled back: {err}");
-    }
-
-    // ── 11. Update manifest ───────────────────────────────────────────────────
-    fs::write(LOCAL_MANIFEST, &remote_raw)
-        .context("writing updated syshub.toml")?;
-    ui::print_phase("Regenerating system manifest");
-
-    // ── 12. Relock syshub ─────────────────────────────────────────────────────
-    if let Err(e) = remount(SYSHUB_PATH, false) {
-        eprintln!("  {Y}WARN: could not remount ro: {e}{RST}",
-            Y = ui::Y, RST = ui::RST);
-        eprintln!("  Run:  mount -o remount,ro {SYSHUB_PATH}");
-    }
-
     // ── 13. Commit + cleanup ──────────────────────────────────────────────────
-    tx.commit();
-    swap::cleanup_bak();
-    cleanup_dir(staging);
     cleanup_dir(dl_tmp);
 
     let elapsed  = started.elapsed().as_secs();
     let total_mb = total_bytes as f64 / 1_048_576.0;
 
     ui::print_syshub_done(downloaded.len(), total_mb, elapsed,
-                          &remote.core_info.build_version);
+                          &remote.core_info.build_version, &txn);
     log_audit("syshub", &downloaded, "success",
               None, started.elapsed().as_millis() as u64);
     Ok(())
@@ -621,14 +525,6 @@ fn cleanup_dir(path: &Path) {
                 path.display(), Y = ui::Y, RST = ui::RST);
         }
     }
-}
-
-fn remount(path: &str, rw: bool) -> Result<()> {
-    let flag = if rw { "remount,rw" } else { "remount,ro" };
-    let st = std::process::Command::new("mount")
-        .args(["-o", flag, path]).status()?;
-    if !st.success() { bail!("mount -o {} {} failed", flag, path); }
-    Ok(())
 }
 
 fn log_audit(kind: &str, pkgs: &[String], outcome: &str, err: Option<&str>, ms: u64) {

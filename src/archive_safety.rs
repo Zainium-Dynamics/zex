@@ -286,6 +286,19 @@ pub fn create_sanitized_symlink(target: &Path, link_path: &Path) -> Result<()> {
 /// Zainium union layer root — final install destination for userland packages.
 pub const UNION_ROOT: &str = "/overlayer/zexlib/union";
 
+/// The merged overlay whose upper layer is [`UNION_ROOT`].
+pub const LIVE_ROOT: &str = "/overlayer/syshub";
+
+/// Where a union path is written or removed: through the merged mount, so the overlay
+/// sees the change at once (writing the upper layer behind its back stays invisible until reboot).
+/// Reads of the userland-only view keep using the union path itself.
+pub fn live_path(p: &Path) -> PathBuf {
+    match p.strip_prefix(UNION_ROOT) {
+        Ok(rel) if Path::new(LIVE_ROOT).is_dir() => Path::new(LIVE_ROOT).join(rel),
+        _ => p.to_path_buf(),
+    }
+}
+
 /// Remap FHS / Alpine / Void archive paths to **union-relative** layout.
 ///
 /// Archive / config prefixes are rewritten so that when joined with

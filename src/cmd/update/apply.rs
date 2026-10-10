@@ -4,7 +4,6 @@ use anyhow::Result;
 use futures_util::{stream, StreamExt};
 use indicatif::MultiProgress;
 use std::{fs, io::Write, path::{Path, PathBuf}};
-use walkdir::WalkDir;
 
 use super::diff::UpgradePkg;
 use super::ui;
@@ -56,7 +55,8 @@ pub async fn apply_uland(
             // Ed25519 signature check — against the pubkey embedded in
             // the package's own manifest.toml.
             crate::trust::verify_zex_archive(&zex_path, sig_mode)?;
-            let written = extract_into(&zex_path, Path::new(UNION_PATH))?;
+            // through the merged mount, so the update is visible right away
+            let written = extract_into(&zex_path, &crate::archive_safety::live_path(Path::new(UNION_PATH)))?;
             // No separate staging root here (UNION_PATH is live), so this
             // is the only "just written" window there is — same reasoning
             // as cmd::upgrade::userland's identical extract_*_into fix.
@@ -65,6 +65,7 @@ pub async fn apply_uland(
                 &written, crate::archive_safety::UNION_ROOT,
             )?;
             crate::cmd::install::shebangpatch::patch_staged_scripts(&written)?;
+            crate::triggers::note(&written);
             update_receipt(&name, &new_ver)?;
         }
     }
@@ -80,9 +81,10 @@ pub async fn apply_syshub(
     mp:          &MultiProgress,
     overall:     &indicatif::ProgressBar,
     syshub_path: &str,
+    remote_manifest: &str,
 ) -> Result<u64> {
-    let staging = dl_tmp.join("syshub.new");
-    fs::create_dir_all(&staging)?;
+    // staged outside zexlib; quantra-ramfs puts it into the base layer at the next boot
+    let staging = crate::syshub_pending::begin()?;
 
     let mut total_bytes = 0u64;
     let mut staged_files: Vec<PathBuf> = Vec::new();
@@ -122,30 +124,13 @@ pub async fn apply_syshub(
     crate::cmd::install::pcpatch::patch_staged_pkgconfig(&staged_files, syshub_path)?;
     crate::cmd::install::shebangpatch::patch_staged_scripts(&staged_files)?;
 
-    // Atomic overwrite into live syshub
-    remount(syshub_path, true)?;
-    let live = Path::new(syshub_path);
-    // Symlinks too, not just regular files — same bug, same fix, as
-    // cmd::upgrade::syscore's identical commit walk: `fs::copy` on a
-    // symlink dereferences it and copies the target's content instead of
-    // recreating the link, and a bare `!is_file()` filter skipped
-    // symlinks here entirely, leaving them stranded in staging.
-    for entry in WalkDir::new(&staging).into_iter().filter_map(|e| e.ok()) {
-        let file_type = entry.file_type();
-        if !file_type.is_file() && !file_type.is_symlink() { continue; }
-        let rel  = entry.path().strip_prefix(&staging).unwrap();
-        let dst  = live.join(rel);
-        if let Some(p) = dst.parent() { fs::create_dir_all(p)?; }
-        if file_type.is_symlink() {
-            let target = fs::read_link(entry.path())?;
-            let _ = fs::remove_file(&dst);
-            #[cfg(unix)]
-            std::os::unix::fs::symlink(&target, &dst)?;
-        } else if fs::rename(entry.path(), &dst).is_err() {
-            fs::copy(entry.path(), &dst)?;
-        }
+    let staged_manifest = staging.join("engine/services/syshub.toml");
+    fs::create_dir_all(staged_manifest.parent().unwrap())?;
+    fs::write(&staged_manifest, remote_manifest)?;
+    if let Err(e) = crate::syshub_pending::commit("update") {
+        crate::syshub_pending::clear().ok();
+        return Err(e);
     }
-    remount(syshub_path, false)?;
 
     Ok(total_bytes)
 }
@@ -277,10 +262,3 @@ fn update_receipt(name: &str, new_ver: &str) -> Result<()> {
     crate::cmd::install::registry::update_version(name, new_ver)
 }
 
-fn remount(path: &str, rw: bool) -> Result<()> {
-    let flag = if rw { "remount,rw" } else { "remount,ro" };
-    let st = std::process::Command::new("mount")
-        .args(["-o", flag, path]).status()?;
-    if !st.success() { anyhow::bail!("mount -o {} {} failed", flag, path); }
-    Ok(())
-}

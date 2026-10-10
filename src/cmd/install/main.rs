@@ -149,7 +149,9 @@ pub async fn run(raw_args: Vec<String>) {
     }
 
     if let Some(path) = cli.from_lock {
-        if let Err(err) = infuse::run_from_lockfile(path).await {
+        let result = infuse::run_from_lockfile(path).await;
+        crate::triggers::flush();
+        if let Err(err) = result {
             ui::print_general_error(&err);
             std::process::exit(1);
         }
@@ -171,6 +173,7 @@ pub async fn run(raw_args: Vec<String>) {
     } else {
         infuse::run(packages, cli.lock_out).await
     };
+    crate::triggers::flush();
 
     if let Err(err) = result {
         if !err.is::<infuse::InstallFailed>() {

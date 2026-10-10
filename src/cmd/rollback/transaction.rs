@@ -14,7 +14,7 @@
 //!       syshub.toml         ← snapshot of /overlayer/syshub/engine/services/syshub.toml
 //!       syshub-backup.tar.zst ← tar of overwritten syshub files
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
@@ -28,9 +28,7 @@ use crate::cmd::install::registry::PkgRecord;
 const TRANSACTIONS_DIR:  &str = "/overlayer/zexlib/transactions";
 const PACKAGES_TOML:     &str = "/overlayer/zexlib/registry/packages.toml";
 const INSTALLED_DIR:     &str = "/overlayer/zexlib/registry/installed";
-const SYSHUB_MANIFEST:   &str = "/overlayer/syshub/engine/services/syshub.toml";
 const UNION_PATH:        &str = "/overlayer/zexlib/union";
-const SYSHUB_PATH:       &str = "/overlayer/syshub";
 
 // ── Transaction state schema ──────────────────────────────────────────────────
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -129,7 +127,8 @@ pub fn rollback_userland(tx_id: &str) -> Result<()> {
                     // actual on-disk type, same approach as `zex remove`.
                     let mut dirs = Vec::new();
                     for f in &record.installed_files {
-                        let p = Path::new(f);
+                        let live = crate::archive_safety::live_path(Path::new(f));
+                        let p = live.as_path();
                         match fs::symlink_metadata(p) {
                             Ok(meta) if meta.is_dir() => dirs.push(p.to_path_buf()),
                             Ok(meta) => {
@@ -157,7 +156,8 @@ pub fn rollback_userland(tx_id: &str) -> Result<()> {
     ui::print_arrow("Restoring backup archive...");
     let bak = tx_dir.join(&state.backup_archive);
     if bak.exists() && !state.backup_archive.is_empty() {
-        let count = extract_backup(&bak, Path::new(UNION_PATH))?;
+        // through the merged mount, same as installs
+        let count = extract_backup(&bak, &crate::archive_safety::live_path(Path::new(UNION_PATH)))?;
         files_touched += count;
     }
     ui::print_step("Restoring backup archive", 400);
@@ -179,63 +179,10 @@ pub fn rollback_userland(tx_id: &str) -> Result<()> {
 }
 
 /// Rollback a syshub transaction (remount rw → restore → remount ro).
-pub fn rollback_syshub(tx_id: &str) -> Result<()> {
-    let started = Instant::now();
-    let tx_dir  = PathBuf::from(TRANSACTIONS_DIR).join(tx_id);
-
-    if !tx_dir.exists() {
-        let recent = list_transactions().into_iter().take(3).map(|t| TxSummary {
-            id: t.transaction_id, operation: t.operation, target: t.target_package,
-        }).collect::<Vec<_>>();
-        ui::print_not_found(tx_id, &recent);
-        std::process::exit(0);
-    }
-
-    let state = load_state(&tx_dir)?;
-    let op    = format!("upgrade {}", state.target_package);
-
-    ui::print_syshub_header(tx_id, &op);
-
-    // ── 1. Remount syshub rw ──────────────────────────────────────────────────
-    ui::print_arrow("Restoring previous immutable base snapshot...");
-    remount(SYSHUB_PATH, true)?;
-    ui::print_step("Restoring previous immutable base snapshot", 500);
-
-    // ── 2. Restore overwritten files from backup ──────────────────────────────
-    ui::print_arrow("Reverting core components...");
-    let bak = tx_dir.join("syshub-backup.tar.zst");
-    let mut components = 0usize;
-    if bak.exists() {
-        components = extract_backup(&bak, Path::new(SYSHUB_PATH))?;
-    }
-    ui::print_step("Reverting core components", 800);
-
-    // ── 3. Regenerate initramfs (if kernel was involved) ──────────────────────
-    ui::print_arrow("Regenerating initramfs...");
-    ui::print_step("Regenerating initramfs", 600);
-
-    // ── 4. Restore syshub.toml manifest ──────────────────────────────────────
-    ui::print_arrow("Restoring system manifest...");
-    let snap_manifest = tx_dir.join("syshub.toml");
-    if snap_manifest.exists() {
-        fs::copy(&snap_manifest, SYSHUB_MANIFEST)
-            .context("restoring syshub.toml snapshot")?;
-    }
-    ui::print_step("Restoring system manifest", 300);
-
-    // ── 5. Verify integrity ───────────────────────────────────────────────────
-    ui::print_arrow("Verifying syshub integrity...");
-    ui::print_step("Verifying syshub integrity", 400);
-
-    // ── 6. Relock syshub ─────────────────────────────────────────────────────
-    if let Err(e) = remount(SYSHUB_PATH, false) {
-        ui::print_error(&format!("Could not remount ro: {e}\nRun: mount -o remount,ro {SYSHUB_PATH}"));
-    }
-
-    let elapsed = started.elapsed().as_secs_f64();
-    // components = number of files restored
-    let comp_count = if components > 0 { components / 10 } else { 3 }; // rough pkg count
-    ui::print_syshub_success(tx_id, comp_count.max(1), elapsed);
+pub fn rollback_syshub(_tx_id: &str) -> Result<()> {
+    // the base is only ever changed at boot by quantra-ramfs, never under the running overlay
+    crate::syshub_pending::request_rollback()?;
+    println!("\n System Hub rollback requested: the last applied upgrade is undone at the next boot.\n");
     Ok(())
 }
 
@@ -291,10 +238,3 @@ fn extract_backup(archive: &Path, dest: &Path) -> Result<usize> {
     Ok(count)
 }
 
-fn remount(path: &str, rw: bool) -> Result<()> {
-    let flag = if rw { "remount,rw" } else { "remount,ro" };
-    let st = std::process::Command::new("mount")
-        .args(["-o", flag, path]).status()?;
-    if !st.success() { bail!("mount -o {} {} failed", flag, path); }
-    Ok(())
-}

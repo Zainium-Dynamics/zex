@@ -317,6 +317,8 @@ pub async fn execute() -> Result<()> {
     })
     .buffer_unordered(2);
 
+    // through the merged mount, so upgraded files are visible right away
+    let live_root = crate::archive_safety::live_path(Path::new(UNION_PATH));
     while let Some((pkg_name, zex_path, fmt, result)) = in_flight.next().await {
         let bytes = match result {
             Ok(b) => b,
@@ -343,10 +345,10 @@ pub async fn execute() -> Result<()> {
 
         // Extract into union
         match fmt {
-            PkgFmt::Zex  => extract_zex_into(&zex_path, Path::new(UNION_PATH))?,
-            PkgFmt::Apk  => extract_apk_into(&zex_path, Path::new(UNION_PATH))?,
-            PkgFmt::Xbps => extract_xbps_into(&zex_path, Path::new(UNION_PATH))?,
-            PkgFmt::Adb  => extract_adb_into(&zex_path, Path::new(UNION_PATH))?,
+            PkgFmt::Zex  => extract_zex_into(&zex_path, &live_root)?,
+            PkgFmt::Apk  => extract_apk_into(&zex_path, &live_root)?,
+            PkgFmt::Xbps => extract_xbps_into(&zex_path, &live_root)?,
+            PkgFmt::Adb  => extract_adb_into(&zex_path, &live_root)?,
         }
 
         // Bump the existing receipt's version in place — this preserves

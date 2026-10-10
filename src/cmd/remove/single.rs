@@ -217,11 +217,14 @@ fn delete_receipt_files(installed_files: &[String]) {
     // front, so classify each path by its actual on-disk type. Files and
     // symlinks can go immediately (remove_file doesn't follow symlinks);
     // directories are deferred and removed deepest-first, once empty.
+    // removed through the merged mount so the overlay drops them at once
+    crate::triggers::note(installed_files);
     let mut dirs = Vec::new();
     for path in installed_files {
-        match fs::symlink_metadata(path) {
-            Ok(meta) if meta.is_dir() => dirs.push(path.clone()),
-            Ok(_) => { let _ = fs::remove_file(path); }
+        let live = crate::archive_safety::live_path(std::path::Path::new(path));
+        match fs::symlink_metadata(&live) {
+            Ok(meta) if meta.is_dir() => dirs.push(live.to_string_lossy().into_owned()),
+            Ok(_) => { let _ = fs::remove_file(&live); }
             Err(_) => {} // already gone
         }
     }

@@ -21,6 +21,8 @@ mod immutable;
 mod local_install;
 mod pinning;
 mod sandbox;
+mod syshub_pending;
+mod triggers;
 mod trust;
 mod zex_codec;
 
