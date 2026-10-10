@@ -318,13 +318,26 @@ pub fn print_success_single(
     println!("\n{G}userland packages installation successful...{RST}\n");
 }
 
-pub fn print_success_parallel(count: usize, total_mb: f64, secs: f64) {
-    println!("\n {G}✓ Installation completed successfully{RST}\n");
+pub fn print_success_parallel(count: usize, failed: &[String], total_mb: f64, secs: f64) {
+    if failed.is_empty() {
+        println!("\n {G}✓ Installation completed successfully{RST}\n");
+    } else if count == 0 {
+        println!("\n {R}✗ Installation failed{RST}\n");
+    } else {
+        println!("\n {Y}⚠ Installation completed with errors{RST}\n");
+    }
     println!("{G}Installation Summary{RST}");
     println!("  Total packages installed   : {G}{count:02}{RST}");
+    if !failed.is_empty() {
+        println!("  Failed packages            : {R}{:02}{RST} {DIM}({}){RST}", failed.len(), failed.join(", "));
+    }
     println!("  Total downloaded           : {B}{total_mb:.1} MB{RST}");
     println!("  Time taken                 : {B}{secs:.1} seconds{RST}");
-    println!("\n{G}userland packages installation successful...{RST}\n");
+    if failed.is_empty() {
+        println!("\n{G}userland packages installation successful...{RST}\n");
+    } else {
+        println!();
+    }
 }
 
 pub fn print_success_partial(
@@ -399,14 +412,23 @@ pub fn print_partial_found(names: &[&str]) {
     for n in names { println!("  {DIM}•{RST} {P}{n}{RST}"); }
 }
 
-pub fn print_network_error(_pkg: &str) {
-    println!("\n {R}Error:{RST} No internet connection detected.\n");
+pub fn print_network_error(pkg: &str) {
+    println!("\n {R}✗ Error:{RST} No internet connection detected.");
+    println!("   Package : {P}{pkg}{RST}\n");
     println!(" Unable to download required packages.");
     println!(" Please check your network connection and try again.\n");
 }
 
+pub fn print_download_error(name: &str, reason: &str) {
+    println!("\n {R}✗ Error:{RST} download failed");
+    println!("   Package : {P}{name}{RST}");
+    println!("   Reason  : {reason}\n");
+}
+
 pub fn print_install_error(name: &str, err: &anyhow::Error) {
-    println!("\n {R}Error:{RST} Failed to install {P}'{name}'{RST}: {err}\n");
+    println!("\n {R}✗ Error:{RST} installation failed");
+    println!("   Package : {P}{name}{RST}");
+    println!("   Reason  : {err:#}\n");
     println!(" {DIM}System has been kept clean.{RST}\n");
 }
 

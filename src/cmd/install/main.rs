@@ -173,7 +173,9 @@ pub async fn run(raw_args: Vec<String>) {
     };
 
     if let Err(err) = result {
-        ui::print_general_error(&err);
+        if !err.is::<infuse::InstallFailed>() {
+            ui::print_general_error(&err);
+        }
         std::process::exit(1);
     }
 }

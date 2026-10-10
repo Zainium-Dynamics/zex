@@ -33,6 +33,18 @@ use super::runtime::{self, LogLevel};
 use super::telemetry;
 use super::ui;
 
+/// Errors were already printed per package; main only turns this into exit 1.
+#[derive(Debug)]
+pub struct InstallFailed;
+
+impl std::fmt::Display for InstallFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("installation failed")
+    }
+}
+
+impl std::error::Error for InstallFailed {}
+
 fn finalize_leftover_txns(txns: &mut HashMap<String, runtime::TransactionHandle>, reason: &str) {
     for (_, mut txn) in txns.drain() {
         txn.update("skipped_or_aborted", reason);
@@ -274,7 +286,7 @@ async fn run_single(
             t.mark_failed(&err_msg);
         }
         ui::print_install_error(name, &anyhow::anyhow!(err_msg));
-        return Ok(());
+        return Err(InstallFailed.into());
     }
 
     let resolve_start = Instant::now();
@@ -286,7 +298,7 @@ async fn run_single(
         Ok(info) => info,
         Err(ResolveError::NotFound(n)) => {
             ui::print_not_found(&n);
-            return Ok(());
+            return Err(InstallFailed.into());
         }
         Err(ResolveError::Infra(e)) => return Err(e),
     };
@@ -344,7 +356,7 @@ async fn run_single(
             t.mark_failed(&err_msg);
         }
         ui::print_install_error(&info.display_name, &anyhow::anyhow!(err_msg));
-        return Ok(());
+        return Err(InstallFailed.into());
     }
 
     if !dep_plan.conflicts.is_empty() {
@@ -357,7 +369,7 @@ async fn run_single(
             t.mark_failed(&err_msg);
         }
         ui::print_install_error(&info.display_name, &anyhow::anyhow!(err_msg));
-        return Ok(());
+        return Err(InstallFailed.into());
     }
 
     if !dep_plan.version_conflicts.is_empty() {
@@ -370,7 +382,7 @@ async fn run_single(
             t.mark_failed(&err_msg);
         }
         ui::print_install_error(&info.display_name, &anyhow::anyhow!(err_msg));
-        return Ok(());
+        return Err(InstallFailed.into());
     }
 
     if !dep_plan.cross_tier_fallbacks.is_empty() {
@@ -478,8 +490,8 @@ async fn run_single(
                                 t.mark_failed(&format!("dependency '{}' failed: {}", dep_info.name, e));
                             }
                             batch_rollback(&format!("dependency '{}' failed: {}", dep_info.name, e));
-                            ui::print_install_error(&info.display_name, &e);
-                            return Ok(());
+                            ui::print_install_error(&dep_info.name, &e);
+                            return Err(InstallFailed.into());
                         }
                     }
                 }
@@ -489,8 +501,8 @@ async fn run_single(
                         t.mark_failed(&msg);
                     }
                     batch_rollback(&msg);
-                    ui::print_install_error(&info.display_name, &anyhow::anyhow!(msg));
-                    return Ok(());
+                    ui::print_download_error(&dep_info.name, &msg);
+                    return Err(InstallFailed.into());
                 }
             }
         }
@@ -524,23 +536,24 @@ async fn run_single(
                 t.mark_failed("network lost during download");
             }
             batch_rollback("network lost during download");
-            ui::print_network_error(&info.filename);
-            return Ok(());
+            ui::print_network_error(&info.display_name);
+            return Err(InstallFailed.into());
         }
         Err(DownloadError::HttpError { status }) => {
             if let Some(t) = txn.as_mut() {
                 t.mark_failed(&format!("mirror returned HTTP {}", status));
             }
             batch_rollback(&format!("mirror returned HTTP {status}"));
-            anyhow::bail!("mirror returned HTTP {} for {}", status, info.url);
+            ui::print_download_error(&info.display_name, &format!("mirror returned HTTP {status} for {}", info.url));
+            return Err(InstallFailed.into());
         }
         Err(DownloadError::Other(e)) => {
             if let Some(t) = txn.as_mut() {
                 t.mark_failed("download failed");
             }
             batch_rollback("download failed");
-            ui::print_network_error(&info.filename);
-            return Err(e);
+            ui::print_download_error(&info.display_name, &format!("{e:#}"));
+            return Err(InstallFailed.into());
         }
     };
 
@@ -586,7 +599,7 @@ async fn run_single(
                 resolve_start.elapsed().as_millis() as u64,
             );
             ui::print_install_error(&info.display_name, &e);
-            return Ok(());
+            return Err(InstallFailed.into());
         }
     };
 
@@ -676,6 +689,7 @@ async fn run_parallel(
     let signature_mode =
         crate::trust::SignatureVerificationMode::from_config(&config.signature_verification_mode);
     let mut txns: HashMap<String, runtime::TransactionHandle> = HashMap::new();
+    let mut failed: Vec<String> = Vec::new();
 
     let mut filtered_names = Vec::new();
 
@@ -685,6 +699,7 @@ async fn run_parallel(
                 let err_msg = format!("Cannot modify '{}', it is locked inside the immutable Syshub.", name);
                 txn.mark_failed(&err_msg);
                 ui::print_install_error(name, &anyhow::anyhow!(err_msg));
+                failed.push(name.clone());
             } else {
                 txn.update("resolving", "resolving package metadata");
                 txns.insert(name.clone(), txn);
@@ -696,7 +711,7 @@ async fn run_parallel(
     }
 
     if filtered_names.is_empty() {
-        return Ok(());
+        return Err(InstallFailed.into());
     }
 
     ui::print_resolving_multiple(&filtered_names);
@@ -718,11 +733,12 @@ async fn run_parallel(
             for n in &not_found {
                 ui::print_not_found(n);
             }
-            return Ok(());
+            return Err(InstallFailed.into());
         }
         ui::print_partial_not_found(&refs);
         let found_refs: Vec<&str> = resolved.iter().map(|i| i.name.as_str()).collect();
         ui::print_partial_found(&found_refs);
+        failed.extend(not_found.iter().cloned());
     }
 
     if !batch.infra_failed.is_empty() {
@@ -737,11 +753,12 @@ async fn run_parallel(
             .map(|(pkg, reason)| format!("{}: {}", pkg, reason))
             .collect();
         ui::print_partial_infra_failures(&infra_lines);
+        failed.extend(batch.infra_failed.iter().map(|(pkg, _)| pkg.clone()));
     }
 
     if resolved.is_empty() {
         finalize_leftover_txns(&mut txns, "no package resolved for installation");
-        return Ok(());
+        return Err(InstallFailed.into());
     }
 
     // Same dependency check run_single does, per requested package; deps go ahead of the roots
@@ -755,6 +772,7 @@ async fn run_parallel(
                     t.mark_failed(&format!("dependency resolution failed: {e}"));
                 }
                 ui::print_install_error(&info.display_name, &e);
+                failed.push(info.name.clone());
                 continue;
             }
         };
@@ -767,6 +785,7 @@ async fn run_parallel(
                 t.mark_failed(&err_msg);
             }
             ui::print_install_error(&info.display_name, &anyhow::anyhow!(err_msg));
+            failed.push(info.name.clone());
             continue;
         }
         for dep in plan.packages {
@@ -779,7 +798,7 @@ async fn run_parallel(
     deps.retain(|d| !roots.iter().any(|r| r.name.eq_ignore_ascii_case(&d.name)));
     if roots.is_empty() {
         finalize_leftover_txns(&mut txns, "no package passed dependency resolution");
-        return Ok(());
+        return Err(InstallFailed.into());
     }
     let root_names: HashSet<String> = roots.iter().map(|r| r.name.clone()).collect();
     deps.extend(roots);
@@ -839,55 +858,50 @@ async fn run_parallel(
     let download_ms = dl_start.elapsed().as_millis();
 
     let mut successful_downloads: Vec<(usize, std::path::PathBuf, DownloadStats)> = Vec::new();
-    let mut network_failures: Vec<String> = Vec::new();
+    let mut offline: Vec<String> = Vec::new();
     let mut total_bytes: u64 = 0;
 
     for (idx, result) in dl_results.into_iter().enumerate() {
-        match result {
+        let name = resolved[idx].name.clone();
+        let reason = match result {
             Ok((_filename, pkg_path, Ok(stats))) => {
                 total_bytes += stats.bytes;
-                if let Some(t) = txns.get_mut(&resolved[idx].name) {
+                if let Some(t) = txns.get_mut(&name) {
                     t.update("downloaded", "package download completed");
                 }
                 successful_downloads.push((idx, pkg_path, stats));
+                continue;
             }
-            Ok((filename, _, Err(DownloadError::NetworkLost { .. }))) => {
-                if let Some(mut t) = txns.remove(&resolved[idx].name) {
-                    t.mark_failed("network lost during download");
-                }
-                network_failures.push(filename);
+            Ok((_, _, Err(DownloadError::NetworkLost { .. }))) => {
+                offline.push(name.clone());
+                "network lost during download".to_string()
             }
-            Ok((filename, _, Err(DownloadError::HttpError { status }))) => {
-                if let Some(mut t) = txns.remove(&resolved[idx].name) {
-                    t.mark_failed(&format!("mirror returned HTTP {}", status));
-                }
-                network_failures.push(format!("{} (HTTP {})", filename, status));
+            Ok((_, _, Err(DownloadError::HttpError { status }))) => {
+                format!("mirror returned HTTP {status}")
             }
-            Ok((filename, _, Err(DownloadError::Other(_)))) => {
-                if let Some(mut t) = txns.remove(&resolved[idx].name) {
-                    t.mark_failed("download failed");
-                }
-                network_failures.push(filename);
-            }
-            Err(_) => {
-                if let Some(mut t) = txns.remove(&resolved[idx].name) {
-                    t.mark_failed("download worker task failed");
-                }
-            }
+            Ok((_, _, Err(DownloadError::Other(e)))) => format!("{e:#}"),
+            Err(e) => format!("download worker task failed: {e}"),
+        };
+        if let Some(mut t) = txns.remove(&name) {
+            t.mark_failed(&reason);
         }
+        if !offline.contains(&name) {
+            ui::print_download_error(&name, &reason);
+        }
+        failed.push(name);
     }
 
-    if !network_failures.is_empty() {
-        for name in &network_failures {
-            ui::print_network_error(name);
-        }
-        if successful_downloads.is_empty() {
-            finalize_leftover_txns(&mut txns, "all downloads failed");
-            return Ok(());
-        }
+    if !offline.is_empty() {
+        ui::print_network_error(&offline.join(", "));
     }
 
     let total_mb = total_bytes as f64 / 1_000_000.0;
+    if successful_downloads.is_empty() {
+        finalize_leftover_txns(&mut txns, "all downloads failed");
+        ui::print_success_parallel(0, &failed, total_mb, total_dl_secs);
+        return Err(InstallFailed.into());
+    }
+
     ui::print_download_done_parallel(total_mb, total_dl_secs);
 
     ui::print_install_header_parallel();
@@ -900,9 +914,11 @@ async fn run_parallel(
     let sem = Arc::new(Semaphore::new(concurrency));
     let install_start = Instant::now();
     let mut install_handles = Vec::new();
+    let mut install_pkgs = Vec::new();
 
-    for (idx, pkg_path, _stats) in &successful_downloads {
+    for (idx, pkg_path, stats) in &successful_downloads {
         let info = resolved[*idx].clone();
+        install_pkgs.push((info.name.clone(), info.format.clone(), stats.speed_mbps));
         let pkg_path = pkg_path.clone();
         let sem = Arc::clone(&sem);
         let client = Arc::clone(&client);
@@ -968,25 +984,16 @@ async fn run_parallel(
     let mut db_ms_total = 0u128;
     let mut metrics = Vec::new();
 
-    for r in install_results {
+    for ((name, format, speed), r) in install_pkgs.into_iter().zip(install_results) {
         match r {
             Ok(Ok(Ok(t))) => {
                 install_ok_count += 1;
                 verify_ms_total += t.verify_ms;
                 extract_ms_total += t.extract_ms;
                 db_ms_total += t.db_ms;
-
-                let speed = if install_ok_count <= successful_downloads.len() {
-                    successful_downloads
-                        .get(install_ok_count - 1)
-                        .map(|(_, _, s)| s.speed_mbps)
-                        .unwrap_or(0.0)
-                } else {
-                    0.0
-                };
                 metrics.push(telemetry::build_metric(
-                    "package",
-                    &super::backend::PackageFormat::Zex,
+                    &name,
+                    &format,
                     resolve_ms,
                     download_ms,
                     t.verify_ms,
@@ -997,20 +1004,24 @@ async fn run_parallel(
                 ));
             }
             Ok(Ok(Err(e))) => {
-                ui::print_install_error("package", &e);
+                ui::print_install_error(&name, &e);
+                failed.push(name);
             }
             Ok(Err(join_err)) => {
-                ui::print_general_error(&anyhow::anyhow!("install worker failed: {}", join_err));
+                ui::print_install_error(&name, &anyhow::anyhow!("install worker failed: {}", join_err));
+                failed.push(name);
             }
             Err(join_err) => {
-                ui::print_general_error(&anyhow::anyhow!("install task failed: {}", join_err));
+                ui::print_install_error(&name, &anyhow::anyhow!("install task failed: {}", join_err));
+                failed.push(name);
             }
         }
     }
 
     if install_ok_count == 0 {
         finalize_leftover_txns(&mut txns, "no successful installations completed");
-        return Ok(());
+        ui::print_success_parallel(0, &failed, total_mb, total_dl_secs);
+        return Err(InstallFailed.into());
     }
 
     ui::print_stage_telemetry(
@@ -1022,38 +1033,8 @@ async fn run_parallel(
     );
     ui::print_parallel_install_mode(concurrency, install_ms);
 
-    // Build proper per-package metrics with package format breakdown.
     if !metrics.is_empty() {
-        let mut detailed = Vec::new();
-        for (idx, (pkg_idx, _pkg_path, stats)) in successful_downloads.iter().enumerate() {
-            let info = &resolved[*pkg_idx];
-            let t = metrics.get(idx).cloned().unwrap_or_else(|| {
-                telemetry::build_metric(
-                    &info.name,
-                    &info.format,
-                    resolve_ms,
-                    download_ms,
-                    0,
-                    0,
-                    0,
-                    stats.speed_mbps,
-                    concurrency,
-                )
-            });
-
-            detailed.push(telemetry::build_metric(
-                &info.name,
-                &info.format,
-                t.resolve_ms,
-                t.download_ms,
-                t.verify_ms,
-                t.extract_ms,
-                t.db_ms,
-                stats.speed_mbps,
-                concurrency,
-            ));
-        }
-        let _ = telemetry::append_and_refresh_dashboard(&config, &detailed);
+        let _ = telemetry::append_and_refresh_dashboard(&config, &metrics);
     }
 
     finalize_leftover_txns(
@@ -1061,7 +1042,7 @@ async fn run_parallel(
         "parallel run completed without terminal install state",
     );
 
-    ui::print_success_parallel(install_ok_count, total_mb, total_dl_secs);
+    ui::print_success_parallel(install_ok_count, &failed, total_mb, total_dl_secs);
 
-    Ok(())
+    if failed.is_empty() { Ok(()) } else { Err(InstallFailed.into()) }
 }
