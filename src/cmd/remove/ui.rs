@@ -65,6 +65,29 @@ pub fn print_preparing_removal(scope_path: &str) {
 }
 
 // ── Package list ──────────────────────────────────────────────────────────────
+pub fn print_still_needed_by(name: &str, users: &[&str]) {
+    println!(
+        " {Y}⚠{RST}  {P}{name}{RST} is used by {B}{}{RST}; they may stop working without it.\n",
+        users.join(", ")
+    );
+}
+
+/// No terminal (or EOF) means no: dependencies are only removed on an explicit yes.
+pub fn confirm_remove_unused_deps(names: &[&str]) -> bool {
+    println!("{G}Dependencies no other package uses:{RST}");
+    for n in names {
+        println!("  {DIM}•{RST} {P}{n}{RST}");
+    }
+    print!("\n{G}Remove these {} dependencies too?{RST} {DIM}[y/N]{RST} ", names.len());
+    let _ = std::io::Write::flush(&mut std::io::stdout());
+    let mut s = String::new();
+    if std::io::stdin().read_line(&mut s).unwrap_or(0) == 0 {
+        println!();
+        return false;
+    }
+    matches!(s.trim().to_ascii_lowercase().as_str(), "y" | "yes")
+}
+
 pub fn print_removing_list_header() {
     println!("{G}Removing packages...{RST}\n");
 }

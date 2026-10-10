@@ -119,6 +119,29 @@ pub async fn remove_packages(names: &[String], dry_run: bool) -> Result<()> {
         }
     }
 
+    // ── Packages that still need what the user removes: warn, the removal itself goes ahead ─
+    let removing: Vec<String> = to_remove.iter().map(|r| r.name.clone()).collect();
+    let others = load_all_receipts_except(&removing);
+    for r in &to_remove {
+        let mut users: Vec<&str> = others
+            .iter()
+            .filter(|(_, o)| o.dependencies.iter().any(|d| satisfies(&r.name, &[], d)))
+            .map(|(n, _)| n.as_str())
+            .collect();
+        users.sort();
+        if !users.is_empty() {
+            ui::print_still_needed_by(&r.name, &users);
+        }
+    }
+
+    // ── Dependencies nothing else uses: only removed if the user says yes ─────
+    if !orphans.is_empty() && !dry_run {
+        let names: Vec<&str> = orphans.iter().map(|o| o.name.as_str()).collect();
+        if !ui::confirm_remove_unused_deps(&names) {
+            orphans.clear();
+        }
+    }
+
     // ── Dry run ───────────────────────────────────────────────────────────────
     if dry_run {
         let name_refs: Vec<&str> = to_remove.iter().map(|r| r.name.as_str()).collect();
@@ -142,6 +165,12 @@ pub async fn remove_packages(names: &[String], dry_run: bool) -> Result<()> {
     println!();
 
     // ── Remove files ──────────────────────────────────────────────────────────
+    let freed_bytes: u64 = to_remove.iter().chain(orphans.iter())
+        .flat_map(|r| r.installed_files.iter())
+        .filter_map(|p| fs::symlink_metadata(p).ok())
+        .filter(|m| m.is_file())
+        .map(|m| m.len())
+        .sum();
     for r in to_remove.iter().chain(orphans.iter()) {
         delete_receipt_files(&r.installed_files);
     }
@@ -175,15 +204,9 @@ pub async fn remove_packages(names: &[String], dry_run: bool) -> Result<()> {
     ui::print_remove_step("Cleaning orphaned dependencies", 200);
 
     // ── Delete receipts ───────────────────────────────────────────────────────
-    let mut freed_bytes: u64 = 0;
     let mut removed_count = 0usize;
 
     for r in to_remove.iter().chain(orphans.iter()) {
-        freed_bytes += r.installed_files.iter()
-            .filter_map(|p| fs::metadata(p).ok())
-            .map(|m| m.len())
-            .sum::<u64>();
-
         let receipt_path = Path::new(INSTALLED_DIR).join(format!("{}.toml", r.name));
         let _ = fs::remove_file(&receipt_path);
 
@@ -224,7 +247,10 @@ fn delete_receipt_files(installed_files: &[String]) {
         let live = crate::archive_safety::live_path(std::path::Path::new(path));
         match fs::symlink_metadata(&live) {
             Ok(meta) if meta.is_dir() => dirs.push(live.to_string_lossy().into_owned()),
-            Ok(_) => { let _ = fs::remove_file(&live); }
+            Ok(_) => {
+                let _ = crate::immutable::try_clear_immutable(&live);
+                let _ = fs::remove_file(&live);
+            }
             Err(_) => {} // already gone
         }
     }

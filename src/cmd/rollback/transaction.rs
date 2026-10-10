@@ -133,6 +133,7 @@ pub fn rollback_userland(tx_id: &str) -> Result<()> {
                             Ok(meta) if meta.is_dir() => dirs.push(p.to_path_buf()),
                             Ok(meta) => {
                                 freed_bytes += meta.len();
+                                let _ = crate::immutable::try_clear_immutable(p);
                                 let _ = fs::remove_file(p);
                                 files_touched += 1;
                             }

@@ -128,6 +128,7 @@ async fn zex_store_removal(name: &str) -> bool {
                     // Remove union hardlink
                     let union_file = crate::archive_safety::live_path(&union_path.join(rel));
                     if union_file.exists() || union_file.symlink_metadata().is_ok() {
+                        let _ = crate::immutable::try_clear_immutable(&union_file);
                         let _ = std::fs::remove_file(&union_file);
                     }
                 }

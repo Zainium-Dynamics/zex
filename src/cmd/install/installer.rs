@@ -435,10 +435,8 @@ pub fn install(
 
     let commit_result = plan.commit();
 
+    // userland files stay mutable: only zex replaces or removes them; the base is what stays locked
     if commit_result.is_ok() {
-        for path in &committed_files {
-            let _ = crate::immutable::try_set_immutable(&crate::archive_safety::live_path(path));
-        }
         crate::triggers::note(&committed_files);
         if info.format == PackageFormat::Zex {
             if let Ok(m) = super::zex_manifest::read_from_zex(pkg_path) {
@@ -863,6 +861,7 @@ fn cleanup_snapshot(snap_dir: &Option<PathBuf>) {
 fn rollback_committed(paths: &[PathBuf]) {
     for p in paths.iter().rev() {
         let p = crate::archive_safety::live_path(p);
+        let _ = crate::immutable::try_clear_immutable(&p);
         let _ = std::fs::remove_file(&p);
         let mut curr = p.parent();
         while let Some(parent) = curr {

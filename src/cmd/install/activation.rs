@@ -49,7 +49,8 @@ fn place(staged: &Path, target: &Path) -> Result<()> {
         fs::copy(staged, &tmp).with_context(|| format!("copy {} -> {}", staged.display(), tmp.display()))?;
     }
 
-    // a directory can't be renamed over; an old file or link can
+    // a directory can't be renamed over; an old file or link can (once it isn't immutable)
+    let _ = crate::immutable::try_clear_immutable(target);
     if fs::symlink_metadata(target).map(|m| m.is_dir()).unwrap_or(false) {
         let _ = fs::remove_file(&tmp);
         anyhow::bail!("{} is a directory", target.display());

@@ -92,10 +92,8 @@ pub fn flush() {
     }
 
     for (pkg, cmd) in hooks {
-        log::info!("running {pkg} hook: {cmd}");
         if let Err(e) = run_hook(&cmd) {
-            log::warn!("{pkg} hook failed: {e}");
-            eprintln!(" \x1b[93m⚠\x1b[0m  {pkg}: post-install hook failed: {e}");
+            warn(&format!("{pkg} hook"), &e);
         }
     }
 }
@@ -103,7 +101,6 @@ pub fn flush() {
 /// Missing tools are skipped: not every system ships every cache generator.
 fn run(prog: &str, args: &[&str]) {
     let Some(bin) = which(prog) else {
-        log::debug!("trigger {prog}: not installed, skipped");
         return;
     };
     match Command::new(&bin)
@@ -114,10 +111,15 @@ fn run(prog: &str, args: &[&str]) {
         .stderr(Stdio::piped())
         .output()
     {
-        Ok(out) if out.status.success() => log::debug!("trigger {prog} ok"),
-        Ok(out) => log::warn!("trigger {prog} failed: {}", String::from_utf8_lossy(&out.stderr).trim()),
-        Err(e) => log::warn!("trigger {prog}: {e}"),
+        Ok(out) if out.status.success() => {}
+        Ok(out) => warn(prog, String::from_utf8_lossy(&out.stderr).trim()),
+        Err(e) => warn(prog, &e.to_string()),
     }
+}
+
+// zex has no logger, so trigger problems are printed where the user sees them
+fn warn(prog: &str, msg: &str) {
+    eprintln!(" \x1b[93m⚠\x1b[0m  {prog}: {msg}");
 }
 
 fn run_hook(cmd: &str) -> Result<(), String> {
