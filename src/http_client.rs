@@ -50,6 +50,8 @@ pub fn build(user_agent: &str) -> Result<reqwest::Client> {
     let mut builder = reqwest::Client::builder()
         .connect_timeout(std::time::Duration::from_secs(15))
         .timeout(std::time::Duration::from_secs(4 * 60 * 60))
+        // a stalled transfer (no bytes for 30s) errors out so the downloader retries
+        .read_timeout(std::time::Duration::from_secs(30))
         .tcp_keepalive(std::time::Duration::from_secs(30))
         .user_agent(user_agent)
         .use_preconfigured_tls(tls);
