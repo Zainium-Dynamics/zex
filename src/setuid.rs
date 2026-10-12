@@ -9,7 +9,6 @@ use std::path::Path;
 pub const HELPERS: &[&str] = &[
     "bin/fusermount3",
     "bin/fusermount",
-    "libexec/flatpak-bwrap",
     "bin/pkexec",
     "lib/polkit-1/polkit-agent-helper-1",
 ];
