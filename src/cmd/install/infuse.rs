@@ -327,15 +327,18 @@ async fn run_single(
                 p.exists()
             });
 
-            if healthy {
+            if super::installer::reinstalling() {
+                ui::print_reinstalling(&info.display_name, &info.version);
+            } else if healthy {
                 ui::print_already_installed(&info.display_name, &info.version);
                 return Ok(());
+            } else {
+                // Broken install detected — fall through to reinstall
+                log::warn!(
+                    "Package '{}' v{} is in DB but binaries are missing — reinstalling",
+                    info.name, info.version
+                );
             }
-            // Broken install detected — fall through to reinstall
-            log::warn!(
-                "Package '{}' v{} is in DB but binaries are missing — reinstalling",
-                info.name, info.version
-            );
         } else {
             ui::print_upgrading(&info.display_name, &installed.version, &info.version);
         }

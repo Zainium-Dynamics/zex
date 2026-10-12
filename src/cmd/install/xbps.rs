@@ -49,7 +49,7 @@ pub async fn resolve_xbps(
     let base_url  = mirror.base_url.replace("{arch}", &arch);
 
     // Fetch <arch>-musl-repodata
-    let (bytes, _) = mm.fetch(&index_url, client, false).await?;
+    let (bytes, _) = mm.fetch(&index_url, client, super::installer::reinstalling()).await?;
 
     // Unpack zstd -> tar -> plist in memory. index-meta.plist self-declares
     // the repo's RSA signing key (real field, confirmed against a live

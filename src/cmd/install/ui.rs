@@ -273,6 +273,10 @@ pub fn print_desktop_phase()     { print_install_step_timed("Updating desktop & 
 
 // ── Already installed ─────────────────────────────────────────────────────────
 
+pub fn print_reinstalling(name: &str, version: &str) {
+    println!(" {B}→{RST} Reinstalling {P}{name}{RST} {version} (fresh download)");
+}
+
 pub fn print_already_installed(name: &str, version: &str) {
     println!(
         "\n {G}→{RST} {DIM}Target      :{RST} {P}{name}{RST}\n"

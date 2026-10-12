@@ -71,7 +71,7 @@ pub async fn fetch_index(
     let index_url = &mirror.index_url;
     let base_url  = mirror.base_url.trim_end_matches('/').to_string();
 
-    let (arc_bytes, _) = mm.fetch(index_url, client, false).await?;
+    let (arc_bytes, _) = mm.fetch(index_url, client, super::installer::reinstalling()).await?;
     let bytes = arc_bytes.as_slice();
     let url_lower = index_url.trim().to_ascii_lowercase();
 

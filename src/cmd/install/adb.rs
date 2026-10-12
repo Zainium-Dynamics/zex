@@ -343,7 +343,7 @@ pub async fn resolve_adb(
     let index_url = mirror.index_url.replace("{arch}", &arch);
     let base_url = mirror.base_url.replace("{arch}", &arch);
 
-    let (bytes, _) = mm.fetch(&index_url, client, false).await?;
+    let (bytes, _) = mm.fetch(&index_url, client, super::installer::reinstalling()).await?;
     let records = tokio::task::spawn_blocking(move || parse_index(&bytes))
         .await
         .context("adb index parse task panicked")??;

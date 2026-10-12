@@ -54,6 +54,7 @@ fn print_help() {
     println!();
     println!("  {Y}Package Management:{R}");
     println!("    {G}install{R} {D}<pkg>...{R}       Install packages");
+    println!("    {G}reinstall{R} {D}<pkg>...{R}     Download and reinstall, even when unchanged");
     println!("    {G}remove{R}  {D}<pkg>...{R}       Remove packages");
     println!("    {G}update{R}              Full system update (userland + syshub)");
     println!("    {G}uland --u{R}          Upgrade userland packages");
@@ -192,6 +193,16 @@ async fn main() {
 
         // ── Driver commands (now compiled into this binary) ───────────────────
         "install"  => { cmd::install::run(driver_args).await; Ok(()) }
+        "reinstall" => {
+            if cmd_args.is_empty() {
+                eprintln!("Usage: elevate zex reinstall <package>...");
+                exit(1);
+            }
+            let mut args = vec!["install".to_string(), "--reinstall".to_string()];
+            args.extend(cmd_args.clone());
+            cmd::install::run(args).await;
+            Ok(())
+        }
         "remove"   => { cmd::remove::run(driver_args).await; Ok(()) }
         "search"   => { cmd::search::run(driver_args).await; Ok(()) }
         "refresh"  => cmd::refresh::run(driver_args).await,

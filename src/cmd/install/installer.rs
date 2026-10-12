@@ -40,6 +40,17 @@ pub fn set_force(on: bool) {
     FORCE.store(on, Ordering::Relaxed);
 }
 
+/// Set by `zex reinstall`: installed packages are fetched again and reinstalled, even unchanged.
+static REINSTALL: AtomicBool = AtomicBool::new(false);
+
+pub fn set_reinstall(on: bool) {
+    REINSTALL.store(on, Ordering::Relaxed);
+}
+
+pub fn reinstalling() -> bool {
+    REINSTALL.load(Ordering::Relaxed)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IntegrityMode {
     Strict,

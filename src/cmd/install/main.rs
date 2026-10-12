@@ -71,6 +71,10 @@ struct Cli {
     #[arg(long, short = 'f', default_value_t = false)]
     force: bool,
 
+    /// Download and reinstall packages that are already installed, even unchanged (`zex reinstall`).
+    #[arg(long, default_value_t = false)]
+    reinstall: bool,
+
 
 
 
@@ -95,6 +99,7 @@ pub async fn run(raw_args: Vec<String>) {
 
     let cli = Cli::parse_from(&raw_args);
     super::installer::set_force(cli.force);
+    super::installer::set_reinstall(cli.reinstall);
 
     if cli.emit_scorecard || cli.report_gates {
         let cfg = match super::backend::BackendConfig::load() {

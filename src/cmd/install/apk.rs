@@ -24,7 +24,7 @@ pub async fn resolve_apk(
     let base_url  = mirror.base_url.replace("{arch}", &arch);
 
     // Fetch APKINDEX.tar.gz
-    let (bytes, _) = mm.fetch(&index_url, client, false).await?;
+    let (bytes, _) = mm.fetch(&index_url, client, super::installer::reinstalling()).await?;
 
     // Unpack tar.gz in memory
     let decompressed = tokio::task::spawn_blocking(move || -> Result<String> {
