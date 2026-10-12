@@ -16,6 +16,25 @@ use sha2::{Digest, Sha256};
 
 pub const PENDING: &str = "/overlayer/.syshub-pending";
 
+/// Machine-owned files set by the installer or the user: an upgrade never replaces them.
+/// New system accounts come from systemd-sysusers (sysusers.d), never from a shipped passwd.
+pub const PROTECTED: &[&str] = &[
+    "etc/passwd",
+    "etc/shadow",
+    "etc/group",
+    "etc/gshadow",
+    "etc/subuid",
+    "etc/subgid",
+    "etc/hostname",
+    "etc/hosts",
+    "etc/machine-id",
+    "etc/localtime",
+    "etc/locale.conf",
+    "etc/vconsole.conf",
+    "etc/greetd/config.toml",
+    "share/cosmic/com.system76.CosmicComp/v1/xkb_config",
+];
+
 const FS_IOC_GETFLAGS: libc::c_ulong = 0x8008_6601;
 const FS_IOC_SETFLAGS: libc::c_ulong = 0x4008_6602;
 const FS_IMMUTABLE_FL: libc::c_int = 0x10;
@@ -48,6 +67,13 @@ pub fn begin() -> Result<PathBuf> {
 pub fn commit(label: &str) -> Result<String> {
     let pending = Path::new(PENDING);
     let root = pending.join("root");
+    for rel in PROTECTED {
+        let p = root.join(rel);
+        if fs::symlink_metadata(&p).is_ok() {
+            fs::remove_file(&p).with_context(|| format!("drop protected {}", p.display()))?;
+            log::info!("upgrade ships {rel}; kept this system's own copy");
+        }
+    }
     let mut lines = String::new();
     let mut paths = Vec::new();
     walk(&root, &mut paths);
