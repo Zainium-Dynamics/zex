@@ -46,6 +46,16 @@ pub fn flush() {
     let has = |pfx: &str| all || rels.iter().any(|r| r.starts_with(pfx));
     let live = |rel: &str| format!("{LIVE_ROOT}/{rel}");
 
+    for rel in crate::setuid::HELPERS {
+        if all || rels.iter().any(|r| r == Path::new(rel)) {
+            match crate::setuid::restore(Path::new(&live(rel))) {
+                Ok(true) => log::info!("{rel}: restored setuid root"),
+                Ok(false) => {}
+                Err(e) => eprintln!("zex: could not make {rel} setuid root: {e}"),
+            }
+        }
+    }
+
     if has("lib/systemd/system") || has("etc/systemd/system") {
         run("systemctl", &["daemon-reload"]);
     }

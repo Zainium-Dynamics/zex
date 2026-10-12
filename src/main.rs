@@ -21,6 +21,7 @@ mod immutable;
 mod local_install;
 mod pinning;
 mod sandbox;
+mod setuid;
 mod syshub_pending;
 mod triggers;
 mod trust;
