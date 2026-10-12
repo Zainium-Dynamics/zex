@@ -11,6 +11,7 @@ pub const HELPERS: &[&str] = &[
     "bin/fusermount",
     "bin/pkexec",
     "lib/polkit-1/polkit-agent-helper-1",
+    "lib/security/unix_chkpwd",
 ];
 
 /// Makes the helper at `path` root-owned 4755; untouched when already right (no copy-up).
