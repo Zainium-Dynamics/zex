@@ -1,7 +1,5 @@
 //! ui.rs — Terminal UI for rollback driver. Same palette as all drivers.
 
-use std::time::Duration;
-use indicatif::{ProgressBar, ProgressStyle};
 
 pub const G:   &str = "\x1b[92m";
 pub const P:   &str = "\x1b[95m";
@@ -18,25 +16,11 @@ pub fn print_arrow(msg: &str) {
     println!(" {G}→{RST} {msg}");
 }
 
-pub fn print_step(label: &str, ms: u64) {
-    let dots = 48usize.saturating_sub(label.len() + 1);
-    let prefix = format!("  {G}{label}{RST} {DIM}{}{RST} ", ".".repeat(dots));
-    let pb = ProgressBar::new(100);
-    pb.set_style(
-        ProgressStyle::with_template(&format!(
-            "{prefix}{G}[{{bar:{BAR_W}}}]{RST} {G}{{percent:>3}}%{RST}"
-        ))
-        .unwrap()
-        .progress_chars("\u{2588}\u{2588}\u{2591}"),
-    );
-    let steps = 30u64;
-    for i in 0..=steps {
-        pb.set_position(i * 100 / steps);
-        std::thread::sleep(Duration::from_millis((ms / steps).max(1)));
-    }
-    pb.finish_and_clear();
-    let filled: String = std::iter::repeat('\u{2588}').take(BAR_W).collect();
-    println!("  {G}{label}{RST} {DIM}{}{RST} {G}[{filled}]{RST} {G}done{RST}", ".".repeat(dots));
+/// Rollback reports each step once its work is done.
+pub fn print_step(label: &str) {
+    let dots = ".".repeat(48usize.saturating_sub(label.len() + 1));
+    let filled = "\u{2588}".repeat(BAR_W);
+    println!("  {G}{label}{RST} {DIM}{dots}{RST} {G}[{filled}]{RST} {G}done{RST}");
 }
 
 // ── Userland rollback ─────────────────────────────────────────────────────────

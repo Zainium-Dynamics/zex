@@ -140,7 +140,9 @@ commands to
 See
 .BR zex-history (1).
 .TP
-.B \-i \fI<file>\fR [\-\-root \fI<path>\fR]
+.B local\-install \fI<file>\fR [\-\-root \fI<path>\fR] [\-\-force]
+(short:
+.BR \-i )
 Install a local
 .IR .zex ", " .apk ,
 or
@@ -152,8 +154,8 @@ By default files are installed into
 .B \-\-root \fI<path>\fR
 .DT
 .BR DEV\-ONLY .
-Override the install root for local
-.B \-i
+Override the install root for
+.B local\-install
 installs.
 Intended for developer testing and CI fixtures only — not for production
 system installs.
@@ -161,7 +163,9 @@ Production installs must use the default
 .I /overlayer/zexlib/union/
 path so Quantra's OverlayFS upperdir stays consistent.
 .TP
-.B \-e \fI<file>\fR [\-o \fI<dir>\fR]
+.B extract \fI<file>\fR [\-\-output \fI<dir>\fR]
+(short:
+.BR \-e )
 Extract the contents of a package archive to a directory.
 .SH FILE SYSTEM LAYOUT
 .TP
@@ -240,7 +244,7 @@ Install
 Install from a local file:
 .PP
 .nf
-    elevate zex -i /path/to/myapp-1.0.zex
+    elevate zex local-install /path/to/myapp-1.0.zex
 .fi
 .PP
 Search for a package:

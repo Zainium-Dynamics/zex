@@ -22,6 +22,7 @@ mod local_install;
 mod pinning;
 mod sandbox;
 mod setuid;
+mod steps;
 mod syshub_pending;
 mod triggers;
 mod trust;
@@ -77,8 +78,8 @@ fn print_help() {
     println!("    {G}pins{R}                List all pinned packages");
     println!();
     println!("  {Y}Local Packages:{R}");
-    println!("    {G}-i{R} {D}<file>{R}             Install local .zex/.apk/.xbps");
-    println!("    {G}-e{R} {D}<file>{R}             Extract package contents");
+    println!("    {G}local-install{R} {D}<file>{R}  Install local .zex/.apk/.xbps {D}(short: -i){R}");
+    println!("    {G}extract{R} {D}<file>{R}        Extract package contents {D}(short: -e){R}");
     println!();
     println!("  Zainium OS — {B}archive.zainiumdynamics.tech{R}");
     println!();
@@ -127,7 +128,7 @@ async fn main() {
 
         "-e" | "--extract" | "extract" => {
             if cmd_args.is_empty() {
-                eprintln!("Usage: zex -e <file> [-o <dir>]");
+                eprintln!("Usage: zex extract <file> [--output <dir>]");
                 exit(1);
             }
             extract::run(&cmd_args).map_err(|e| anyhow::anyhow!(e))
@@ -135,14 +136,14 @@ async fn main() {
 
         "-i" | "--local-install" | "local-install" => {
             if cmd_args.is_empty() {
-                eprintln!("Usage: zex -i <file> [--dry-run] [--root <path>] [-f]");
+                eprintln!("Usage: elevate zex local-install <file> [--dry-run] [--root <path>] [--force]");
                 exit(1);
             }
             #[cfg(unix)] {
                 let dry = cmd_args.iter().any(|a| a == "--dry-run");
                 let custom = cmd_args.iter().any(|a| a == "--root");
                 if !dry && !custom && unsafe { libc_geteuid() } != 0 {
-                    eprintln!("  ✗ Root required. Run: elevate zex -i <file>");
+                    eprintln!("  ✗ Root required. Run: elevate zex local-install <file>");
                     exit(1);
                 }
             }

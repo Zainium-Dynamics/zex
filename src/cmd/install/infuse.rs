@@ -563,10 +563,6 @@ async fn run_single(
     ui::print_download_done_single(stats.size_mb(), stats.secs());
     ui::print_install_header_single();
 
-    ui::print_verify_phase();
-    ui::print_extract_phase();
-    ui::print_userland_phase();
-    ui::print_alts_phase();
 
     if let Some(t) = txn.as_mut() {
         t.update("installing", "verifying and extracting package");
@@ -908,10 +904,8 @@ async fn run_parallel(
     ui::print_download_done_parallel(total_mb, total_dl_secs);
 
     ui::print_install_header_parallel();
-    ui::print_verify_phase();
-    ui::print_extract_phase();
-    ui::print_userland_ov_phase();
-    ui::print_desktop_phase();
+    let n_pkgs = successful_downloads.len();
+    ui::print_install_step(&format!("Installing {n_pkgs} package{}", if n_pkgs == 1 { "" } else { "s" }));
 
     let concurrency = config.install_concurrency.max(1);
     let sem = Arc::new(Semaphore::new(concurrency));
@@ -979,6 +973,7 @@ async fn run_parallel(
     }
 
     let install_results = join_all(install_handles).await;
+    crate::steps::finish();
     let install_ms = install_start.elapsed().as_millis();
 
     let mut install_ok_count = 0usize;

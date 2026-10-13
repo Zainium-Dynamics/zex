@@ -90,43 +90,16 @@ pub fn make_overall_bar(mp: &MultiProgress, total: u64) -> ProgressBar {
     pb
 }
 
-/// Phase step bar (fill to 100% with dots).
+/// Step line: shows as running while the caller does the work, then
 /// "  Verifying integrity ...................... [██████████████████████] 100%"
 pub fn print_install_step(label: &str) {
-    print_install_step_timed(label, 600);
-}
-
-pub fn print_install_step_timed(label: &str, duration_ms: u64) {
-    use std::time::Duration;
-    let dots = STEP_W.saturating_sub(label.len() + 1);
-    let prefix = format!(
-        "  {G}{label}{RST} {DIM}{dots_str}{RST} ",
-        G = G, label = label, RST = RST, DIM = DIM,
-        dots_str = ".".repeat(dots),
-    );
-    let pb = indicatif::ProgressBar::new(100);
-    pb.set_style(
-        indicatif::ProgressStyle::with_template(&format!(
-            "{prefix}{G}[{{bar:{BAR_W}}}]{RST} {G}{{percent:>3}}%{RST}",
-            G = G, RST = RST, BAR_W = BAR_W, prefix = prefix,
-        ))
-        .unwrap()
-        .progress_chars("\u{2588}\u{2588}\u{2591}"),
-    );
-    let steps = 40u64;
-    let step_sleep = Duration::from_millis((duration_ms / steps).max(1));
-    for i in 0..=steps {
-        pb.set_position(i * 100 / steps);
-        std::thread::sleep(step_sleep);
-    }
-    pb.finish_and_clear();
-    // Print final static line after animation
-    let filled: String = std::iter::repeat('\u{2588}').take(BAR_W).collect();
-    println!("  {G}{label}{RST} {DIM}{dots_str}{RST} {G}[{filled}]{RST} {G}100%{RST}",
-        G = G, RST = RST, DIM = DIM,
-        label = label,
-        dots_str = ".".repeat(dots),
-        filled = filled,
+    let dots = ".".repeat(STEP_W.saturating_sub(label.len() + 1));
+    let filled = "\u{2588}".repeat(BAR_W);
+    let empty = "\u{2591}".repeat(BAR_W);
+    crate::steps::start(
+        format!("  {G}{label}{RST} {DIM}{dots}{RST} {DIM}[{empty}]{RST} "),
+        format!("  {G}{label}{RST} {DIM}{dots}{RST} {G}[{filled}]{RST} {G}100%{RST}"),
+        format!("  {R}{label}{RST} {DIM}{dots}{RST} {R}[{empty}]{RST} {R}failed{RST}"),
     );
 }
 
@@ -264,12 +237,6 @@ pub fn print_parallel_pkg_steps(_name: &str) {}  // per-package bars handle this
 
 // ── Phase bars (called explicitly) ───────────────────────────────────────────
 
-pub fn print_verify_phase()      { print_install_step_timed("Verifying integrity",     700); }
-pub fn print_extract_phase()     { print_install_step_timed("Extracting packages",     900); }
-pub fn print_userland_phase()    { print_install_step_timed("Installing into userland", 400); }
-pub fn print_userland_ov_phase() { print_install_step_timed("Installing into userland overlay", 500); }
-pub fn print_alts_phase()        { print_install_step_timed("Updating alternatives",   250); }
-pub fn print_desktop_phase()     { print_install_step_timed("Updating desktop & mime database", 300); }
 
 // ── Already installed ─────────────────────────────────────────────────────────
 

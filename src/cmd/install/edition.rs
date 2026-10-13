@@ -95,12 +95,13 @@ pub fn add_edition(pkg_name: &str, edition: &str) -> Result<()> {
         G=ui::G, B=ui::B, P=ui::P, RST=ui::RST);
 
     // Extract only files for this specific edition from payload/<edition>/
+    let steps = crate::steps::Guard::new();
+    ui::print_install_step("Installing edition");
     let rm = extract_single_edition(&zex_path, &manifest, edition)?;
-    ui::print_install_step_timed("Installing edition", 400);
-
     receipt.active_editions.push(edition.to_string());
     receipt.edition_removes.insert(edition.to_string(), rm);
     save_edition_receipt(&receipt)?;
+    steps.ok();
 
     println!(" {G}✓ Edition {B}{edition}{G} added successfully.{RST}\n",
         G=ui::G, B=ui::B, RST=ui::RST);

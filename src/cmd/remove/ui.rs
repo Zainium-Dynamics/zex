@@ -2,8 +2,6 @@
 //! Same palette and conventions as install/upgrade drivers.
 //! Zero hardcoded values — all data comes from receipt/registry at runtime.
 
-use std::time::Duration;
-use indicatif::{ProgressBar, ProgressStyle};
 
 pub const G:   &str = "\x1b[92m";
 pub const P:   &str = "\x1b[95m";
@@ -18,31 +16,8 @@ const BAR_W:  usize = 22;
 const STEP_W: usize = 50;
 
 // ── Animated phase bar ────────────────────────────────────────────────────────
-pub fn print_remove_step(label: &str, duration_ms: u64) {
-    let dots = STEP_W.saturating_sub(label.len() + 1);
-    let prefix = format!(
-        "  {G}{label}{RST} {DIM}{}{RST} ",
-        ".".repeat(dots)
-    );
-    let pb = ProgressBar::new(100);
-    pb.set_style(
-        ProgressStyle::with_template(&format!(
-            "{prefix}{G}[{{bar:{BAR_W}}}]{RST} {G}{{percent:>3}}%{RST}"
-        ))
-        .unwrap()
-        .progress_chars("\u{2588}\u{2588}\u{2591}"),
-    );
-    let steps = 40u64;
-    for i in 0..=steps {
-        pb.set_position(i * 100 / steps);
-        std::thread::sleep(Duration::from_millis((duration_ms / steps).max(1)));
-    }
-    pb.finish_and_clear();
-    let filled: String = std::iter::repeat('\u{2588}').take(BAR_W).collect();
-    println!(
-        "  {G}{label}{RST} {DIM}{}{RST} {G}[{filled}]{RST} {G}100%{RST}",
-        ".".repeat(dots)
-    );
+pub fn print_remove_step(label: &str) {
+    crate::steps::start_bar(&format!("{G}{label}{RST}"), STEP_W.saturating_sub(label.len() + 1), BAR_W, "100%");
 }
 
 // ── Single removal header ─────────────────────────────────────────────────────

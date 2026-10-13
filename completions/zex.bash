@@ -7,7 +7,8 @@ _zex_completions() {
     _init_completion || return
 
     local commands="install remove update upgrade uland syshub search
-                    doctor rollback sweep inspect depends why pin unpin pins"
+                    doctor rollback sweep inspect depends why pin unpin pins
+                    reinstall refresh history local-install extract"
 
     case $cword in
         1)

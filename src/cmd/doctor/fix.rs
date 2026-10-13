@@ -32,10 +32,7 @@ pub fn run_fix(audit: &AuditResult) -> Result<FixReport> {
 
     // ── 1. Fix dangling symlinks ──────────────────────────────────────────────
     if !audit.dangling_symlinks.is_empty() {
-        ui::print_step(
-            &format!("Fixing {} dangling symlinks", audit.dangling_symlinks.len()),
-            300 + (audit.dangling_symlinks.len() as u64) * 20,
-        );
+        ui::print_step(&format!("Fixing {} dangling symlinks", audit.dangling_symlinks.len()));
         for link in &audit.dangling_symlinks {
             if fs::remove_file(link).is_ok() {
                 rep.fixed += 1;
@@ -49,10 +46,7 @@ pub fn run_fix(audit: &AuditResult) -> Result<FixReport> {
 
     // ── 2. Remove orphaned libs ───────────────────────────────────────────────
     if !audit.orphaned_libs.is_empty() {
-        ui::print_step(
-            &format!("Removing {} orphaned libraries", audit.orphaned_libs.len()),
-            400 + (audit.orphaned_libs.len() as u64) * 15,
-        );
+        ui::print_step(&format!("Removing {} orphaned libraries", audit.orphaned_libs.len()));
         for lib in &audit.orphaned_libs {
             let size = fs::metadata(lib).map(|m| m.len()).unwrap_or(0);
             if fs::remove_file(lib).is_ok() {
@@ -68,10 +62,7 @@ pub fn run_fix(audit: &AuditResult) -> Result<FixReport> {
 
     // ── 3. Remove orphaned packages ───────────────────────────────────────────
     if !audit.orphaned_packages.is_empty() {
-        ui::print_step(
-            &format!("Cleaning {} orphaned packages", audit.orphaned_packages.len()),
-            300 + (audit.orphaned_packages.len() as u64) * 30,
-        );
+        ui::print_step(&format!("Cleaning {} orphaned packages", audit.orphaned_packages.len()));
         for pkg in &audit.orphaned_packages {
             let receipt = Path::new(INSTALLED_DIR).join(format!("{pkg}.toml"));
             if fs::remove_file(&receipt).is_ok() {
@@ -99,13 +90,13 @@ pub fn run_fix(audit: &AuditResult) -> Result<FixReport> {
     }
 
     // ── 5. Rebuild registry index (packages.toml consistency) ────────────────
-    ui::print_step("Rebuilding registry index", 400);
+    ui::print_step("Rebuilding registry index");
     if let Ok(()) = rebuild_registry_index() {
         rep.fixed += 1;
     }
 
     // ── 6. Verify syshub integrity ────────────────────────────────────────────
-    ui::print_step("Verifying syshub integrity", 350);
+    ui::print_step("Verifying syshub integrity");
     // Syshub is read-only — missing files cannot be auto-restored,
     // only report them for manual action.
     for f in &audit.missing_syshub_dirs {
@@ -145,6 +136,7 @@ pub fn run_fix(audit: &AuditResult) -> Result<FixReport> {
         ));
     }
 
+    crate::steps::finish();
     rep.elapsed = started.elapsed().as_secs_f64();
     rep.freed_bytes += 0; // already accumulated above
     Ok(rep)

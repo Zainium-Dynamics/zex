@@ -95,7 +95,7 @@ pub fn rollback_userland(tx_id: &str) -> Result<()> {
         fs::copy(&snap_pkgs, PACKAGES_TOML)
             .context("restoring packages.toml snapshot")?;
     }
-    ui::print_step("Restoring registry state", 250);
+    ui::print_step("Restoring registry state");
 
     // ── 2. Restore receipt files ──────────────────────────────────────────────
     ui::print_arrow("Restoring receipt files...");
@@ -112,7 +112,7 @@ pub fn rollback_userland(tx_id: &str) -> Result<()> {
             fs::copy(&snap, &live)?;
         }
     }
-    ui::print_step("Restoring receipt files", 200);
+    ui::print_step("Restoring receipt files");
 
     // ── 3. Remove installed files (for install operations) ────────────────────
     ui::print_arrow(&format!("Removing installed files from {}...", UNION_PATH));
@@ -151,7 +151,7 @@ pub fn rollback_userland(tx_id: &str) -> Result<()> {
             }
         }
     }
-    ui::print_step("Removing installed files", 350);
+    ui::print_step("Removing installed files");
 
     // ── 4. Restore backup archive (for remove/upgrade operations) ─────────────
     ui::print_arrow("Restoring backup archive...");
@@ -161,11 +161,7 @@ pub fn rollback_userland(tx_id: &str) -> Result<()> {
         let count = extract_backup(&bak, &crate::archive_safety::live_path(Path::new(UNION_PATH)))?;
         files_touched += count;
     }
-    ui::print_step("Restoring backup archive", 400);
-
-    // ── 5. Clean orphaned deps ─────────────────────────────────────────────────
-    ui::print_arrow("Cleaning orphaned dependencies...");
-    ui::print_step("Cleaning orphaned dependencies", 200);
+    ui::print_step("Restoring backup archive");
 
     let elapsed  = started.elapsed().as_secs_f64();
     let freed_mb = freed_bytes as f64 / 1_048_576.0;

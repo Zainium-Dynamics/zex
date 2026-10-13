@@ -186,13 +186,16 @@ pub async fn remove_packages(names: &[String], dry_run: bool) -> Result<()> {
             || r.name.contains("thunar")
     });
 
+    let steps = crate::steps::Guard::new();
     if has_desktop {
         ui::print_arrow_phase("Updating desktop & mime database...");
-        ui::print_remove_step("Updating desktop & mime database", 300);
+        ui::print_remove_step("Updating desktop & mime database");
     } else {
         ui::print_arrow_phase("Updating alternatives...");
-        ui::print_remove_step("Updating alternatives", 150);
+        ui::print_remove_step("Updating alternatives");
     }
+    crate::triggers::flush();
+    crate::steps::finish();
 
     // ── Clean orphaned deps ───────────────────────────────────────────────────
     //
@@ -201,7 +204,7 @@ pub async fn remove_packages(names: &[String], dry_run: bool) -> Result<()> {
     // before the dry-run check) now really does get removed alongside
     // `to_remove` in the deletion loop that follows.
     ui::print_arrow_phase("Cleaning orphaned dependencies...");
-    ui::print_remove_step("Cleaning orphaned dependencies", 200);
+    ui::print_remove_step("Cleaning orphaned dependencies");
 
     // ── Delete receipts ───────────────────────────────────────────────────────
     let mut removed_count = 0usize;
@@ -213,6 +216,7 @@ pub async fn remove_packages(names: &[String], dry_run: bool) -> Result<()> {
         remove_from_packages_toml(&r.name);
         removed_count += 1;
     }
+    steps.ok();
 
     let elapsed  = started.elapsed().as_secs_f64();
     let freed_mb = freed_bytes as f64 / 1_048_576.0;

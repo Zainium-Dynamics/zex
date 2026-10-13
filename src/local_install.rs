@@ -41,7 +41,7 @@ struct InstallOpts {
 /// Called from main.rs: `zex -i <file|dir> [--dry-run] [--root <path>] [-f]`
 pub fn run(args: &[String]) -> Result<(), String> {
     if args.is_empty() {
-        return Err("Usage: zex -i <file|dir> [--dry-run] [--root <path>] [-f|--force]".into());
+        return Err("Usage: elevate zex local-install <file|dir> [--dry-run] [--root <path>] [--force]".into());
     }
 
     let opts = parse_opts(args)?;
@@ -53,7 +53,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     // Check root privileges (unless dry-run or custom root)
     #[cfg(unix)]
     if !opts.dry_run && opts.root == Path::new("/overlayer/zexlib/union") && unsafe { libc_geteuid() } != 0 {
-        return Err("Root privileges required for system install.\n   Run: elevate zex -i <file>".into());
+        return Err("Root privileges required for system install.\n   Run: elevate zex local-install <file>".into());
     }
 
     println!("  ▶ Target: {}", opts.target.display());
@@ -152,7 +152,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
         println!("    Would install: {} files", result.files_installed);
         println!("    Would skip:    {} files (use -f to force)", result.files_skipped);
         println!();
-        println!("  To apply: elevate zex -i {}", opts.target.display());
+        println!("  To apply: elevate zex local-install {}", opts.target.display());
     } else {
         println!("  ✓ Installed {} files to {}", result.files_installed, opts.root.display());
         if result.files_skipped > 0 {

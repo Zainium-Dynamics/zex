@@ -262,7 +262,8 @@ pub async fn execute() -> Result<()> {
     println!();
 
     // ── 7. Verify the merged syshub.new tree ──────────────────────────────────
-    ui::print_phase("Verifying integrity");
+    let steps = crate::steps::Guard::new();
+    ui::start_phase("Verifying integrity");
     verify_libc_boundaries(staging)?;
 
     // Shebang scripts — confirmed live against a real syshub upgrade
@@ -290,10 +291,11 @@ pub async fn execute() -> Result<()> {
         fs::create_dir_all(parent)?;
     }
     fs::write(&staged_manifest, &remote_raw).context("staging updated syshub.toml")?;
-    ui::print_phase("Staging upgrade for next boot");
+    ui::start_phase("Staging upgrade for next boot");
     let txn = match crate::syshub_pending::commit(&remote.core_info.build_version) {
         Ok(txn) => txn,
         Err(e) => {
+            crate::steps::fail();
             crate::syshub_pending::clear().ok();
             cleanup_dir(dl_tmp);
             log_audit("syshub", &downloaded, "rolled_back",
@@ -308,6 +310,7 @@ pub async fn execute() -> Result<()> {
     let elapsed  = started.elapsed().as_secs();
     let total_mb = total_bytes as f64 / 1_048_576.0;
 
+    steps.ok();
     ui::print_syshub_done(downloaded.len(), total_mb, elapsed,
                           &remote.core_info.build_version, &txn);
     log_audit("syshub", &downloaded, "success",

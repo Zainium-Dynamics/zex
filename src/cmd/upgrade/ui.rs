@@ -191,6 +191,11 @@ pub fn print_phase(label: &str) {
     println!("{}", phase_bar(label, STEP_W));
 }
 
+/// Same line as `print_phase`, shown as running while the caller does the work.
+pub fn start_phase(label: &str) {
+    crate::steps::start_bar(&format!("{G}{label}{RST}"), STEP_W.saturating_sub(label.len() + 1), BAR_W, "100%");
+}
+
 pub fn print_syshub_done(count: usize, total_mb: f64, secs: u64, new_ver: &str, txn: &str) {
     println!("\n {G}✓ System Hub upgrade downloaded and verified{RST}\n");
     println!("{G}Upgrade Summary{RST}");

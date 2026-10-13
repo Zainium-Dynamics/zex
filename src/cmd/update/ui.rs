@@ -16,22 +16,9 @@ pub const RST: &str = "\x1b[0m";
 const BAR_W: usize = 22;
 
 // ── Phase / step bar ──────────────────────────────────────────────────────────
-pub fn print_phase(label: &str, ms: u64) {
+/// Phases are reported after their work (downloads applied each package), so the line is final.
+pub fn print_phase(label: &str) {
     let dots = 44usize.saturating_sub(label.len() + 1);
-    let prefix = format!("  {G}{label}{RST} {DIM}{}{RST} ", ".".repeat(dots));
-    let pb = ProgressBar::new(100);
-    pb.set_style(
-        ProgressStyle::with_template(&format!(
-            "{prefix}{G}{{percent:>3}}%{RST}"
-        ))
-        .unwrap()
-    );
-    let steps = 30u64;
-    for i in 0..=steps {
-        pb.set_position(i * 100 / steps);
-        std::thread::sleep(Duration::from_millis((ms / steps).max(1)));
-    }
-    pb.finish_and_clear();
     println!("  {G}{label}{RST} {DIM}{}{RST} {G}done{RST}", ".".repeat(dots));
 }
 

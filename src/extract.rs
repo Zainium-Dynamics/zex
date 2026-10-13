@@ -57,7 +57,7 @@ pub struct ExtractionResult {
 /// Called from main.rs: `zex -e <file> [-o <dir>]`
 pub fn run(args: &[String]) -> Result<(), String> {
     if args.is_empty() {
-        return Err("Usage: zex -e <file> [-o <output_dir>]".into());
+        return Err("Usage: zex extract <file> [--output <dir>]".into());
     }
 
     let file_path = Path::new(&args[0]);
@@ -91,7 +91,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
 fn parse_output_dir(args: &[String]) -> Option<PathBuf> {
     for i in 0..args.len() {
-        if (args[i] == "-o" || args[i] == "--out") && i + 1 < args.len() {
+        if matches!(args[i].as_str(), "-o" | "--out" | "--output") && i + 1 < args.len() {
             return Some(PathBuf::from(&args[i + 1]));
         }
     }

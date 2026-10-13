@@ -126,7 +126,7 @@ pub async fn clean_all(targets: &[SweepTarget]) -> (usize, u64) {
     for target in targets {
         if target.size_bytes == 0 { continue; }
 
-        ui::print_step(&format!("Cleaning {}", target.label), 400);
+        ui::print_step(&format!("Cleaning {}", target.label));
 
         match &target.kind {
             TargetKind::ClearDir => {
@@ -157,6 +157,7 @@ pub async fn clean_all(targets: &[SweepTarget]) -> (usize, u64) {
             }
         }
     }
+    crate::steps::finish();
 
     (removed, freed)
 }

@@ -157,14 +157,14 @@ pub async fn run(raw_args: Vec<String>) -> Result<()> {
     println!();
 
     // ── Phase bars ────────────────────────────────────────────────────────────
-    ui::print_phase("Verifying integrity",               600);
+    ui::print_phase("Verifying integrity");
     if !uland_upgrades.is_empty() {
-        ui::print_phase("Applying updates to userland",          500);
+        ui::print_phase("Applying updates to userland");
     }
     if !syshub_upgrades.is_empty() {
-        ui::print_phase("Applying updates to immutable base",    800);
+        ui::print_phase("Applying updates to immutable base");
     }
-    ui::print_phase("Regenerating system manifest",      300);
+    ui::print_phase("Regenerating system manifest");
 
     // ── Clean up ──────────────────────────────────────────────────────────────
     std::fs::remove_dir_all(dl).ok();

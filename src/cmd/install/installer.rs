@@ -178,6 +178,8 @@ pub fn install(
     is_dependency: bool,
 ) -> Result<InstallTelemetry> {
     let _pkg_lock = acquire_package_lock(&info.name)?;
+    // parallel installs share one step line owned by the caller
+    let steps = (!parallel).then(crate::steps::Guard::new);
 
     // ── Step 1: Verify ────────────────────────────────────────────────────
     let verify_start = Instant::now();
@@ -376,6 +378,7 @@ pub fn install(
 
         if committed_files.is_empty() {
             cleanup_snapshot(&snapshot_dir);
+            steps.map(crate::steps::Guard::ok);
             return Ok(InstallTelemetry {
                 skipped_syshub_satisfied: true,
                 ..Default::default()
@@ -388,6 +391,9 @@ pub fn install(
 
     // ── Step 4c: xbps alternatives (Void's `vim` -> vim-normal and similar) ─
     if info.format == PackageFormat::Xbps {
+        if !parallel {
+            ui::print_install_step("Updating alternatives");
+        }
         match stage_xbps_alternatives(pkg_path, &store_path, union_root, &committed_files) {
             Ok(links) => {
                 for (staged, final_path) in links {
@@ -400,9 +406,6 @@ pub fn install(
     }
 
     // ── Step 5: Register in DB ────────────────────────────────────────────
-    if !parallel {
-        ui::print_install_step("Setting up desktop entry");
-    }
     if !parallel {
         ui::print_install_step("Registering in database");
     }
@@ -553,6 +556,13 @@ pub fn install(
     // ── Step 10: Cleanup — remove snapshot (success path) ────────────────
     cleanup_snapshot(&snapshot_dir);
 
+    // desktop/mime databases, icon caches and package hooks for the files committed above
+    if !parallel {
+        ui::print_install_step("Setting up desktop entry");
+        crate::triggers::flush();
+    }
+
+    steps.map(crate::steps::Guard::ok);
     Ok(InstallTelemetry {
         verify_ms,
         extract_ms,

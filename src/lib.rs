@@ -13,6 +13,7 @@ pub mod pinning;
 pub mod sandbox;
 pub mod syshub_pending;
 pub mod setuid;
+pub mod steps;
 pub mod triggers;
 pub mod trust;
 pub mod zex_codec;
