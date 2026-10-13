@@ -6,21 +6,21 @@
 //! exactly the files listed in `installed_files` — no glob scanning, no
 //! guessing. Calls ui.rs for all output — zero println! here.
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use serde::Deserialize;
 use std::{fs, path::Path, time::Instant};
 
 use super::ui;
 
 // ── Paths ──────────────────────────────────────────────────────────────────────
-const INSTALLED_DIR:  &str = "/overlayer/zexlib/registry/installed";
-const SYSHUB_MANIFEST:&str = "/overlayer/syshub/engine/services/syshub.toml";
+const INSTALLED_DIR: &str = "/overlayer/zexlib/registry/installed";
+const SYSHUB_MANIFEST: &str = "/overlayer/syshub/engine/services/syshub.toml";
 
 // ── Receipt schema (matches PkgRecord written by cmd::install::registry) ─────
 #[derive(Debug, Deserialize)]
 struct Receipt {
-    name:        String,
-    version:     String,
+    name: String,
+    version: String,
     #[serde(default)]
     display_name: String,
     #[serde(default)]
@@ -54,9 +54,9 @@ pub async fn remove_packages(names: &[String], dry_run: bool) -> Result<()> {
     }
 
     // ── Check each package ────────────────────────────────────────────────────
-    let mut not_found: Vec<&str>       = Vec::new();
-    let mut syshub_blocked: Vec<&str>  = Vec::new();
-    let mut to_remove: Vec<Receipt>    = Vec::new();
+    let mut not_found: Vec<&str> = Vec::new();
+    let mut syshub_blocked: Vec<&str> = Vec::new();
+    let mut to_remove: Vec<Receipt> = Vec::new();
 
     let syshub_pkgs = load_syshub_packages();
 
@@ -73,7 +73,7 @@ pub async fn remove_packages(names: &[String], dry_run: bool) -> Result<()> {
 
         match load_receipt(name) {
             Some(r) => to_remove.push(r),
-            None    => {
+            None => {
                 if names.len() == 1 {
                     ui::print_not_installed(name);
                     return Ok(());
@@ -92,7 +92,9 @@ pub async fn remove_packages(names: &[String], dry_run: bool) -> Result<()> {
     if !not_found.is_empty() {
         let removing: Vec<&str> = to_remove.iter().map(|r| r.name.as_str()).collect();
         ui::print_partial_not_installed(&not_found, &removing);
-        if to_remove.is_empty() { return Ok(()); }
+        if to_remove.is_empty() {
+            return Ok(());
+        }
     }
 
     // ── Compute orphaned dependencies (cascading) ─────────────────────────────
@@ -102,7 +104,10 @@ pub async fn remove_packages(names: &[String], dry_run: bool) -> Result<()> {
     // orphans libcurl; removing libcurl may then orphan libssl if nothing
     // else needs it either) — iterate to a fixed point.
     let mut excluded_names: Vec<String> = to_remove.iter().map(|r| r.name.clone()).collect();
-    let mut frontier_deps: Vec<String> = to_remove.iter().flat_map(|r| r.dependencies.clone()).collect();
+    let mut frontier_deps: Vec<String> = to_remove
+        .iter()
+        .flat_map(|r| r.dependencies.clone())
+        .collect();
     let mut orphans: Vec<Receipt> = Vec::new();
     loop {
         let found = collect_safe_orphans(&frontier_deps, &excluded_names);
@@ -165,7 +170,9 @@ pub async fn remove_packages(names: &[String], dry_run: bool) -> Result<()> {
     println!();
 
     // ── Remove files ──────────────────────────────────────────────────────────
-    let freed_bytes: u64 = to_remove.iter().chain(orphans.iter())
+    let freed_bytes: u64 = to_remove
+        .iter()
+        .chain(orphans.iter())
         .flat_map(|r| r.installed_files.iter())
         .filter_map(|p| fs::symlink_metadata(p).ok())
         .filter(|m| m.is_file())
@@ -218,16 +225,20 @@ pub async fn remove_packages(names: &[String], dry_run: bool) -> Result<()> {
     }
     steps.ok();
 
-    let elapsed  = started.elapsed().as_secs_f64();
+    let elapsed = started.elapsed().as_secs_f64();
     let freed_mb = freed_bytes as f64 / 1_048_576.0;
 
     let _ = crate::cmd::install::history::record(
         crate::cmd::install::history::OperationType::Remove,
-        to_remove.iter().chain(orphans.iter()).map(|r| crate::cmd::install::history::PackageRecord {
-            name: r.name.clone(),
-            version: r.version.clone(),
-            format: r.format.clone(),
-        }).collect(),
+        to_remove
+            .iter()
+            .chain(orphans.iter())
+            .map(|r| crate::cmd::install::history::PackageRecord {
+                name: r.name.clone(),
+                version: r.version.clone(),
+                format: r.format.clone(),
+            })
+            .collect(),
         true,
         None,
         (elapsed * 1000.0) as u64,
@@ -268,7 +279,9 @@ fn delete_receipt_files(installed_files: &[String]) {
 
 fn load_receipt(name: &str) -> Option<Receipt> {
     let path = Path::new(INSTALLED_DIR).join(format!("{name}.toml"));
-    if !path.exists() { return None; }
+    if !path.exists() {
+        return None;
+    }
     let text = fs::read_to_string(&path).ok()?;
     toml::from_str(&text).ok()
 }
@@ -278,7 +291,9 @@ fn load_receipt(name: &str) -> Option<Receipt> {
 fn load_syshub_packages() -> std::collections::HashSet<String> {
     let mut set = std::collections::HashSet::new();
     let path = Path::new(SYSHUB_MANIFEST);
-    if !path.exists() { return set; }
+    if !path.exists() {
+        return set;
+    }
     if let Ok(text) = fs::read_to_string(path) {
         if let Ok(manifest) = toml::from_str::<SyshubManifest>(&text) {
             for key in manifest.packages.keys() {
@@ -329,11 +344,15 @@ fn strip_constraint(tok: &str) -> &str {
 fn satisfies(provider_name: &str, provider_provides: &[String], dep_token: &str) -> bool {
     let base = strip_constraint(dep_token);
     provider_name.eq_ignore_ascii_case(base)
-        || provider_provides.iter().any(|p| p.eq_ignore_ascii_case(base))
+        || provider_provides
+            .iter()
+            .any(|p| p.eq_ignore_ascii_case(base))
 }
 
 fn load_all_receipts_except(excluding: &[String]) -> std::collections::HashMap<String, MinReceipt> {
-    let Ok(dir) = fs::read_dir(INSTALLED_DIR) else { return Default::default() };
+    let Ok(dir) = fs::read_dir(INSTALLED_DIR) else {
+        return Default::default();
+    };
     dir.flatten()
         .filter_map(|entry| {
             let fname = entry.file_name().to_string_lossy().to_string();
@@ -359,17 +378,27 @@ fn collect_safe_orphans(target_deps: &[String], excluding: &[String]) -> Vec<Str
 
     let candidates: Vec<String> = remaining
         .iter()
-        .filter(|(name, r)| target_deps.iter().any(|dep| satisfies(name, &r.provides, dep)))
+        .filter(|(name, r)| {
+            target_deps
+                .iter()
+                .any(|dep| satisfies(name, &r.provides, dep))
+        })
         .map(|(name, _)| name.clone())
         .collect();
 
     candidates
         .into_iter()
         .filter(|candidate| {
-            let cand_provides = remaining.get(candidate).map(|r| r.provides.as_slice()).unwrap_or(&[]);
+            let cand_provides = remaining
+                .get(candidate)
+                .map(|r| r.provides.as_slice())
+                .unwrap_or(&[]);
             !remaining.iter().any(|(other_name, other_r)| {
                 other_name != candidate
-                    && other_r.dependencies.iter().any(|d| satisfies(candidate, cand_provides, d))
+                    && other_r
+                        .dependencies
+                        .iter()
+                        .any(|d| satisfies(candidate, cand_provides, d))
             })
         })
         .collect()
@@ -378,7 +407,8 @@ fn collect_safe_orphans(target_deps: &[String], excluding: &[String]) -> Vec<Str
 // ── Size estimator ────────────────────────────────────────────────────────────
 
 fn estimate_freed_mb(receipts: &[Receipt]) -> f64 {
-    let bytes: u64 = receipts.iter()
+    let bytes: u64 = receipts
+        .iter()
         .flat_map(|r| r.installed_files.iter())
         .filter_map(|p| fs::metadata(p).ok())
         .map(|m| m.len())

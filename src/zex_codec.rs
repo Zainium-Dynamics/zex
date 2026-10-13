@@ -10,7 +10,10 @@ use std::fs::File;
 use std::io::{self, Read};
 use std::path::Path;
 
-use zexc::{compress as zexc_compress, decompress as zexc_decompress, CompressOptions, CompressionMode, StreamDecoder};
+use zexc::{
+    CompressOptions, CompressionMode, StreamDecoder, compress as zexc_compress,
+    decompress as zexc_decompress,
+};
 
 /// zexc frame magic (`ZEX1`).
 pub const MAGIC: &[u8; 4] = b"ZEX1";

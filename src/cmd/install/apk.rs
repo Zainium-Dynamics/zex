@@ -1,8 +1,10 @@
 //! apk.rs — Native resolver for Alpine Linux (APK) and Chimera Linux
 //! Parses APKINDEX.tar.gz directly into Zex package records.
 
+use super::backend::{
+    BackendConfig, MetadataManager, MirrorConfig, PackageFormat, PackageInfo, dynamic_metadata,
+};
 use anyhow::{Context, Result};
-use super::backend::{BackendConfig, MetadataManager, MirrorConfig, PackageFormat, PackageInfo, dynamic_metadata};
 
 pub async fn resolve_apk(
     name: &str,
@@ -14,17 +16,21 @@ pub async fn resolve_apk(
     let mirror_name = mirror.id.clone();
 
     // Substitute {arch} placeholder in mirror URLs.
-    #[cfg(target_arch = "x86_64")]  let arch = "x86_64";
-    #[cfg(target_arch = "aarch64")] let arch = "aarch64";
+    #[cfg(target_arch = "x86_64")]
+    let arch = "x86_64";
+    #[cfg(target_arch = "aarch64")]
+    let arch = "aarch64";
     #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
     let arch = std::env::var("ARCH").unwrap_or_else(|_| "x86_64".to_string());
     let arch = arch.to_string(); // bind lifetime
 
     let index_url = mirror.index_url.replace("{arch}", &arch);
-    let base_url  = mirror.base_url.replace("{arch}", &arch);
+    let base_url = mirror.base_url.replace("{arch}", &arch);
 
     // Fetch APKINDEX.tar.gz
-    let (bytes, _) = mm.fetch(&index_url, client, super::installer::reinstalling()).await?;
+    let (bytes, _) = mm
+        .fetch(&index_url, client, super::installer::reinstalling())
+        .await?;
 
     // Unpack tar.gz in memory
     let decompressed = tokio::task::spawn_blocking(move || -> Result<String> {
@@ -35,12 +41,16 @@ pub async fn resolve_apk(
         let decoder = flate2::read::MultiGzDecoder::new(&bytes[..]);
         let mut archive = tar::Archive::new(decoder);
         let mut text = String::new();
-        
-        for file in archive.entries().context("Failed to read APKINDEX entries")? {
+
+        for file in archive
+            .entries()
+            .context("Failed to read APKINDEX entries")?
+        {
             let mut file = file.context("Failed to unwrap tar entry")?;
             if let Ok(path) = file.path() {
                 if path.to_string_lossy() == "APKINDEX" {
-                    file.read_to_string(&mut text).context("Failed to read APKINDEX text")?;
+                    file.read_to_string(&mut text)
+                        .context("Failed to read APKINDEX text")?;
                     return Ok(text);
                 }
             }
@@ -195,7 +205,15 @@ fn parse_all(text: &str) -> Vec<ApkRecord> {
         }
 
         if !name.is_empty() && !version.is_empty() {
-            out.push(ApkRecord { name, version, desc, size, deps, provides, conflicts });
+            out.push(ApkRecord {
+                name,
+                version,
+                desc,
+                size,
+                deps,
+                provides,
+                conflicts,
+            });
         }
     }
 
@@ -209,11 +227,14 @@ fn parse_all(text: &str) -> Vec<ApkRecord> {
 fn find_record<'a>(records: &'a [ApkRecord], target: &str) -> Option<&'a ApkRecord> {
     let target_base = strip_constraint(target);
 
-    records.iter()
+    records
+        .iter()
         .find(|r| r.name.eq_ignore_ascii_case(target_base))
         .or_else(|| {
             records.iter().find(|r| {
-                r.provides.iter().any(|p| p.eq_ignore_ascii_case(target_base))
+                r.provides
+                    .iter()
+                    .any(|p| p.eq_ignore_ascii_case(target_base))
             })
         })
 }

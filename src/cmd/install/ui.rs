@@ -14,20 +14,20 @@
 //!   • Only █ / ░ for progress bars
 //!   • All paths use Zainium overlayer layout
 
-use std::time::Duration;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use std::time::Duration;
 
 // ── Palette ───────────────────────────────────────────────────────────────────
-pub const G:   &str = "\x1b[92m";
-pub const P:   &str = "\x1b[95m";
-pub const B:   &str = "\x1b[96m";
-pub const Y:   &str = "\x1b[93m";
-pub const R:   &str = "\x1b[91m";
+pub const G: &str = "\x1b[92m";
+pub const P: &str = "\x1b[95m";
+pub const B: &str = "\x1b[96m";
+pub const Y: &str = "\x1b[93m";
+pub const R: &str = "\x1b[91m";
 pub const DIM: &str = "\x1b[2m";
 pub const BLD: &str = "\x1b[1m";
 pub const RST: &str = "\x1b[0m";
 
-const BAR_W:  usize = 22;
+const BAR_W: usize = 22;
 const STEP_W: usize = 46;
 
 // ── Progress bar factory ──────────────────────────────────────────────────────
@@ -43,11 +43,9 @@ pub fn make_download_bar(mp: &MultiProgress, total_bytes: u64, label: &str) -> P
     if total_bytes == 0 {
         let pb = mp.add(ProgressBar::new_spinner());
         pb.set_style(
-            ProgressStyle::with_template(&format!(
-                "{lbl}\n  {{spinner}} {{bytes}} downloaded"
-            ))
-            .unwrap()
-            .tick_strings(&["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"]),
+            ProgressStyle::with_template(&format!("{lbl}\n  {{spinner}} {{bytes}} downloaded"))
+                .unwrap()
+                .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
         );
         pb.enable_steady_tick(Duration::from_millis(80));
         pb
@@ -114,7 +112,10 @@ pub fn print_resolving_single(name: &str) {
 }
 
 pub fn print_resolving_multiple(names: &[String]) {
-    println!(" {G}→{RST} {DIM}Targets     :{RST} {P}{}{RST}", names.join(", "));
+    println!(
+        " {G}→{RST} {DIM}Targets     :{RST} {P}{}{RST}",
+        names.join(", ")
+    );
 }
 
 pub fn print_resolved_info(display_name: &str, version: &str) {
@@ -143,9 +144,9 @@ pub fn print_dep_item(name: &str) {
 // ── Transaction summary ───────────────────────────────────────────────────────
 
 pub fn print_transaction_summary(
-    new_count:   usize,
-    upgraded:    usize,
-    disk_mb:     f64,
+    new_count: usize,
+    upgraded: usize,
+    disk_mb: f64,
     download_mb: f64,
 ) {
     println!("\n{G}Transaction Summary{RST}");
@@ -162,10 +163,10 @@ pub fn print_transaction_summary(
 pub fn print_parallel_transaction_summary(
     main_count: usize,
     main_names: &str,
-    dep_count:  usize,
-    total:      usize,
+    dep_count: usize,
+    total: usize,
     download_mb: f64,
-    disk_mb:    f64,
+    disk_mb: f64,
 ) {
     println!("\n{G}Transaction Summary{RST}");
     println!("  Main packages     : {G}{main_count} {DIM}({main_names}){RST}");
@@ -195,6 +196,35 @@ pub fn print_proceed_partial_prompt() -> bool {
     t.is_empty() || t == "y" || t == "yes"
 }
 
+// ── Missing libraries ─────────────────────────────────────────────────────────
+
+pub fn print_missing_libs(name: &str, libs: &[String]) {
+    println!(
+        "\n {Y}→{RST} {P}{name}{RST} needs libraries this system doesn't have: {B}{}{RST}",
+        libs.join(", ")
+    );
+}
+
+pub fn print_library_provider(lib: &str, pkg: &str, version: &str) {
+    println!("   {G}+{RST} {lib} {DIM}from{RST} {P}{pkg}{RST} {DIM}{version}{RST}");
+}
+
+/// Asks before installing a package whose libraries no repository provides; defaults to no.
+pub fn confirm_unprovided_libs(name: &str, libs: &[String]) -> bool {
+    println!(
+        "\n {R}!{RST} No repository provides {B}{}{RST} for {P}{name}{RST}.",
+        libs.join(", ")
+    );
+    println!(
+        "   {DIM}Its programs will not start without them. Check the package before installing it.{RST}"
+    );
+    print!(" {Y}Install {name} anyway?{RST} {DIM}[y/N]{RST} ");
+    flush();
+    let mut s = String::new();
+    std::io::stdin().read_line(&mut s).ok();
+    matches!(s.trim().to_ascii_lowercase().as_str(), "y" | "yes")
+}
+
 // ── Starting banners ──────────────────────────────────────────────────────────
 
 pub fn print_starting_installation() {
@@ -206,12 +236,14 @@ pub fn print_starting_parallel_installation() {
     println!("\n {G}Starting parallel installation...{RST}\n");
 }
 
-pub fn print_downloading_single() {}  // absorbed into starting_installation
+pub fn print_downloading_single() {} // absorbed into starting_installation
 
 pub fn print_downloading_parallel() {
-    println!("{DIM}Downloading packages ({} in parallel)...{RST}\n",
+    println!(
+        "{DIM}Downloading packages ({} in parallel)...{RST}\n",
         // actual concurrency printed by caller
-        3);
+        3
+    );
 }
 
 pub fn print_downloading_parallel_n(n: usize) {
@@ -233,10 +265,9 @@ pub fn print_install_header_parallel() {
     println!();
 }
 
-pub fn print_parallel_pkg_steps(_name: &str) {}  // per-package bars handle this
+pub fn print_parallel_pkg_steps(_name: &str) {} // per-package bars handle this
 
 // ── Phase bars (called explicitly) ───────────────────────────────────────────
-
 
 // ── Already installed ─────────────────────────────────────────────────────────
 
@@ -245,9 +276,7 @@ pub fn print_reinstalling(name: &str, version: &str) {
 }
 
 pub fn print_already_installed(name: &str, version: &str) {
-    println!(
-        "\n {G}→{RST} {DIM}Target      :{RST} {P}{name}{RST}\n"
-    );
+    println!("\n {G}→{RST} {DIM}Target      :{RST} {P}{name}{RST}\n");
     println!(
         "Package {P}'{name}'{RST} is already installed and up to date \
          {DIM}(version {version}){RST}.\n"
@@ -263,19 +292,22 @@ pub fn print_upgrading(name: &str, from: &str, to: &str) {
 
 pub fn print_success_single(
     display_name: &str,
-    pkg_name:    &str,
-    version:     &str,
-    size_mb:     f64,
-    _speed_mb:   f64,
-    secs:        f64,
-    launch:      &str,
+    pkg_name: &str,
+    version: &str,
+    size_mb: f64,
+    _speed_mb: f64,
+    secs: f64,
+    launch: &str,
 ) {
     println!("\n {G}✓ Installation completed successfully{RST}\n");
     println!("{G}Installation Summary{RST}");
     println!("  Package               : {P}{display_name}{RST}");
     println!("  Version               : {B}{version}{RST}");
     println!("  Total downloaded      : {B}{size_mb:.1} MB{RST}");
-    println!("  Disk usage            : {DIM}+{:.0} MB{RST}", size_mb * 3.0);
+    println!(
+        "  Disk usage            : {DIM}+{:.0} MB{RST}",
+        size_mb * 3.0
+    );
     println!("  Time taken            : {B}{secs:.1} seconds{RST}");
 
     // Installed locations
@@ -300,7 +332,11 @@ pub fn print_success_parallel(count: usize, failed: &[String], total_mb: f64, se
     println!("{G}Installation Summary{RST}");
     println!("  Total packages installed   : {G}{count:02}{RST}");
     if !failed.is_empty() {
-        println!("  Failed packages            : {R}{:02}{RST} {DIM}({}){RST}", failed.len(), failed.join(", "));
+        println!(
+            "  Failed packages            : {R}{:02}{RST} {DIM}({}){RST}",
+            failed.len(),
+            failed.join(", ")
+        );
     }
     println!("  Total downloaded           : {B}{total_mb:.1} MB{RST}");
     println!("  Time taken                 : {B}{secs:.1} seconds{RST}");
@@ -311,15 +347,13 @@ pub fn print_success_parallel(count: usize, failed: &[String], total_mb: f64, se
     }
 }
 
-pub fn print_success_partial(
-    installed: &[String],
-    skipped:   &[String],
-    total_mb:  f64,
-    secs:      f64,
-) {
+pub fn print_success_partial(installed: &[String], skipped: &[String], total_mb: f64, secs: f64) {
     println!("\n {G}✓ Installation completed successfully {DIM}(Partial){RST}\n");
     println!("{G}Installation Summary{RST}");
-    println!("  Successfully installed : {G}{}{RST}", installed.join(", "));
+    println!(
+        "  Successfully installed : {G}{}{RST}",
+        installed.join(", ")
+    );
     println!("  Skipped (not found)    : {R}{}{RST}", skipped.join(", "));
     println!("  Total downloaded       : {B}{total_mb:.1} MB{RST}");
     println!("  Time taken             : {B}{secs:.1} seconds{RST}");
@@ -340,7 +374,9 @@ pub fn print_deps_installed(count: usize) {
 }
 
 pub fn print_dep_satisfied_by_syshub(name: &str) {
-    println!("  {DIM}•{RST}  {P}{name}{RST} {DIM}already provided by the immutable base — skipped{RST}");
+    println!(
+        "  {DIM}•{RST}  {P}{name}{RST} {DIM}already provided by the immutable base — skipped{RST}"
+    );
 }
 
 /// Same message, but before any download is even attempted — used when
@@ -367,20 +403,28 @@ pub fn print_not_found(name: &str) {
 
 pub fn print_some_not_found(missing: &[&str], found: &[&str]) {
     println!("\n {R}Error:{RST} Some packages were not found:");
-    for n in missing { println!("  {DIM}•{RST} {R}{n}{RST}"); }
+    for n in missing {
+        println!("  {DIM}•{RST} {R}{n}{RST}");
+    }
     println!("\n{G}The following packages were found and can be installed:{RST}");
-    for n in found { println!("  {DIM}•{RST} {P}{n}{RST}"); }
+    for n in found {
+        println!("  {DIM}•{RST} {P}{n}{RST}");
+    }
     println!("\n{R}No packages were installed due to missing dependencies.{RST}\n");
 }
 
 pub fn print_partial_not_found(names: &[&str]) {
     println!("\n {R}Error:{RST} Some packages were not found:");
-    for n in names { println!("  {DIM}•{RST} {R}{n}{RST}"); }
+    for n in names {
+        println!("  {DIM}•{RST} {R}{n}{RST}");
+    }
     println!("\n{G}The following packages were found and can be installed:{RST}");
 }
 
 pub fn print_partial_found(names: &[&str]) {
-    for n in names { println!("  {DIM}•{RST} {P}{n}{RST}"); }
+    for n in names {
+        println!("  {DIM}•{RST} {P}{n}{RST}");
+    }
 }
 
 pub fn print_network_error(pkg: &str) {
@@ -408,7 +452,10 @@ pub fn print_general_error(err: &anyhow::Error) {
 }
 
 pub fn print_cross_tier_fallback_warning(fallbacks: &[(String, String, String)]) {
-    println!(" {Y}⚠  Warning:{RST} {} dependency(ies) weren't available from the same repository as the package that needs them:", fallbacks.len());
+    println!(
+        " {Y}⚠  Warning:{RST} {} dependency(ies) weren't available from the same repository as the package that needs them:",
+        fallbacks.len()
+    );
     for (name, preferred, actual) in fallbacks {
         println!(
             "   {DIM}•{RST} {P}{name}{RST} — wanted from {B}{preferred}{RST}, resolved from {Y}{actual}{RST} instead"
@@ -429,17 +476,24 @@ pub fn print_from_lock_header(root_name: &str, root_version: &str, dep_count: us
 
 pub fn print_from_lock_pkg(name: &str, version: &str, already_satisfied: bool) {
     if already_satisfied {
-        println!("  {G}✓{RST}  {P}{name}{RST} {B}{version}{RST} {DIM}(already at pinned version){RST}");
+        println!(
+            "  {G}✓{RST}  {P}{name}{RST} {B}{version}{RST} {DIM}(already at pinned version){RST}"
+        );
     } else {
         println!("  {G}→{RST}  {P}{name}{RST} {B}{version}{RST}");
     }
 }
 
 pub fn print_from_lock_done(root_name: &str, root_version: &str) {
-    println!("\n {G}✓ Installed {P}{root_name}{RST} {B}{root_version}{RST} exactly as pinned by the lockfile.{RST}\n");
+    println!(
+        "\n {G}✓ Installed {P}{root_name}{RST} {B}{root_version}{RST} exactly as pinned by the lockfile.{RST}\n"
+    );
 }
 
-pub fn print_lock_verify_result(lock: &super::lockfile::Lockfile, drift: &[super::lockfile::Drift]) {
+pub fn print_lock_verify_result(
+    lock: &super::lockfile::Lockfile,
+    drift: &[super::lockfile::Drift],
+) {
     println!(
         "\n {G}→{RST} Verifying against lockfile: {P}{}{RST} {B}{}{RST} {DIM}({} pinned dependencies){RST}\n",
         lock.root.name,
@@ -459,7 +513,9 @@ pub fn print_lock_verify_result(lock: &super::lockfile::Lockfile, drift: &[super
 
 pub fn print_partial_infra_failures(failures: &[String]) {
     println!("\n {Y}Warning:{RST} Some packages failed due to mirror issues:");
-    for f in failures { println!("  {DIM}•{RST} {Y}{f}{RST}"); }
+    for f in failures {
+        println!("  {DIM}•{RST} {Y}{f}{RST}");
+    }
     println!("  {DIM}Continuing with packages that resolved successfully.{RST}\n");
 }
 
@@ -471,14 +527,14 @@ pub fn print_root_required() {
     println!(" Run with: {P}elevate zex install <package>{RST}\n");
 }
 
-pub fn print_immutable_unlock()              {}
-pub fn print_immutable_relock()              {}
-pub fn print_snapshot_created(_: &str)       {}
-pub fn print_snapshot_restoring(_: &str)     {}
-pub fn print_snapshot_restored(_: &str)      {}
-pub fn print_hooks_starting(_: usize)        {}
-pub fn print_hook_running(_: &str)           {}
-pub fn print_hook_result(_: &str, _: bool)   {}
+pub fn print_immutable_unlock() {}
+pub fn print_immutable_relock() {}
+pub fn print_snapshot_created(_: &str) {}
+pub fn print_snapshot_restoring(_: &str) {}
+pub fn print_snapshot_restored(_: &str) {}
+pub fn print_hooks_starting(_: usize) {}
+pub fn print_hook_running(_: &str) {}
+pub fn print_hook_result(_: &str, _: bool) {}
 pub fn print_package_pinned(name: &str, version: &str) {
     println!("\n {G}\u{2713} Package pinned successfully{RST}\n");
     println!("{G}Pin Summary{RST}");
@@ -499,17 +555,17 @@ pub fn print_pin_blocks_upgrade(name: &str, pinned_ver: &str) {
          {DIM}\u{2014} skipping upgrade{RST}"
     );
 }
-pub fn print_cache_only_mode()               {}
-pub fn print_cache_hit(_: &str)              {}
-pub fn print_cache_miss(_: &str)             {}
-pub fn print_uplink_start()                  {}
-pub fn print_updating_index(_: &str)         {}
-pub fn print_processing_metadata()           {}
-pub fn print_refresh_item(_: &str, _: bool)  {}
+pub fn print_cache_only_mode() {}
+pub fn print_cache_hit(_: &str) {}
+pub fn print_cache_miss(_: &str) {}
+pub fn print_uplink_start() {}
+pub fn print_updating_index(_: &str) {}
+pub fn print_processing_metadata() {}
+pub fn print_refresh_item(_: &str, _: bool) {}
 pub fn print_os_injection_readiness(_: &str) {}
 
 pub fn print_stage_telemetry(_: u128, _: u128, _: u128, _: u128, _: u128) {}
-pub fn print_parallel_install_mode(_: usize, _: u128)                      {}
+pub fn print_parallel_install_mode(_: usize, _: u128) {}
 
 pub fn print_mirror_status(id: &str, ok: bool, count: Option<usize>) {
     if ok {
@@ -525,7 +581,13 @@ pub fn print_mirror_status(id: &str, ok: bool, count: Option<usize>) {
 
 pub fn print_refresh_summary(success: usize, total: usize) {
     println!();
-    let col = if success == total { G } else if success > 0 { B } else { R };
+    let col = if success == total {
+        G
+    } else if success > 0 {
+        B
+    } else {
+        R
+    };
     println!("  {col}Usable repositories: {success}/{total}{RST}");
 }
 
@@ -548,8 +610,12 @@ pub fn print_dry_resolve_header(count: usize) {
 }
 
 pub fn print_dry_resolve_item(
-    name: &str, version: &str, format: &str,
-    mirror: Option<&str>, url: &str, sha256: Option<&str>,
+    name: &str,
+    version: &str,
+    format: &str,
+    mirror: Option<&str>,
+    url: &str,
+    sha256: Option<&str>,
 ) {
     let m = mirror.unwrap_or("<unknown>");
     let h = sha256.unwrap_or("<none>");
@@ -588,8 +654,14 @@ pub fn print_scorecard_emitted(
     println!("  overall_score         : {G}{score}{RST}");
     println!("  certification         : {P}{cert}{RST}");
     println!("  blocking_gates        : {B}{blocking}{RST}");
-    println!("  scorecard_json        : {DIM}{}{RST}", scorecard.display());
-    println!("  gate_report_markdown  : {DIM}{}{RST}\n", gate_report.display());
+    println!(
+        "  scorecard_json        : {DIM}{}{RST}",
+        scorecard.display()
+    );
+    println!(
+        "  gate_report_markdown  : {DIM}{}{RST}\n",
+        gate_report.display()
+    );
 }
 
 pub fn print_file_conflicts(pkg: &str, conflicts: &[(String, String)]) {
@@ -616,7 +688,10 @@ pub fn print_snapshot_list(snapshots: &[super::immutable::SnapshotManifest]) {
     for s in snapshots {
         println!(
             "  {DIM}•{RST} {B}{}{RST} {DIM}— {} ({} packages, {}){RST}",
-            s.id, s.label, s.packages.len(), s.created_at
+            s.id,
+            s.label,
+            s.packages.len(),
+            s.created_at
         );
     }
     println!();
@@ -655,8 +730,12 @@ fn flush() {
 // ── render_ variants (used by tests in original) ──────────────────────────────
 
 pub fn render_dry_resolve_item(
-    name: &str, version: &str, format: &str,
-    mirror: Option<&str>, url: &str, sha256: Option<&str>,
+    name: &str,
+    version: &str,
+    format: &str,
+    mirror: Option<&str>,
+    url: &str,
+    sha256: Option<&str>,
 ) -> String {
     let m = mirror.unwrap_or("<unknown>");
     let h = sha256.unwrap_or("<not provided>");
@@ -691,7 +770,12 @@ pub fn render_network_error(pkg: &str) -> String {
 }
 
 pub fn render_success_single(
-    name: &str, version: &str, size_mb: f64, speed_mb: f64, secs: f64, launch: &str,
+    name: &str,
+    version: &str,
+    size_mb: f64,
+    speed_mb: f64,
+    secs: f64,
+    launch: &str,
 ) -> String {
     format!(
         "\nInstallation completed successfully ✓\n\nInstallation Summary:\n
@@ -718,8 +802,12 @@ mod tests {
     #[test]
     fn render_dry_resolve_item_snapshot() {
         let actual = render_dry_resolve_item(
-            "vlc", "3.0.20", "deb", Some("debian-sid"),
-            "https://example.invalid/vlc.deb", Some("abc123"),
+            "vlc",
+            "3.0.20",
+            "deb",
+            Some("debian-sid"),
+            "https://example.invalid/vlc.deb",
+            Some("abc123"),
         );
         assert!(actual.contains("vlc"));
         assert!(actual.contains("3.0.20"));

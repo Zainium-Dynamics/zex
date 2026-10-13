@@ -10,7 +10,11 @@ const BASH: &str = "/overlayer/syshub/bin/bash";
 /// `action_arg` is `None` for Alpine's `.post-install` (run with no
 /// arguments) and `Some("post-install")` for Void's single `INSTALL`
 /// script, which is invoked once per lifecycle action via argv[1].
-pub fn run_postinst(script_path: &Path, store_path: &Path, action_arg: Option<&str>) -> anyhow::Result<()> {
+pub fn run_postinst(
+    script_path: &Path,
+    store_path: &Path,
+    action_arg: Option<&str>,
+) -> anyhow::Result<()> {
     if !script_path.exists() {
         return Ok(());
     }
@@ -27,7 +31,10 @@ pub fn run_postinst(script_path: &Path, store_path: &Path, action_arg: Option<&s
         cmd.arg(arg);
     }
     cmd.env_clear()
-        .env("PATH", "/overlayer/syshub/bin:/overlayer/zexlib/union/bin:/bin")
+        .env(
+            "PATH",
+            "/overlayer/syshub/bin:/overlayer/zexlib/union/bin:/bin",
+        )
         .env("HOME", "/root")
         .env("ZEX_STORE", store_path)
         .env("ZEX_ROOT", "/overlayer/zexlib/union");

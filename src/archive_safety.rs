@@ -95,12 +95,18 @@ pub fn sanitize_link_target(owner_path: &Path, target: &Path) -> Result<PathBuf>
                 stack.pop();
             }
             Component::CurDir => {}
-            _ => bail!("unsupported path component in link target: {}", target.display()),
+            _ => bail!(
+                "unsupported path component in link target: {}",
+                target.display()
+            ),
         }
     }
 
     if stack.is_empty() {
-        bail!("link target resolves to the archive root: {}", target.display());
+        bail!(
+            "link target resolves to the archive root: {}",
+            target.display()
+        );
     }
 
     let resolved: PathBuf = stack.into_iter().collect();
@@ -265,8 +271,7 @@ pub fn write_archive_file(path: &Path, reader: &mut dyn Read) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).context("create parent directory for archive file")?;
     }
-    let mut file = File::create(path)
-        .with_context(|| format!("create {}", path.display()))?;
+    let mut file = File::create(path).with_context(|| format!("create {}", path.display()))?;
     io::copy(reader, &mut file)
         .with_context(|| format!("writing archive file {}", path.display()))?;
     Ok(())
@@ -394,7 +399,10 @@ mod tests {
         let owner = Path::new("usr/bin/xbps-trigger");
         let target = Path::new("../../../usr/libexec/xbps-triggers");
         let resolved = sanitize_link_target(owner, target).unwrap();
-        assert_eq!(resolved, Path::new("/overlayer/zexlib/union/libexec/xbps-triggers"));
+        assert_eq!(
+            resolved,
+            Path::new("/overlayer/zexlib/union/libexec/xbps-triggers")
+        );
     }
 
     #[test]

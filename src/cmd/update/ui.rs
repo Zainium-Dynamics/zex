@@ -1,14 +1,14 @@
 //! ui.rs — Visual output for elevate zex update.
 //! Same palette as all other drivers.
 
-use std::time::Duration;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use std::time::Duration;
 
-pub const G:   &str = "\x1b[92m";
-pub const P:   &str = "\x1b[95m";
-pub const B:   &str = "\x1b[96m";
-pub const Y:   &str = "\x1b[93m";
-pub const R:   &str = "\x1b[91m";
+pub const G: &str = "\x1b[92m";
+pub const P: &str = "\x1b[95m";
+pub const B: &str = "\x1b[96m";
+pub const Y: &str = "\x1b[93m";
+pub const R: &str = "\x1b[91m";
 pub const DIM: &str = "\x1b[2m";
 pub const BLD: &str = "\x1b[1m";
 pub const RST: &str = "\x1b[0m";
@@ -19,7 +19,10 @@ const BAR_W: usize = 22;
 /// Phases are reported after their work (downloads applied each package), so the line is final.
 pub fn print_phase(label: &str) {
     let dots = 44usize.saturating_sub(label.len() + 1);
-    println!("  {G}{label}{RST} {DIM}{}{RST} {G}done{RST}", ".".repeat(dots));
+    println!(
+        "  {G}{label}{RST} {DIM}{}{RST} {G}done{RST}",
+        ".".repeat(dots)
+    );
 }
 
 // ── Download bars ─────────────────────────────────────────────────────────────
@@ -33,7 +36,7 @@ pub fn make_pkg_bar(mp: &MultiProgress, total: u64, label: &str) -> ProgressBar 
         pb.set_style(
             ProgressStyle::with_template(&format!("{lbl}\n  {{spinner}} {{bytes}}"))
                 .unwrap()
-                .tick_strings(&["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"]),
+                .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
         );
         pb.enable_steady_tick(Duration::from_millis(80));
         pb
@@ -89,8 +92,12 @@ pub fn print_syshub_found(n: usize) {
 
 pub fn print_transaction_summary(uland: usize, syshub: usize, total_gb: f64) {
     println!("{G}Transaction Summary{RST}");
-    if uland > 0  { println!("  Userland packages     : {G}{uland:02}{RST}"); }
-    if syshub > 0 { println!("  Core components       : {Y}{syshub:02}{RST}"); }
+    if uland > 0 {
+        println!("  Userland packages     : {G}{uland:02}{RST}");
+    }
+    if syshub > 0 {
+        println!("  Core components       : {Y}{syshub:02}{RST}");
+    }
     println!("  Total download        : {B}{total_gb:.2} GB{RST}\n");
 }
 
@@ -127,18 +134,15 @@ pub fn print_uptodate(core_version: &str) {
     println!("{DIM}No updates available.{RST}\n");
 }
 
-pub fn print_success(
-    uland:   usize,
-    syshub:  usize,
-    gb:      f64,
-    mins:    u64,
-    secs:    u64,
-    reboot:  bool,
-) {
+pub fn print_success(uland: usize, syshub: usize, gb: f64, mins: u64, secs: u64, reboot: bool) {
     println!("\n {G}\u{2713} Full system update completed successfully{RST}\n");
     println!("{G}Update Summary{RST}");
-    if uland  > 0 { println!("  Userland packages upgraded : {G}{uland}{RST}"); }
-    if syshub > 0 { println!("  Core components staged     : {Y}{syshub}{RST}"); }
+    if uland > 0 {
+        println!("  Userland packages upgraded : {G}{uland}{RST}");
+    }
+    if syshub > 0 {
+        println!("  Core components staged     : {Y}{syshub}{RST}");
+    }
     println!("  Total downloaded           : {B}{gb:.2} GB{RST}");
     println!("  Time taken                 : {B}{mins} minutes {secs} seconds{RST}\n");
     if syshub > 0 {

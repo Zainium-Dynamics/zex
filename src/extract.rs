@@ -34,11 +34,11 @@ pub enum PackageFormat {
 impl std::fmt::Display for PackageFormat {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Zex    => write!(f, "zex"),
+            Self::Zex => write!(f, "zex"),
             Self::TarZst => write!(f, "tar.zst"),
-            Self::TarGz  => write!(f, "tar.gz"),
-            Self::TarXz  => write!(f, "tar.xz"),
-            Self::Tar    => write!(f, "tar"),
+            Self::TarGz => write!(f, "tar.gz"),
+            Self::TarXz => write!(f, "tar.xz"),
+            Self::Tar => write!(f, "tar"),
         }
     }
 }
@@ -67,7 +67,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
     // Parse -o flag
     let output_dir = parse_output_dir(args).unwrap_or_else(|| {
-        let stem = file_path.file_stem()
+        let stem = file_path
+            .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("extracted");
         // Strip double extensions like .tar.gz
@@ -76,16 +77,18 @@ pub fn run(args: &[String]) -> Result<(), String> {
         parent.join(format!("{}_extracted", clean))
     });
 
-    let format = detect_format(file_path)
-        .map_err(|e| format!("Format detection failed: {}", e))?;
+    let format = detect_format(file_path).map_err(|e| format!("Format detection failed: {}", e))?;
 
     println!("  ▶ Detected format: {}", format);
     println!("  ▶ Extracting to: {}", output_dir.display());
 
-    let result = extract(file_path, &output_dir)
-        .map_err(|e| format!("Extraction failed: {}", e))?;
+    let result =
+        extract(file_path, &output_dir).map_err(|e| format!("Extraction failed: {}", e))?;
 
-    println!("  ✓ Extracted {} files ({})", result.files_extracted, result.format);
+    println!(
+        "  ✓ Extracted {} files ({})",
+        result.files_extracted, result.format
+    );
     Ok(())
 }
 
@@ -104,7 +107,8 @@ fn parse_output_dir(args: &[String]) -> Option<PathBuf> {
 
 /// Detect package format by extension first, then validate with magic bytes.
 pub fn detect_format(path: &Path) -> io::Result<PackageFormat> {
-    let name = path.file_name()
+    let name = path
+        .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("")
         .to_lowercase();
@@ -153,8 +157,14 @@ pub fn detect_format(path: &Path) -> io::Result<PackageFormat> {
         return Ok(PackageFormat::TarGz);
     }
     // xz: 0xFD 0x37 0x7A 0x58 0x5A 0x00
-    if n >= 6 && magic[0] == 0xFD && magic[1] == 0x37 && magic[2] == 0x7A
-        && magic[3] == 0x58 && magic[4] == 0x5A && magic[5] == 0x00 {
+    if n >= 6
+        && magic[0] == 0xFD
+        && magic[1] == 0x37
+        && magic[2] == 0x7A
+        && magic[3] == 0x58
+        && magic[4] == 0x5A
+        && magic[5] == 0x00
+    {
         return Ok(PackageFormat::TarXz);
     }
 
@@ -165,8 +175,10 @@ pub fn detect_format(path: &Path) -> io::Result<PackageFormat> {
         return Ok(PackageFormat::Tar);
     }
 
-    Err(io::Error::new(io::ErrorKind::InvalidData,
-        format!("Unknown package format: {}", path.display())))
+    Err(io::Error::new(
+        io::ErrorKind::InvalidData,
+        format!("Unknown package format: {}", path.display()),
+    ))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -178,14 +190,18 @@ pub fn extract(path: &Path, output_dir: &Path) -> io::Result<ExtractionResult> {
     fs::create_dir_all(output_dir)?;
 
     let files = match format {
-        PackageFormat::Zex    => extract_zex(path, output_dir)?,
+        PackageFormat::Zex => extract_zex(path, output_dir)?,
         PackageFormat::TarZst => extract_tar_zst(path, output_dir)?,
-        PackageFormat::TarGz  => extract_tar_gz(path, output_dir)?,
-        PackageFormat::TarXz  => extract_tar_xz(path, output_dir)?,
-        PackageFormat::Tar    => extract_tar(path, output_dir)?,
+        PackageFormat::TarGz => extract_tar_gz(path, output_dir)?,
+        PackageFormat::TarXz => extract_tar_xz(path, output_dir)?,
+        PackageFormat::Tar => extract_tar(path, output_dir)?,
     };
 
-    Ok(ExtractionResult { format, output_dir: output_dir.to_path_buf(), files_extracted: files })
+    Ok(ExtractionResult {
+        format,
+        output_dir: output_dir.to_path_buf(),
+        files_extracted: files,
+    })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -203,8 +219,8 @@ fn extract_zex(path: &Path, output_dir: &Path) -> io::Result<usize> {
 
 fn extract_tar_zst(path: &Path, output_dir: &Path) -> io::Result<usize> {
     let file = File::open(path)?;
-    let decoder = zstd::stream::read::Decoder::new(BufReader::new(file))
-        .map_err(io::Error::other)?;
+    let decoder =
+        zstd::stream::read::Decoder::new(BufReader::new(file)).map_err(io::Error::other)?;
     unpack_tar(decoder, output_dir)
 }
 
@@ -264,11 +280,11 @@ fn unpack_tar<R: Read>(reader: R, output_dir: &Path) -> io::Result<usize> {
             continue;
         }
 
-        let clean = crate::archive_safety::sanitize_archive_path(&path)
-            .map_err(io::Error::other)?;
+        let clean =
+            crate::archive_safety::sanitize_archive_path(&path).map_err(io::Error::other)?;
 
-        let dest = crate::archive_safety::safe_join_under(output_dir, &clean)
-            .map_err(io::Error::other)?;
+        let dest =
+            crate::archive_safety::safe_join_under(output_dir, &clean).map_err(io::Error::other)?;
 
         let entry_type = entry.header().entry_type();
 
@@ -293,7 +309,8 @@ fn unpack_tar<R: Read>(reader: R, output_dir: &Path) -> io::Result<usize> {
 
             #[cfg(unix)]
             if let Some(ref root) = confined {
-                root.write_file(&clean, &mut entry).map_err(io::Error::other)?;
+                root.write_file(&clean, &mut entry)
+                    .map_err(io::Error::other)?;
             } else {
                 crate::archive_safety::write_archive_file(&dest, &mut entry)
                     .map_err(io::Error::other)?;
@@ -327,7 +344,10 @@ fn unpack_tar<R: Read>(reader: R, output_dir: &Path) -> io::Result<usize> {
         if entry_type.is_hard_link() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!("hard links are not supported in extract: {}", path.display()),
+                format!(
+                    "hard links are not supported in extract: {}",
+                    path.display()
+                ),
             ));
         }
     }

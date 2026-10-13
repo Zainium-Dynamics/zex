@@ -16,7 +16,8 @@ pub fn try_clear_immutable(path: &Path) -> Result<()> {
     if !path.is_file() {
         return Ok(());
     }
-    let file = File::open(path).with_context(|| format!("open for immutable: {}", path.display()))?;
+    let file =
+        File::open(path).with_context(|| format!("open for immutable: {}", path.display()))?;
     let fd = file.as_raw_fd();
     let mut flags: i32 = 0;
     if unsafe { libc::ioctl(fd, FS_IOC_GETFLAGS as libc::c_int, &mut flags) } != 0
@@ -46,7 +47,8 @@ pub fn try_set_immutable(path: &Path) -> Result<()> {
         return Ok(());
     }
 
-    let file = File::open(path).with_context(|| format!("open for immutable: {}", path.display()))?;
+    let file =
+        File::open(path).with_context(|| format!("open for immutable: {}", path.display()))?;
     let fd = file.as_raw_fd();
     let mut flags = FS_IMMUTABLE_FL;
 

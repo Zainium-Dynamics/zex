@@ -243,7 +243,8 @@ pub async fn run_from_lockfile(path: std::path::PathBuf) -> Result<()> {
 
         let pkg_path = tmp.path().join(&pkg.filename);
         let pb = ui::make_download_bar(&mp, pkg.size, &pkg.name);
-        let stats = downloader::download(&pkg.url, &pkg_path, &client, &config, &pb).await
+        let stats = downloader::download(&pkg.url, &pkg_path, &client, &config, &pb)
+            .await
             .map_err(|e| anyhow::anyhow!("download failed for '{}': {e}", pkg.name))?;
         let _ = stats;
 
@@ -257,7 +258,9 @@ pub async fn run_from_lockfile(path: std::path::PathBuf) -> Result<()> {
             signature_mode,
             xbps_sig.as_ref(),
             pkg.name != lock.root.name,
-        ).map_err(|e| anyhow::anyhow!("install failed for '{}': {e}", pkg.name))?;
+            true,
+        )
+        .map_err(|e| anyhow::anyhow!("install failed for '{}': {e}", pkg.name))?;
     }
 
     ui::print_from_lock_done(&lock.root.name, &lock.root.version);
@@ -275,13 +278,20 @@ async fn run_single(
     let integrity_mode = installer::IntegrityMode::from_config(&config.integrity_mode);
     let signature_mode =
         crate::trust::SignatureVerificationMode::from_config(&config.signature_verification_mode);
+    let lib_ctx = LibContext {
+        client: &client,
+        config: &config,
+        mm: &mm,
+        integrity_mode,
+        signature_mode,
+        planned: Default::default(),
+    };
     let mut txn = runtime::begin_transaction(&config, name);
 
     ui::print_resolving_single(name);
 
     // Syshub Core Protection (Collision Block)
-    if super::backend::is_in_syshub(name) {
-        let err_msg = format!("Cannot modify '{}', it is locked inside the immutable Syshub.", name);
+    if let Some(err_msg) = base_refusal(name) {
         if let Some(t) = txn.as_mut() {
             t.mark_failed(&err_msg);
         }
@@ -316,16 +326,19 @@ async fn run_single(
             // Health check: verify critical binaries actually exist AND their
             // symlink targets resolve.  This catches ghost "installed" state where
             // the DB says installed but the OverlayFS union or symlinks are broken.
-            let bin_files: Vec<&String> = installed.installed_files.iter()
+            let bin_files: Vec<&String> = installed
+                .installed_files
+                .iter()
                 .filter(|f| f.contains("/bin/"))
                 .take(3)
                 .collect();
 
-            let healthy = bin_files.is_empty() || bin_files.iter().any(|f| {
-                let p = std::path::Path::new(f.as_str());
-                // Path::exists() follows symlinks — returns false for dangling symlinks
-                p.exists()
-            });
+            let healthy = bin_files.is_empty()
+                || bin_files.iter().any(|f| {
+                    let p = std::path::Path::new(f.as_str());
+                    // Path::exists() follows symlinks — returns false for dangling symlinks
+                    p.exists()
+                });
 
             if super::installer::reinstalling() {
                 ui::print_reinstalling(&info.display_name, &info.version);
@@ -336,7 +349,8 @@ async fn run_single(
                 // Broken install detected — fall through to reinstall
                 log::warn!(
                     "Package '{}' v{} is in DB but binaries are missing — reinstalling",
-                    info.name, info.version
+                    info.name,
+                    info.version
                 );
             }
         } else {
@@ -346,6 +360,7 @@ async fn run_single(
 
     // ─── Dependency Resolution
     let dep_plan = super::depends::resolve_dependencies(&info, &client, &config, &mm).await?;
+    lib_ctx.plan(dep_plan.packages.iter().chain(std::iter::once(&info)));
 
     for (dep_token, provider) in &dep_plan.syshub_provided {
         let base = super::apk::strip_constraint(dep_token);
@@ -363,7 +378,9 @@ async fn run_single(
     }
 
     if !dep_plan.conflicts.is_empty() {
-        let list = dep_plan.conflicts.iter()
+        let list = dep_plan
+            .conflicts
+            .iter()
             .map(|(a, b)| format!("{a} conflicts with installed package {b}"))
             .collect::<Vec<_>>()
             .join("; ");
@@ -376,7 +393,9 @@ async fn run_single(
     }
 
     if !dep_plan.version_conflicts.is_empty() {
-        let list = dep_plan.version_conflicts.iter()
+        let list = dep_plan
+            .version_conflicts
+            .iter()
             .map(|(pkg, reason)| format!("{pkg}: {reason}"))
             .collect::<Vec<_>>()
             .join("; ");
@@ -432,7 +451,10 @@ async fn run_single(
             batch_names.len()
         ));
         if let Err(rollback_err) = super::immutable::restore_snapshot(&snap_id) {
-            ui::print_general_error(&anyhow::anyhow!("CRITICAL: Automatic rollback failed: {}", rollback_err));
+            ui::print_general_error(&anyhow::anyhow!(
+                "CRITICAL: Automatic rollback failed: {}",
+                rollback_err
+            ));
         } else {
             log::info!("Rollback successful for {}", snap_id);
         }
@@ -471,17 +493,17 @@ async fn run_single(
             match result {
                 Ok(Ok((pkg_path, _stats))) => {
                     let dep_existing = super::backend::lookup_installed(&dep_info.name);
-                    let xbps_sig = fetch_xbps_verify_data(dep_info, &client).await;
-                    match installer::install(
+                    match install_checked(
                         &pkg_path,
                         dep_info,
                         dep_existing.as_ref(),
                         true,
-                        integrity_mode,
-                        signature_mode,
-                        xbps_sig.as_ref(),
                         true,
-                    ) {
+                        &lib_ctx,
+                        0,
+                    )
+                    .await
+                    {
                         Ok(t) => {
                             if t.skipped_syshub_satisfied {
                                 ui::print_dep_satisfied_by_syshub(&dep_info.name);
@@ -490,9 +512,15 @@ async fn run_single(
                         }
                         Err(e) => {
                             if let Some(t) = txn.as_mut() {
-                                t.mark_failed(&format!("dependency '{}' failed: {}", dep_info.name, e));
+                                t.mark_failed(&format!(
+                                    "dependency '{}' failed: {}",
+                                    dep_info.name, e
+                                ));
                             }
-                            batch_rollback(&format!("dependency '{}' failed: {}", dep_info.name, e));
+                            batch_rollback(&format!(
+                                "dependency '{}' failed: {}",
+                                dep_info.name, e
+                            ));
                             ui::print_install_error(&dep_info.name, &e);
                             return Err(InstallFailed.into());
                         }
@@ -547,7 +575,10 @@ async fn run_single(
                 t.mark_failed(&format!("mirror returned HTTP {}", status));
             }
             batch_rollback(&format!("mirror returned HTTP {status}"));
-            ui::print_download_error(&info.display_name, &format!("mirror returned HTTP {status} for {}", info.url));
+            ui::print_download_error(
+                &info.display_name,
+                &format!("mirror returned HTTP {status} for {}", info.url),
+            );
             return Err(InstallFailed.into());
         }
         Err(DownloadError::Other(e)) => {
@@ -563,22 +594,22 @@ async fn run_single(
     ui::print_download_done_single(stats.size_mb(), stats.secs());
     ui::print_install_header_single();
 
-
     if let Some(t) = txn.as_mut() {
         t.update("installing", "verifying and extracting package");
     }
 
     let xbps_sig = fetch_xbps_verify_data(&info, &client).await;
-    let install_telemetry = match installer::install(
+    let install_telemetry = match install_checked(
         &pkg_path,
         &info,
         existing_entry.as_ref(),
         false,
-        integrity_mode,
-        signature_mode,
-        xbps_sig.as_ref(),
         false,
-    ) {
+        &lib_ctx,
+        0,
+    )
+    .await
+    {
         Ok(t) => t,
         Err(e) => {
             // Immutable guard drops here → system re-locked automatically
@@ -634,7 +665,8 @@ async fn run_single(
     let _ = super::immutable::update_boot_fallback();
 
     // Use the detected binary name if available, otherwise fall back to package name
-    let launch_name = install_telemetry.detected_launch_cmd
+    let launch_name = install_telemetry
+        .detected_launch_cmd
         .as_deref()
         .unwrap_or(&info.launch_cmd);
 
@@ -653,11 +685,16 @@ async fn run_single(
         version: info.version.clone(),
         format: format_to_label(&info.format).to_string(),
     }];
-    history_packages.extend(dep_plan.packages.iter().map(|d| super::history::PackageRecord {
-        name: d.name.clone(),
-        version: d.version.clone(),
-        format: format_to_label(&d.format).to_string(),
-    }));
+    history_packages.extend(
+        dep_plan
+            .packages
+            .iter()
+            .map(|d| super::history::PackageRecord {
+                name: d.name.clone(),
+                version: d.version.clone(),
+                format: format_to_label(&d.format).to_string(),
+            }),
+    );
     let _ = super::history::record(
         super::history::OperationType::Install,
         history_packages,
@@ -687,6 +724,14 @@ async fn run_parallel(
     let integrity_mode = installer::IntegrityMode::from_config(&config.integrity_mode);
     let signature_mode =
         crate::trust::SignatureVerificationMode::from_config(&config.signature_verification_mode);
+    let lib_ctx = LibContext {
+        client: &client,
+        config: &config,
+        mm: &mm,
+        integrity_mode,
+        signature_mode,
+        planned: Default::default(),
+    };
     let mut txns: HashMap<String, runtime::TransactionHandle> = HashMap::new();
     let mut failed: Vec<String> = Vec::new();
 
@@ -694,8 +739,7 @@ async fn run_parallel(
 
     for name in &names {
         if let Some(mut txn) = runtime::begin_transaction(&config, name) {
-            if super::backend::is_in_syshub(name) {
-                let err_msg = format!("Cannot modify '{}', it is locked inside the immutable Syshub.", name);
+            if let Some(err_msg) = base_refusal(name) {
                 txn.mark_failed(&err_msg);
                 ui::print_install_error(name, &anyhow::anyhow!(err_msg));
                 failed.push(name.clone());
@@ -704,8 +748,8 @@ async fn run_parallel(
                 txns.insert(name.clone(), txn);
                 filtered_names.push(name.clone());
             }
-        } else if !super::backend::is_in_syshub(name) {
-             filtered_names.push(name.clone());
+        } else if base_refusal(name).is_none() {
+            filtered_names.push(name.clone());
         }
     }
 
@@ -779,7 +823,10 @@ async fn run_parallel(
             ui::print_dep_provided_by(super::apk::strip_constraint(dep_token), provider);
         }
         if !plan.unresolvable.is_empty() {
-            let err_msg = format!("strict dependency check failed: missing {}", plan.unresolvable.join(", "));
+            let err_msg = format!(
+                "strict dependency check failed: missing {}",
+                plan.unresolvable.join(", ")
+            );
             if let Some(mut t) = txns.remove(&info.name) {
                 t.mark_failed(&err_msg);
             }
@@ -802,6 +849,7 @@ async fn run_parallel(
     let root_names: HashSet<String> = roots.iter().map(|r| r.name.clone()).collect();
     deps.extend(roots);
     let resolved = deps;
+    lib_ctx.plan(resolved.iter());
 
     for txn in txns.values() {
         let matching: Vec<&super::backend::PackageInfo> = resolved
@@ -905,7 +953,10 @@ async fn run_parallel(
 
     ui::print_install_header_parallel();
     let n_pkgs = successful_downloads.len();
-    ui::print_install_step(&format!("Installing {n_pkgs} package{}", if n_pkgs == 1 { "" } else { "s" }));
+    ui::print_install_step(&format!(
+        "Installing {n_pkgs} package{}",
+        if n_pkgs == 1 { "" } else { "s" }
+    ));
 
     let concurrency = config.install_concurrency.max(1);
     let sem = Arc::new(Semaphore::new(concurrency));
@@ -913,9 +964,15 @@ async fn run_parallel(
     let mut install_handles = Vec::new();
     let mut install_pkgs = Vec::new();
 
+    let mut retry_inputs = Vec::new();
     for (idx, pkg_path, stats) in &successful_downloads {
         let info = resolved[*idx].clone();
         install_pkgs.push((info.name.clone(), info.format.clone(), stats.speed_mbps));
+        retry_inputs.push((
+            pkg_path.clone(),
+            info.clone(),
+            !root_names.contains(&info.name),
+        ));
         let pkg_path = pkg_path.clone();
         let sem = Arc::clone(&sem);
         let client = Arc::clone(&client);
@@ -930,8 +987,6 @@ async fn run_parallel(
                 t.update("installing", "verifying and extracting package");
             }
 
-
-
             let _ = super::transaction::create_snapshot(&[info.name.clone()], "install");
             let existing = super::backend::lookup_installed(&info.name);
             let xbps_sig = fetch_xbps_verify_data(&info, &client).await;
@@ -945,11 +1000,13 @@ async fn run_parallel(
                     signature_mode,
                     xbps_sig.as_ref(),
                     is_dependency,
+                    false,
                 )
             })
             .await;
 
             match &result {
+                Ok(Ok(t)) if t.held_back => {}
                 Ok(Ok(_)) => {
                     if let Some(t) = txn.as_mut() {
                         t.update("committed", "package registered in database");
@@ -982,7 +1039,28 @@ async fn run_parallel(
     let mut db_ms_total = 0u128;
     let mut metrics = Vec::new();
 
-    for ((name, format, speed), r) in install_pkgs.into_iter().zip(install_results) {
+    for (((name, format, speed), r), (retry_path, retry_info, retry_dep)) in install_pkgs
+        .into_iter()
+        .zip(install_results)
+        .zip(retry_inputs)
+    {
+        // held back for missing libraries: install their providers, then this package, one at a time
+        let r = match r {
+            Ok(Ok(Ok(t))) if t.held_back => {
+                let existing = super::backend::lookup_installed(&retry_info.name);
+                Ok(Ok(install_checked(
+                    &retry_path,
+                    &retry_info,
+                    existing.as_ref(),
+                    true,
+                    retry_dep,
+                    &lib_ctx,
+                    0,
+                )
+                .await))
+            }
+            other => other,
+        };
         match r {
             Ok(Ok(Ok(t))) => {
                 install_ok_count += 1;
@@ -1006,11 +1084,17 @@ async fn run_parallel(
                 failed.push(name);
             }
             Ok(Err(join_err)) => {
-                ui::print_install_error(&name, &anyhow::anyhow!("install worker failed: {}", join_err));
+                ui::print_install_error(
+                    &name,
+                    &anyhow::anyhow!("install worker failed: {}", join_err),
+                );
                 failed.push(name);
             }
             Err(join_err) => {
-                ui::print_install_error(&name, &anyhow::anyhow!("install task failed: {}", join_err));
+                ui::print_install_error(
+                    &name,
+                    &anyhow::anyhow!("install task failed: {}", join_err),
+                );
                 failed.push(name);
             }
         }
@@ -1042,5 +1126,182 @@ async fn run_parallel(
 
     ui::print_success_parallel(install_ok_count, &failed, total_mb, total_dl_secs);
 
-    if failed.is_empty() { Ok(()) } else { Err(InstallFailed.into()) }
+    if failed.is_empty() {
+        Ok(())
+    } else {
+        Err(InstallFailed.into())
+    }
+}
+
+// ── Library completeness ──────────────────────────────────────────────────────
+
+/// What installing library providers needs from the surrounding install run.
+struct LibContext<'a> {
+    client: &'a reqwest::Client,
+    config: &'a BackendConfig,
+    mm: &'a super::backend::MetadataManager,
+    integrity_mode: installer::IntegrityMode,
+    signature_mode: crate::trust::SignatureVerificationMode,
+    /// Libraries the packages of this same install provide.
+    planned: std::cell::RefCell<HashSet<String>>,
+}
+
+impl LibContext<'_> {
+    /// Remembers the libraries `packages` provide (their `so:`/library provides).
+    fn plan<'p>(&self, packages: impl Iterator<Item = &'p super::backend::PackageInfo>) {
+        let mut planned = self.planned.borrow_mut();
+        for p in packages {
+            for prov in &p.provides {
+                let lib = prov
+                    .split(['=', '>', '<', '~'])
+                    .next()
+                    .unwrap_or(prov)
+                    .trim();
+                let lib = lib.strip_prefix("so:").unwrap_or(lib);
+                if lib.contains(".so") {
+                    planned.insert(lib.to_string());
+                }
+            }
+        }
+    }
+
+    /// `missing` without the libraries a package of this same install will provide.
+    fn not_planned(&self, missing: &[String]) -> Vec<String> {
+        let planned = self.planned.borrow();
+        missing
+            .iter()
+            .filter(|l| !planned.contains(*l))
+            .cloned()
+            .collect()
+    }
+}
+
+/// Deepest chain of "this library's package needs another library" followed.
+const MAX_LIB_DEPTH: usize = 4;
+
+/// Installs `info` only once every library its programs link against exists:
+/// missing ones are installed from whichever repository provides them, and a
+/// package whose libraries no repository provides is installed only if the
+/// user confirms after checking it.
+fn install_checked<'a>(
+    pkg_path: &'a std::path::Path,
+    info: &'a super::backend::PackageInfo,
+    existing: Option<&'a super::backend::DbEntry>,
+    parallel: bool,
+    is_dependency: bool,
+    ctx: &'a LibContext<'a>,
+    depth: usize,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<installer::InstallTelemetry>> + 'a>>
+{
+    Box::pin(async move {
+        let xbps_sig = fetch_xbps_verify_data(info, ctx.client).await;
+        let attempt = |allow: bool| {
+            installer::install(
+                pkg_path,
+                info,
+                existing,
+                parallel,
+                ctx.integrity_mode,
+                ctx.signature_mode,
+                xbps_sig.as_ref(),
+                is_dependency,
+                allow,
+            )
+        };
+
+        let t = attempt(false)?;
+        if !t.held_back {
+            return Ok(t);
+        }
+        // a package later in this same install brings them
+        let missing = ctx.not_planned(&t.missing_libs);
+        if missing.is_empty() {
+            return attempt(true);
+        }
+        ui::print_missing_libs(&info.display_name, &missing);
+        if depth < MAX_LIB_DEPTH {
+            install_library_providers(&missing, ctx, depth + 1).await;
+        }
+
+        let t = attempt(false)?;
+        if !t.held_back {
+            return Ok(t);
+        }
+        let missing = ctx.not_planned(&t.missing_libs);
+        if missing.is_empty() {
+            return attempt(true);
+        }
+        if ui::confirm_unprovided_libs(&info.display_name, &missing) {
+            attempt(true)
+        } else {
+            anyhow::bail!(
+                "not installed: no repository provides {}",
+                missing.join(", ")
+            )
+        }
+    })
+}
+
+/// Installs, for each missing library, the first package that really provides
+/// it (see `libcheck::provider_requests`). Failures are left for the caller's
+/// retry to report.
+async fn install_library_providers(missing: &[String], ctx: &LibContext<'_>, depth: usize) {
+    let Ok(tmp) = TempDir::new() else { return };
+    for lib in super::libcheck::still_missing(missing) {
+        if super::libcheck::still_missing(std::slice::from_ref(&lib)).is_empty() {
+            continue; // an earlier provider in this loop brought it in
+        }
+        for request in super::libcheck::provider_requests(&lib) {
+            let Ok(provider) = resolver::resolve(&request, ctx.client, ctx.config, ctx.mm).await
+            else {
+                continue;
+            };
+            if !super::libcheck::provides_library(&provider.provides, &lib)
+                || super::blocked::provided_by(&provider.name.to_ascii_lowercase()).is_some()
+            {
+                continue;
+            }
+            let existing = super::backend::lookup_installed(&provider.name);
+            if existing
+                .as_ref()
+                .is_some_and(|e| e.version == provider.version)
+            {
+                continue; // installed already and still doesn't provide it
+            }
+            ui::print_library_provider(&lib, &provider.name, &provider.version);
+            let path = tmp.path().join(&provider.filename);
+            let pb = indicatif::ProgressBar::hidden();
+            if downloader::download(&provider.url, &path, ctx.client, ctx.config, &pb)
+                .await
+                .is_err()
+            {
+                continue;
+            }
+            match install_checked(&path, &provider, existing.as_ref(), true, true, ctx, depth).await
+            {
+                Ok(_) if super::libcheck::still_missing(std::slice::from_ref(&lib)).is_empty() => {
+                    break;
+                }
+                Ok(_) => continue,
+                Err(e) => log::warn!("installing {} for {lib} failed: {e:#}", provider.name),
+            }
+        }
+    }
+}
+
+/// Why `name` can't go into userland: the base already provides it, either as a
+/// syshub package or through the blocked list (`blocked.rs`).
+fn base_refusal(name: &str) -> Option<String> {
+    let bare = name.rsplit('/').next().unwrap_or(name).to_ascii_lowercase();
+    if let Some(provider) = super::blocked::provided_by(&bare) {
+        return Some(format!(
+            "'{bare}' is provided by {provider} in the immutable base, so it is not installed into userland."
+        ));
+    }
+    if super::backend::is_in_syshub(&bare) {
+        return Some(format!(
+            "Cannot modify '{bare}', it is locked inside the immutable Syshub."
+        ));
+    }
+    None
 }

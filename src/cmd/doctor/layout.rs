@@ -19,16 +19,16 @@
 //!           syshub/lib/libgcc_s.so.1  (also general syshub/lib/, not the sysroot)
 
 // ── Base roots ────────────────────────────────────────────────────────────────
-pub const SYSHUB:           &str = "/overlayer/syshub";
-pub const UNION:            &str = "/overlayer/zexlib/union";
-pub const INSTALLED_DIR:    &str = "/overlayer/zexlib/registry/installed";
-pub const PACKAGES_TOML:    &str = "/overlayer/zexlib/registry/packages.toml";
-pub const SYSHUB_MANIFEST:  &str = "/overlayer/syshub/engine/services/syshub.toml";
-pub const ZAISYS_KERNEL:    &str = "/overlayer/zaisys/kernel";
+pub const SYSHUB: &str = "/overlayer/syshub";
+pub const UNION: &str = "/overlayer/zexlib/union";
+pub const INSTALLED_DIR: &str = "/overlayer/zexlib/registry/installed";
+pub const PACKAGES_TOML: &str = "/overlayer/zexlib/registry/packages.toml";
+pub const SYSHUB_MANIFEST: &str = "/overlayer/syshub/engine/services/syshub.toml";
+pub const ZAISYS_KERNEL: &str = "/overlayer/zaisys/kernel";
 
 // ── relibc install locations ──────────────────────────────────────────────────
 /// relibc dynamic linker + libc.so — real dir is lib/, lib64 is a symlink → lib/
-pub const RELIBC_LIB:       &str = "/overlayer/syshub/lib";
+pub const RELIBC_LIB: &str = "/overlayer/syshub/lib";
 /// lib64 → lib symlink (checked as symlink, not a separate dir)
 pub const RELIBC_LIB64_SYMLINK: &str = "/overlayer/syshub/lib64";
 /// Critical relibc files — real location is lib/, lib64 is a symlink to lib/
@@ -59,9 +59,9 @@ pub const RELIBC_LIB64_SYMLINK_TARGET: &str = "lib";
 ///             are NOT here — `libgcc_s.so.1` lives in the general
 ///             `syshub/lib/`, and no `.specs` file exists in this build
 ///             at all.
-pub const MUSL_SYSROOT_X86:   &str = "/overlayer/syshub/x86_64-zainium-linux-musl";
-pub const MUSL_LIB_X86:       &str = "/overlayer/syshub/x86_64-zainium-linux-musl/lib";
-pub const MUSL_BIN_X86:       &str = "/overlayer/syshub/x86_64-zainium-linux-musl/bin";
+pub const MUSL_SYSROOT_X86: &str = "/overlayer/syshub/x86_64-zainium-linux-musl";
+pub const MUSL_LIB_X86: &str = "/overlayer/syshub/x86_64-zainium-linux-musl/lib";
+pub const MUSL_BIN_X86: &str = "/overlayer/syshub/x86_64-zainium-linux-musl/bin";
 
 /// Critical files that MUST exist for a working musl toolchain — only the
 /// libc itself lives inside the musl sysroot proper
@@ -104,10 +104,10 @@ pub const GLIBC_FORBIDDEN_SO: &[&str] = &[
     "librt.so.1",
     "ld-linux-x86-64.so.2",
     "ld-linux-aarch64.so.1",
-    "libgcc_s.so.1",   // glibc's GCC runtime shim — forbidden
+    "libgcc_s.so.1", // glibc's GCC runtime shim — forbidden
 ];
 
 // ── userland scan dirs ─────────────────────────────────────────────────────────
-pub const UNION_LIB:          &str = "/overlayer/zexlib/union/lib";
-pub const UNION_LIB64:        &str = "/overlayer/zexlib/union/lib64";
-pub const UNION_BIN:          &str = "/overlayer/zexlib/union/bin";
+pub const UNION_LIB: &str = "/overlayer/zexlib/union/lib";
+pub const UNION_LIB64: &str = "/overlayer/zexlib/union/lib64";
+pub const UNION_BIN: &str = "/overlayer/zexlib/union/bin";

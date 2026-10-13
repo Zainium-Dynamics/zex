@@ -6,7 +6,7 @@
 //!   2. Recursively resolves transitive deps dynamically via the global resolver
 //!   3. Returns a topologically-sorted install plan (leaves first)
 
-use anyhow::{Result};
+use anyhow::Result;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use super::backend::{BackendConfig, MetadataManager, PackageInfo};
@@ -64,6 +64,18 @@ fn dep_already_present(token: &str, installed_set: &HashSet<String>) -> bool {
     installed_set.contains(&base)
         || super::blocked::provided_by(&base).is_some()
         || super::backend::is_in_syshub(&base)
+        || library_dir(token).is_some()
+}
+
+/// For a library dependency ("so:libpcre2-8.so.0"), the loader directory that
+/// already has it — whatever package put it there, so a repository's own copy
+/// is never installed over the base's.
+fn library_dir(token: &str) -> Option<&'static str> {
+    let lib = super::apk::strip_constraint(token).trim();
+    let lib = lib
+        .strip_prefix("so:")
+        .or_else(|| lib.strip_prefix("SO:"))?;
+    super::libcheck::system_dir_of(lib)
 }
 
 /// If `token` is skipped because syshub (not zex's own registry) already
@@ -83,6 +95,9 @@ fn syshub_provider(token: &str, installed_set: &HashSet<String>) -> Option<Strin
     }
     if super::backend::is_in_syshub(&base) {
         return Some(base);
+    }
+    if library_dir(token).is_some_and(|d| d.starts_with("/overlayer/syshub")) {
+        return Some(base.trim_start_matches("so:").to_string());
     }
     None
 }
@@ -109,7 +124,9 @@ fn check_version_constraint(token: &str, resolved_version: &str) -> Option<Strin
     if ok {
         None
     } else {
-        Some(format!("requires {token} but resolved version is {resolved_version}"))
+        Some(format!(
+            "requires {token} but resolved version is {resolved_version}"
+        ))
     }
 }
 
@@ -176,9 +193,7 @@ pub async fn resolve_dependencies(
 
     // Seed the queue with direct deps
     for dep in &root.depends {
-        if !dep_already_present(dep, &installed_set)
-            && !visited.contains(dep)
-            && dep != &root.name
+        if !dep_already_present(dep, &installed_set) && !visited.contains(dep) && dep != &root.name
         {
             queue.push_back(dep.clone());
             visited.insert(dep.clone());
@@ -194,11 +209,10 @@ pub async fn resolve_dependencies(
     // paying one full round-trip per dependency, serialized.
     while !queue.is_empty() {
         let wave: Vec<String> = queue.drain(..).collect();
-        let wave_results = futures_util::future::join_all(
-            wave.iter().map(|dep_name| {
-                super::resolver::resolve_preferring(dep_name, client, config, mm, preferred_mirror)
-            })
-        ).await;
+        let wave_results = futures_util::future::join_all(wave.iter().map(|dep_name| {
+            super::resolver::resolve_preferring(dep_name, client, config, mm, preferred_mirror)
+        }))
+        .await;
 
         for (dep_name, result) in wave.into_iter().zip(wave_results) {
             if resolved.contains_key(&dep_name) {
@@ -206,10 +220,17 @@ pub async fn resolve_dependencies(
             }
 
             match result {
-                Ok(super::resolver::ResolvedWithAffinity { info, fell_back_from }) => {
+                Ok(super::resolver::ResolvedWithAffinity {
+                    info,
+                    fell_back_from,
+                }) => {
                     if let Some(preferred) = fell_back_from {
                         if let Some(actual) = &info.source_mirror {
-                            cross_tier_fallbacks.push((info.name.clone(), preferred, actual.clone()));
+                            cross_tier_fallbacks.push((
+                                info.name.clone(),
+                                preferred,
+                                actual.clone(),
+                            ));
                         }
                     }
 

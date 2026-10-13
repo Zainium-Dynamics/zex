@@ -17,8 +17,8 @@
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashSet, HashMap};
-use std::path::{PathBuf, Path};
+use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -286,7 +286,7 @@ impl BackendConfig {
                 self.zex_index_url = v;
             }
         }
-        
+
         if let Some(network) = parsed.network {
             if let Some(v) = network.http_timeout_secs {
                 self.http_timeout_secs = v;
@@ -442,7 +442,6 @@ impl BackendConfig {
         }
         config.signature_verification_mode = sig_mode;
 
-
         let ensure_https = |label: &str, url: &str| -> Result<()> {
             let trimmed = url.trim();
             if trimmed.is_empty() {
@@ -463,18 +462,18 @@ impl BackendConfig {
             }
             let lower = trimmed.to_ascii_lowercase();
             if !lower.starts_with("https://") && !lower.starts_with("http://") {
-                anyhow::bail!("equip config requires http(s) for {} (got '{}')", label, url);
+                anyhow::bail!(
+                    "equip config requires http(s) for {} (got '{}')",
+                    label,
+                    url
+                );
             }
             Ok(())
         };
 
-
         // Mirrors: allow HTTP — integrity verified separately via SHA256
         for (idx, mirror) in config.mirrors.iter().enumerate() {
-            ensure_valid_url(
-                &format!("mirrors[{}].base_url", idx),
-                &mirror.base_url,
-            )?;
+            ensure_valid_url(&format!("mirrors[{}].base_url", idx), &mirror.base_url)?;
         }
 
         // Clamp timeout to sane range: 30s minimum, 600s maximum
@@ -728,11 +727,7 @@ fn save_mirror_scores(cache_dir: &str, scores: &MirrorScoreStore) {
 
 fn update_rtt_score(scores: &mut MirrorScoreStore, mirror_key: &str, sample_ms: f64) {
     let alpha = 0.30;
-    let prev = scores
-        .rtt_ms
-        .get(mirror_key)
-        .copied()
-        .unwrap_or(sample_ms);
+    let prev = scores.rtt_ms.get(mirror_key).copied().unwrap_or(sample_ms);
     let next = (1.0 - alpha) * prev + alpha * sample_ms;
     scores.rtt_ms.insert(mirror_key.to_string(), next);
 }
@@ -845,4 +840,3 @@ pub fn register_package(info: &PackageInfo, installed_files: Vec<String>) -> Res
     let record = super::registry::PkgRecord::from_install(info, installed_files);
     super::registry::register(&record)
 }
-

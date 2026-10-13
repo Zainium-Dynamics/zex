@@ -12,16 +12,16 @@ use clap::Parser;
 
 use crate::cmd::install::history::{self, HistoryEntry};
 
-const G:   &str = "\x1b[92m";
-const P:   &str = "\x1b[95m";
-const B:   &str = "\x1b[96m";
-const R:   &str = "\x1b[91m";
+const G: &str = "\x1b[92m";
+const P: &str = "\x1b[95m";
+const B: &str = "\x1b[96m";
+const R: &str = "\x1b[91m";
 const DIM: &str = "\x1b[2m";
 const RST: &str = "\x1b[0m";
 
 #[derive(Parser, Debug)]
 #[command(
-    name  = "history",
+    name = "history",
     about = "Show the unified install/remove/upgrade history",
     override_usage = "elevate zex history [--package <NAME>] [-n <COUNT>]"
 )]
@@ -55,9 +55,16 @@ pub fn run(raw_args: Vec<String>) -> Result<()> {
     }
 
     for e in &entries {
-        let status = if e.success { format!("{G}✓{RST}") } else { format!("{R}✗{RST}") };
+        let status = if e.success {
+            format!("{G}✓{RST}")
+        } else {
+            format!("{R}✗{RST}")
+        };
         let pkg_summary = if e.packages.len() == 1 {
-            format!("{P}{}{RST} {B}{}{RST}", e.packages[0].name, e.packages[0].version)
+            format!(
+                "{P}{}{RST} {B}{}{RST}",
+                e.packages[0].name, e.packages[0].version
+            )
         } else {
             format!("{P}{} package(s){RST}", e.packages.len())
         };
@@ -69,7 +76,10 @@ pub fn run(raw_args: Vec<String>) -> Result<()> {
 
         if e.packages.len() > 1 {
             for p in &e.packages {
-                println!("       {DIM}•{RST} {P}{}{RST} {B}{}{RST}", p.name, p.version);
+                println!(
+                    "       {DIM}•{RST} {P}{}{RST} {B}{}{RST}",
+                    p.name, p.version
+                );
             }
         }
 

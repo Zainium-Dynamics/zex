@@ -13,8 +13,8 @@ use super::inspect;
 
 #[derive(Parser, Debug)]
 #[command(
-    name    = "inspect",
-    about   = "Deep inspection of an installed package",
+    name = "inspect",
+    about = "Deep inspection of an installed package",
     version,
     override_usage = "elevate zex inspect <PACKAGE>"
 )]

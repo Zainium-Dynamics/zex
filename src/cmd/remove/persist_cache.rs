@@ -20,7 +20,7 @@ struct CacheFile {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct CacheEntry {
-    backend:   String,
+    backend: String,
     cached_at: i64,
 }
 
@@ -62,7 +62,9 @@ impl PersistCache {
         let mut cache = load_cache().unwrap_or_default();
         let now = now_secs();
         let before = cache.entries.len();
-        cache.entries.retain(|_, e| now.saturating_sub(e.cached_at) <= TTL_SECS);
+        cache
+            .entries
+            .retain(|_, e| now.saturating_sub(e.cached_at) <= TTL_SECS);
         save_cache(&cache)?;
         Ok(before.saturating_sub(cache.entries.len()))
     }

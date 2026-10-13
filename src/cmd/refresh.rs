@@ -80,7 +80,11 @@ pub async fn refresh_all(client: &reqwest::Client, arch: &str) -> usize {
     failed
 }
 
-async fn fetch(client: &reqwest::Client, url: &str, dest: Option<PathBuf>) -> Result<usize, String> {
+async fn fetch(
+    client: &reqwest::Client,
+    url: &str,
+    dest: Option<PathBuf>,
+) -> Result<usize, String> {
     let resp = client.get(url).send().await.map_err(chain)?;
     let status = resp.status();
     if !status.is_success() {

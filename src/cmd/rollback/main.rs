@@ -15,8 +15,8 @@ const TRANSACTIONS_DIR: &str = "/overlayer/zexlib/transactions";
 
 #[derive(Parser, Debug)]
 #[command(
-    name    = "rollback",
-    about   = "Zex Transaction Rollback Engine",
+    name = "rollback",
+    about = "Zex Transaction Rollback Engine",
     version,
     override_usage = "elevate zex rollback <TX_ID>"
 )]
@@ -42,11 +42,16 @@ pub fn run(raw_args: Vec<String>) {
 
     if cli.list {
         let txns = transaction::list_transactions();
-        ui::print_list(&txns.iter().map(|t| TxSummary {
-            id: t.transaction_id.clone(),
-            operation: t.operation.clone(),
-            target: t.target_package.clone(),
-        }).collect::<Vec<_>>());
+        ui::print_list(
+            &txns
+                .iter()
+                .map(|t| TxSummary {
+                    id: t.transaction_id.clone(),
+                    operation: t.operation.clone(),
+                    target: t.target_package.clone(),
+                })
+                .collect::<Vec<_>>(),
+        );
         return;
     }
 
@@ -54,7 +59,7 @@ pub fn run(raw_args: Vec<String>) {
         ui::print_error(
             "No transaction ID provided.\n\
              Usage: elevate zex rollback <TX_ID>\n\
-             List available: elevate zex rollback --list"
+             List available: elevate zex rollback --list",
         );
         std::process::exit(1);
     };

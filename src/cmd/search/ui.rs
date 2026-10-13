@@ -3,11 +3,11 @@
 
 use super::models::{Origin, SearchResult};
 
-pub const G:   &str = "\x1b[92m";
-pub const P:   &str = "\x1b[95m";
-pub const B:   &str = "\x1b[96m";
-pub const Y:   &str = "\x1b[93m";
-pub const R:   &str = "\x1b[91m";
+pub const G: &str = "\x1b[92m";
+pub const P: &str = "\x1b[95m";
+pub const B: &str = "\x1b[96m";
+pub const Y: &str = "\x1b[93m";
+pub const R: &str = "\x1b[91m";
 pub const DIM: &str = "\x1b[2m";
 pub const RST: &str = "\x1b[0m";
 
@@ -34,14 +34,17 @@ pub fn print_result_row(r: &SearchResult) {
         "  {DIM}•{RST} {P}{name:<22}{RST} {B}{ver:<14}{RST} {origin_col}{orig:<16}{RST} \
          {installed}{installed_pad}{DIM}{desc}{RST}",
         name = r.name,
-        ver  = r.version,
+        ver = r.version,
         orig = origin_lbl,
         desc = r.description,
     );
 }
 
 pub fn print_found_count(n: usize) {
-    println!("\n{G}Found {n} result{}{RST}\n", if n == 1 { "" } else { "s" });
+    println!(
+        "\n{G}Found {n} result{}{RST}\n",
+        if n == 1 { "" } else { "s" }
+    );
 }
 
 pub fn print_not_found(query: &str, suggestions: &[String]) {
@@ -51,8 +54,10 @@ pub fn print_not_found(query: &str, suggestions: &[String]) {
         for s in suggestions {
             println!("  {DIM}•{RST} {P}{s}{RST}");
         }
-        println!("\n{DIM}Try searching with:{RST} {P}zex search {sug}{RST}\n",
-            sug = suggestions.first().map(String::as_str).unwrap_or(query));
+        println!(
+            "\n{DIM}Try searching with:{RST} {P}zex search {sug}{RST}\n",
+            sug = suggestions.first().map(String::as_str).unwrap_or(query)
+        );
     }
 }
 

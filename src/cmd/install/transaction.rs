@@ -10,12 +10,19 @@ use crate::cmd::install::registry::PkgRecord;
 /// that already succeeded — not just the single package that happened to
 /// fail. Returns the transaction id for use with `rollback::rollback_userland`.
 pub fn create_snapshot(pkgs: &[String], op: &str) -> std::io::Result<String> {
-    let ts = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_millis();
     let tx_id = format!("tx-{}", ts);
     let tx_dir = PathBuf::from(format!("/overlayer/zexlib/transactions/{}", tx_id));
     fs::create_dir_all(&tx_dir)?;
 
-    let backup_name = if op == "install" { "" } else { "backup.tar.zst" };
+    let backup_name = if op == "install" {
+        ""
+    } else {
+        "backup.tar.zst"
+    };
     let target_label = pkgs.join(",");
 
     // Zex writes receipts to /overlayer/zexlib/registry/installed/PKG.toml.
@@ -23,17 +30,26 @@ pub fn create_snapshot(pkgs: &[String], op: &str) -> std::io::Result<String> {
     // install has none) so the whole batch can be rolled back together.
     let mut existing: Vec<(String, PkgRecord)> = Vec::new();
     for pkg in pkgs {
-        let live_receipt = PathBuf::from(format!("/overlayer/zexlib/registry/installed/{}.toml", pkg));
-        if let Some(record) = fs::read_to_string(&live_receipt).ok()
+        let live_receipt =
+            PathBuf::from(format!("/overlayer/zexlib/registry/installed/{}.toml", pkg));
+        if let Some(record) = fs::read_to_string(&live_receipt)
+            .ok()
             .and_then(|raw| toml::from_str::<PkgRecord>(&raw).ok())
         {
             fs::copy(&live_receipt, tx_dir.join(format!("{}.toml", pkg)))?;
             existing.push((pkg.clone(), record));
         }
     }
-    let version = existing.first().map(|(_, r)| r.version.clone()).unwrap_or_default();
+    let version = existing
+        .first()
+        .map(|(_, r)| r.version.clone())
+        .unwrap_or_default();
 
-    let packages_list = pkgs.iter().map(|p| format!("\"{p}\"")).collect::<Vec<_>>().join(", ");
+    let packages_list = pkgs
+        .iter()
+        .map(|p| format!("\"{p}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
     let state_toml = format!(
         "transaction_id = \"{}\"\ntimestamp = \"{}\"\noperation = \"{}\"\ntarget_package = \"{}\"\nbackup_archive = \"{}\"\nversion = \"{}\"\npackages = [{}]\n",
         tx_id, ts, op, target_label, backup_name, version, packages_list
@@ -49,7 +65,8 @@ pub fn create_snapshot(pkgs: &[String], op: &str) -> std::io::Result<String> {
         // Aggregate every affected package's files into one backup — the
         // restore side just extracts by path, it doesn't need to know
         // which package a file belonged to.
-        let all_files: Vec<String> = existing.iter()
+        let all_files: Vec<String> = existing
+            .iter()
             .flat_map(|(_, r)| r.installed_files.clone())
             .collect();
         if !all_files.is_empty() {

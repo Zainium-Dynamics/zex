@@ -60,10 +60,22 @@ pub async fn resolve(
     let normalised = name.trim().to_lowercase();
 
     if config.mirrors.is_empty() {
-        return Err(ResolveError::Infra(anyhow::anyhow!("No mirrors configured in BackendConfig")));
+        return Err(ResolveError::Infra(anyhow::anyhow!(
+            "No mirrors configured in BackendConfig"
+        )));
     }
 
+    // `zex install --void wget` arrives as "void/wget": only that repository's
+    // mirrors (id "void" or "void-*") are asked; plain names ask every mirror
+    let (repository, normalised) = match normalised.split_once('/') {
+        Some((r, n)) if !r.is_empty() && !n.is_empty() => (Some(r.to_string()), n.to_string()),
+        _ => (None, normalised),
+    };
+
     let mut sorted_mirrors = config.mirrors.clone();
+    if let Some(r) = &repository {
+        sorted_mirrors.retain(|m| m.id == *r || m.id.starts_with(&format!("{r}-")));
+    }
     sorted_mirrors.sort_by_key(|m| m.priority);
 
     // Ask every mirror at once but take the answers in priority order, and return as soon
@@ -155,13 +167,18 @@ pub async fn resolve_preferring(
             };
             match result {
                 Ok(Some(info)) => {
-                    return Ok(ResolvedWithAffinity { info, fell_back_from: None });
+                    return Ok(ResolvedWithAffinity {
+                        info,
+                        fell_back_from: None,
+                    });
                 }
                 Ok(None) => { /* not in the preferred mirror — fall through */ }
                 Err(e) => {
                     log::warn!(
                         "[Mirror: {}] infra error resolving '{}' from its preferred mirror: {:#}",
-                        pref_id, normalised, e
+                        pref_id,
+                        normalised,
+                        e
                     );
                     /* fall through to the full search rather than hard-failing */
                 }
@@ -187,9 +204,7 @@ pub async fn resolve_many(
 
     for name in names {
         let value = mm.clone();
-        futures.push(async move {
-            (name.clone(), resolve(name, client, config, &value).await)
-        });
+        futures.push(async move { (name.clone(), resolve(name, client, config, &value).await) });
     }
 
     let mut resolved = Vec::new();

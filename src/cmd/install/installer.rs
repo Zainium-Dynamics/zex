@@ -79,6 +79,10 @@ pub struct InstallTelemetry {
     /// (e.g. Void's `ncurses-libs` vs syshub's `ncurses`) — nothing was
     /// staged, registered, or committed.
     pub skipped_syshub_satisfied: bool,
+    /// Libraries the package links against that neither it nor the system provides.
+    pub missing_libs: Vec<String>,
+    /// Nothing was installed because of `missing_libs` (see `allow_missing_libs`).
+    pub held_back: bool,
 }
 
 struct InstallPackageLock {
@@ -176,6 +180,7 @@ pub fn install(
     signature_mode: crate::trust::SignatureVerificationMode,
     xbps_sig: Option<&XbpsVerifyData>,
     is_dependency: bool,
+    allow_missing_libs: bool,
 ) -> Result<InstallTelemetry> {
     let _pkg_lock = acquire_package_lock(&info.name)?;
     // parallel installs share one step line owned by the caller
@@ -219,7 +224,7 @@ pub fn install(
         .prefix("zex-stage-")
         .tempdir_in(zex_tmp)
         .map_err(|e| anyhow::anyhow!("cannot create stage dir: {}", e))?;
-    
+
     let store_path = stage_dir.path().to_path_buf();
     let _content_hash = info.sha256.clone().unwrap_or_default();
 
@@ -272,10 +277,9 @@ pub fn install(
         cleanup_snapshot(&snapshot_dir);
         return Err(e);
     }
-    if let Err(e) = super::pcpatch::patch_staged_pkgconfig(
-        &staged_files,
-        crate::archive_safety::UNION_ROOT,
-    ) {
+    if let Err(e) =
+        super::pcpatch::patch_staged_pkgconfig(&staged_files, crate::archive_safety::UNION_ROOT)
+    {
         cleanup_snapshot(&snapshot_dir);
         return Err(e);
     }
@@ -288,6 +292,8 @@ pub fn install(
         cleanup_snapshot(&snapshot_dir);
         return Err(e);
     }
+    // a library's SONAME link the package forgot (libwget.so.4 -> libwget.so.4.0.0)
+    super::libcheck::add_soname_links(&mut staged_files);
 
     // ── Step 4: Compute final system paths ───────────────────────────────
     //
@@ -322,7 +328,10 @@ pub fn install(
     // wins) — otherwise the commit loop below tries to `rename()` the same
     // already-moved staged file twice and fails with ENOENT the second time.
     {
-        let mut pairs: Vec<(PathBuf, PathBuf)> = staged_files.into_iter().zip(committed_files.into_iter()).collect();
+        let mut pairs: Vec<(PathBuf, PathBuf)> = staged_files
+            .into_iter()
+            .zip(committed_files.into_iter())
+            .collect();
         let mut seen = HashSet::new();
         pairs.reverse();
         pairs.retain(|(_, final_path)| seen.insert(final_path.clone()));
@@ -330,6 +339,19 @@ pub fn install(
         let (new_staged, new_committed): (Vec<_>, Vec<_>) = pairs.into_iter().unzip();
         staged_files = new_staged;
         committed_files = new_committed;
+    }
+
+    // what the package's programs and libraries link against but nothing provides yet;
+    // unless allowed, stop before touching the system so the caller can install the providers
+    let missing_libs = super::libcheck::missing_libraries(&staged_files);
+    if !missing_libs.is_empty() && !allow_missing_libs {
+        cleanup_snapshot(&snapshot_dir);
+        steps.map(crate::steps::Guard::ok);
+        return Ok(InstallTelemetry {
+            missing_libs,
+            held_back: true,
+            ..Default::default()
+        });
     }
 
     // ── Step 4b: Pre-flight conflict check ────────────────────────────────
@@ -434,14 +456,24 @@ pub fn install(
         // If it's in /etc and the file already exists, we should write it as .new to avoid overwriting user changes.
         let mut target_dest = final_path.clone();
         if final_path.starts_with("/overlayer/zexlib/union/etc/") && final_path.exists() {
-            target_dest = final_path.with_extension(format!("new.{}", chrono::Utc::now().timestamp()));
-            log::info!("Config file exists, saving new version as {}", target_dest.display());
+            target_dest =
+                final_path.with_extension(format!("new.{}", chrono::Utc::now().timestamp()));
+            log::info!(
+                "Config file exists, saving new version as {}",
+                target_dest.display()
+            );
         }
 
         let live_dest = crate::archive_safety::live_path(&target_dest);
         if let Some(parent) = live_dest.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| anyhow::anyhow!("failed to create directory '{}' for '{}': {}", parent.display(), live_dest.display(), e))?;
+            std::fs::create_dir_all(parent).map_err(|e| {
+                anyhow::anyhow!(
+                    "failed to create directory '{}' for '{}': {}",
+                    parent.display(),
+                    live_dest.display(),
+                    e
+                )
+            })?;
         }
 
         plan.add(staged_path.to_path_buf(), live_dest);
@@ -510,14 +542,19 @@ pub fn install(
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
-                let _ = std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o755));
+                let _ =
+                    std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o755));
             }
             if !parallel {
                 ui::print_install_step("Running post-install script");
             }
             match sandbox::run_postinst(&script_path, &store_path, action_arg) {
                 Ok(()) => log::info!("post-install script for '{}' completed", info.name),
-                Err(e) => log::warn!("post-install script for '{}' failed (package is installed regardless): {}", info.name, e),
+                Err(e) => log::warn!(
+                    "post-install script for '{}' failed (package is installed regardless): {}",
+                    info.name,
+                    e
+                ),
             }
         }
     }
@@ -569,6 +606,8 @@ pub fn install(
         db_ms,
         detected_launch_cmd: detected_launch,
         skipped_syshub_satisfied: false,
+        missing_libs,
+        held_back: false,
     })
 }
 
@@ -628,16 +667,19 @@ fn verify_signature(
     if signature_mode != crate::trust::SignatureVerificationMode::Off {
         let native_result = match info.format {
             PackageFormat::Apk => {
-                let data = std::fs::read(path).context("reading apk package for signature verification")?;
+                let data = std::fs::read(path)
+                    .context("reading apk package for signature verification")?;
                 super::native_sig::verify_apk_v2(&data)
             }
             PackageFormat::Adb => {
-                let data = std::fs::read(path).context("reading adb package for signature verification")?;
+                let data = std::fs::read(path)
+                    .context("reading adb package for signature verification")?;
                 super::native_sig::verify_adb_v3(&data)
             }
             PackageFormat::Xbps => match xbps_sig {
                 Some(sig) => {
-                    let data = std::fs::read(path).context("reading xbps package for signature verification")?;
+                    let data = std::fs::read(path)
+                        .context("reading xbps package for signature verification")?;
                     super::native_sig::verify_xbps(&data, &sig.sig2, &sig.pubkey_pem)
                 }
                 None => Err(anyhow::anyhow!(
@@ -652,7 +694,9 @@ fn verify_signature(
             let msg = format!("signature verification failed for '{}': {e}", info.name);
             match signature_mode {
                 crate::trust::SignatureVerificationMode::Strict => bail!(msg),
-                crate::trust::SignatureVerificationMode::Audit => log::warn!("{msg} — continuing in audit mode"),
+                crate::trust::SignatureVerificationMode::Audit => {
+                    log::warn!("{msg} — continuing in audit mode")
+                }
                 crate::trust::SignatureVerificationMode::Off => unreachable!("checked above"),
             }
         }
@@ -733,7 +777,6 @@ mod tests {
         assert!(compute_symlink_target(staged_path, store_path, union_root, true).is_err());
     }
 }
-
 
 fn verify_file(path: &Path, expected_size: u64) -> Result<()> {
     let actual = std::fs::metadata(path)?.len();
@@ -844,7 +887,9 @@ fn restore_snapshot(snap_dir: &Path, _dest: &Path, old: &DbEntry) {
     for file_path in &old.installed_files {
         let live = crate::archive_safety::live_path(Path::new(file_path));
         let src_on_system = live.as_path();
-        let rel = Path::new(file_path).strip_prefix("/").unwrap_or(Path::new(file_path));
+        let rel = Path::new(file_path)
+            .strip_prefix("/")
+            .unwrap_or(Path::new(file_path));
         let snap_copy = snap_dir.join(rel);
 
         if !snap_copy.exists() {
@@ -907,7 +952,11 @@ fn sanitize_link_target(owner_path: &Path, target: &Path) -> Result<PathBuf> {
     crate::archive_safety::sanitize_link_target(owner_path, target)
 }
 
-fn extract_zex(zex_path: &Path, dest: &Path, installed: &mut Vec<PathBuf>) -> Result<Option<PostInstallScript>> {
+fn extract_zex(
+    zex_path: &Path,
+    dest: &Path,
+    installed: &mut Vec<PathBuf>,
+) -> Result<Option<PostInstallScript>> {
     #[cfg(unix)]
     use std::os::unix::fs::symlink;
 
@@ -1001,7 +1050,10 @@ fn extract_zex(zex_path: &Path, dest: &Path, installed: &mut Vec<PathBuf>) -> Re
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
-                std::fs::set_permissions(&dest_path, std::fs::Permissions::from_mode(mode & 0o7777))?;
+                std::fs::set_permissions(
+                    &dest_path,
+                    std::fs::Permissions::from_mode(mode & 0o7777),
+                )?;
             }
             installed.push(dest_path);
             continue;
@@ -1071,10 +1123,7 @@ fn extract_zex(zex_path: &Path, dest: &Path, installed: &mut Vec<PathBuf>) -> Re
     for (dest_path, safe_target) in pending_hardlinks {
         let target_path = dest.join(&safe_target);
         if !target_path.exists() {
-            bail!(
-                "hard link target does not exist: {}",
-                safe_target.display()
-            );
+            bail!("hard link target does not exist: {}", safe_target.display());
         }
         let _ = std::fs::remove_file(&dest_path);
         std::fs::hard_link(&target_path, &dest_path)?;
@@ -1083,10 +1132,10 @@ fn extract_zex(zex_path: &Path, dest: &Path, installed: &mut Vec<PathBuf>) -> Re
 
     // signature.b3 = Blake3(manifest.toml ++ payload_blake3)
     // payload_blake3 = Blake3 over sorted (path, bytes) pairs — same as packer.
-    let expected = sig_b3_expected
-        .ok_or_else(|| anyhow::anyhow!(".zex archive missing signature.b3"))?;
-    let manifest_bytes = manifest_raw
-        .ok_or_else(|| anyhow::anyhow!(".zex archive missing manifest.toml"))?;
+    let expected =
+        sig_b3_expected.ok_or_else(|| anyhow::anyhow!(".zex archive missing signature.b3"))?;
+    let manifest_bytes =
+        manifest_raw.ok_or_else(|| anyhow::anyhow!(".zex archive missing manifest.toml"))?;
 
     payload_files.sort_by(|a, b| a.0.cmp(&b.0));
     let mut payload_hasher = blake3::Hasher::new();
@@ -1115,7 +1164,11 @@ fn extract_zex(zex_path: &Path, dest: &Path, installed: &mut Vec<PathBuf>) -> Re
     Ok(None)
 }
 
-fn extract_apk(pkg_path: &Path, dest: &Path, installed: &mut Vec<PathBuf>) -> Result<Option<PostInstallScript>> {
+fn extract_apk(
+    pkg_path: &Path,
+    dest: &Path,
+    installed: &mut Vec<PathBuf>,
+) -> Result<Option<PostInstallScript>> {
     let file = std::fs::File::open(pkg_path)?;
     // .apk packages are a concatenation of multiple gzip members
     // (signature + control + data tarballs) — MultiGzDecoder reads
@@ -1158,7 +1211,9 @@ fn stage_xbps_alternatives(
     for entries in groups.values().filter_map(|v| v.as_array()) {
         for entry in entries.iter().filter_map(|e| e.as_string()) {
             // "link:target"; a relative link lives in the target's directory
-            let Some((link, target)) = entry.split_once(':') else { continue };
+            let Some((link, target)) = entry.split_once(':') else {
+                continue;
+            };
             let target = Path::new(target);
             let link_path = if link.starts_with('/') {
                 PathBuf::from(link)
@@ -1170,7 +1225,8 @@ fn stage_xbps_alternatives(
             if final_path.symlink_metadata().is_ok() || committed.contains(&final_path) {
                 continue;
             }
-            let final_target = union_root.join(crate::archive_safety::remap_usr_paths(target.to_path_buf()));
+            let final_target =
+                union_root.join(crate::archive_safety::remap_usr_paths(target.to_path_buf()));
             let value = if final_target.parent() == final_path.parent() {
                 PathBuf::from(final_target.file_name().unwrap_or_default())
             } else {
@@ -1212,7 +1268,11 @@ fn read_xbps_member(pkg_path: &Path, name: &str) -> Result<Option<Vec<u8>>> {
     Ok(None)
 }
 
-fn extract_xbps(pkg_path: &Path, dest: &Path, installed: &mut Vec<PathBuf>) -> Result<Option<PostInstallScript>> {
+fn extract_xbps(
+    pkg_path: &Path,
+    dest: &Path,
+    installed: &mut Vec<PathBuf>,
+) -> Result<Option<PostInstallScript>> {
     const ZSTD_MAGIC: [u8; 4] = [0x28, 0xB5, 0x2F, 0xFD];
     const XZ_MAGIC: [u8; 6] = [0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00];
 
@@ -1239,7 +1299,11 @@ fn extract_xbps(pkg_path: &Path, dest: &Path, installed: &mut Vec<PathBuf>) -> R
 /// container format, not the legacy gzip-tar `.apk` used by Alpine (see
 /// `cmd::install::adb` for the format itself). Applies the same path/link
 /// sanitization as `extract_tar` since this walks an untrusted archive too.
-fn extract_adb(pkg_path: &Path, dest: &Path, installed: &mut Vec<PathBuf>) -> Result<Option<PostInstallScript>> {
+fn extract_adb(
+    pkg_path: &Path,
+    dest: &Path,
+    installed: &mut Vec<PathBuf>,
+) -> Result<Option<PostInstallScript>> {
     #[cfg(unix)]
     use std::os::unix::fs::symlink;
 
@@ -1251,7 +1315,9 @@ fn extract_adb(pkg_path: &Path, dest: &Path, installed: &mut Vec<PathBuf>) -> Re
             Ok(p) => p,
             Err(_) => continue,
         };
-        if rel.as_os_str().is_empty() { continue; }
+        if rel.as_os_str().is_empty() {
+            continue;
+        }
         let dest_path = dest.join(&rel);
 
         const S_IFMT: u32 = 0o170000;
@@ -1259,14 +1325,26 @@ fn extract_adb(pkg_path: &Path, dest: &Path, installed: &mut Vec<PathBuf>) -> Re
         const S_IFLNK: u32 = 0o120000;
 
         if let Some(parent) = dest_path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| anyhow::anyhow!("failed to create parent directory '{}' for adb entry '{}': {}", parent.display(), entry.rel_path, e))?;
+            std::fs::create_dir_all(parent).map_err(|e| {
+                anyhow::anyhow!(
+                    "failed to create parent directory '{}' for adb entry '{}': {}",
+                    parent.display(),
+                    entry.rel_path,
+                    e
+                )
+            })?;
         }
 
         match entry.mode & S_IFMT {
             S_IFDIR => {
-                std::fs::create_dir_all(&dest_path)
-                    .map_err(|e| anyhow::anyhow!("failed to create directory '{}' for adb entry '{}': {}", dest_path.display(), entry.rel_path, e))?;
+                std::fs::create_dir_all(&dest_path).map_err(|e| {
+                    anyhow::anyhow!(
+                        "failed to create directory '{}' for adb entry '{}': {}",
+                        dest_path.display(),
+                        entry.rel_path,
+                        e
+                    )
+                })?;
             }
             S_IFLNK => {
                 let target = entry.link_target.unwrap_or_default();
@@ -1282,16 +1360,24 @@ fn extract_adb(pkg_path: &Path, dest: &Path, installed: &mut Vec<PathBuf>) -> Re
                 // self-referential case — a real, non-colliding symlink
                 // (e.g. "sbin -> usr/bin", a distinct union path) still
                 // gets created normally below.
-                let target_remapped = crate::archive_safety::remap_usr_paths(PathBuf::from(&target));
+                let target_remapped =
+                    crate::archive_safety::remap_usr_paths(PathBuf::from(&target));
                 if target_remapped == rel {
                     continue;
                 }
 
-                let safe_target = sanitize_link_target(Path::new(&entry.rel_path), Path::new(&target))?;
+                let safe_target =
+                    sanitize_link_target(Path::new(&entry.rel_path), Path::new(&target))?;
                 let _ = std::fs::remove_file(&dest_path);
                 #[cfg(unix)]
-                symlink(&safe_target, &dest_path)
-                    .map_err(|e| anyhow::anyhow!("failed to symlink '{}' -> '{}': {}", dest_path.display(), safe_target.display(), e))?;
+                symlink(&safe_target, &dest_path).map_err(|e| {
+                    anyhow::anyhow!(
+                        "failed to symlink '{}' -> '{}': {}",
+                        dest_path.display(),
+                        safe_target.display(),
+                        e
+                    )
+                })?;
                 installed.push(dest_path);
             }
             _ if entry.link_target.is_some() => {
@@ -1304,16 +1390,27 @@ fn extract_adb(pkg_path: &Path, dest: &Path, installed: &mut Vec<PathBuf>) -> Re
                 let safe_target = crate::archive_safety::sanitize_archive_path(Path::new(&target))?;
                 let target_path = dest.join(&safe_target);
                 if !target_path.exists() {
-                    bail!("adb hard link target does not exist for '{}': {}", rel.display(), safe_target.display());
+                    bail!(
+                        "adb hard link target does not exist for '{}': {}",
+                        rel.display(),
+                        safe_target.display()
+                    );
                 }
                 let _ = std::fs::remove_file(&dest_path);
-                std::fs::hard_link(&target_path, &dest_path)
-                    .map_err(|e| anyhow::anyhow!("failed to hard-link '{}' -> '{}': {}", dest_path.display(), target_path.display(), e))?;
+                std::fs::hard_link(&target_path, &dest_path).map_err(|e| {
+                    anyhow::anyhow!(
+                        "failed to hard-link '{}' -> '{}': {}",
+                        dest_path.display(),
+                        target_path.display(),
+                        e
+                    )
+                })?;
                 installed.push(dest_path);
             }
             _ => {
-                std::fs::write(&dest_path, entry.content.unwrap_or_default())
-                    .map_err(|e| anyhow::anyhow!("failed to write '{}': {}", dest_path.display(), e))?;
+                std::fs::write(&dest_path, entry.content.unwrap_or_default()).map_err(|e| {
+                    anyhow::anyhow!("failed to write '{}': {}", dest_path.display(), e)
+                })?;
                 // ADB stores the real POSIX mode per-entry (already used
                 // above for S_IFDIR/S_IFLNK type bits) but this regular-file
                 // branch never applied the permission bits — every T4
@@ -1326,7 +1423,10 @@ fn extract_adb(pkg_path: &Path, dest: &Path, installed: &mut Vec<PathBuf>) -> Re
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;
-                    let _ = std::fs::set_permissions(&dest_path, std::fs::Permissions::from_mode(entry.mode & 0o7777));
+                    let _ = std::fs::set_permissions(
+                        &dest_path,
+                        std::fs::Permissions::from_mode(entry.mode & 0o7777),
+                    );
                 }
                 installed.push(dest_path);
             }
@@ -1335,7 +1435,12 @@ fn extract_adb(pkg_path: &Path, dest: &Path, installed: &mut Vec<PathBuf>) -> Re
     Ok(None)
 }
 
-fn extract_tar_auto<R: Read>(id: &str, r: R, dest: &Path, inst: &mut Vec<PathBuf>) -> Result<Option<PostInstallScript>> {
+fn extract_tar_auto<R: Read>(
+    id: &str,
+    r: R,
+    dest: &Path,
+    inst: &mut Vec<PathBuf>,
+) -> Result<Option<PostInstallScript>> {
     if id.ends_with(".gz") {
         extract_tar(flate2::read::MultiGzDecoder::new(r), dest, inst, false)
     } else if id.ends_with(".xz") {
@@ -1392,7 +1497,12 @@ fn extract_tar<R: Read>(
             }
             // Apk files use dot-prefixed metadata like .PKGINFO, .SIGN.*
             // Xbps uses props.plist, files.plist, REMOVE
-            if s.starts_with('.') || s.is_empty() || s == "props.plist" || s == "files.plist" || s == "REMOVE" {
+            if s.starts_with('.')
+                || s.is_empty()
+                || s == "props.plist"
+                || s == "files.plist"
+                || s == "REMOVE"
+            {
                 continue;
             }
         }
@@ -1405,8 +1515,14 @@ fn extract_tar<R: Read>(
         }
 
         if let Some(p) = dest_path.parent() {
-            std::fs::create_dir_all(p)
-                .map_err(|e| anyhow::anyhow!("failed to create parent directory '{}' for '{}': {}", p.display(), rel.display(), e))?;
+            std::fs::create_dir_all(p).map_err(|e| {
+                anyhow::anyhow!(
+                    "failed to create parent directory '{}' for '{}': {}",
+                    p.display(),
+                    rel.display(),
+                    e
+                )
+            })?;
         }
 
         if entry_type.is_file() {
@@ -1437,17 +1553,23 @@ fn extract_tar<R: Read>(
                 // the symlink literally then collides with the real
                 // directory/files the same package installs under
                 // "usr/lib". Skip only this self-referential case.
-                let target_remapped = crate::archive_safety::remap_usr_paths(
-                    PathBuf::from(link_target.to_string_lossy().as_ref()),
-                );
+                let target_remapped = crate::archive_safety::remap_usr_paths(PathBuf::from(
+                    link_target.to_string_lossy().as_ref(),
+                ));
                 if target_remapped == rel {
                     continue;
                 }
 
                 let safe_target = sanitize_link_target(&path, &link_target)?;
                 let _ = std::fs::remove_file(&dest_path);
-                symlink(&safe_target, &dest_path)
-                    .map_err(|e| anyhow::anyhow!("failed to symlink '{}' -> '{}': {}", dest_path.display(), safe_target.display(), e))?;
+                symlink(&safe_target, &dest_path).map_err(|e| {
+                    anyhow::anyhow!(
+                        "failed to symlink '{}' -> '{}': {}",
+                        dest_path.display(),
+                        safe_target.display(),
+                        e
+                    )
+                })?;
                 inst.push(dest_path);
             }
             continue;
@@ -1469,8 +1591,14 @@ fn extract_tar<R: Read>(
                 );
             }
             let _ = std::fs::remove_file(&dest_path);
-            std::fs::hard_link(&target_path, &dest_path)
-                .map_err(|e| anyhow::anyhow!("failed to hard-link '{}' -> '{}': {}", dest_path.display(), target_path.display(), e))?;
+            std::fs::hard_link(&target_path, &dest_path).map_err(|e| {
+                anyhow::anyhow!(
+                    "failed to hard-link '{}' -> '{}': {}",
+                    dest_path.display(),
+                    target_path.display(),
+                    e
+                )
+            })?;
             inst.push(dest_path);
             continue;
         }
@@ -1562,7 +1690,11 @@ pub fn preflight_conflict_check(pkg_name: &str, committed_files: &[PathBuf]) -> 
     }
 
     // userland never replaces a base file, even with --force: removing it later would hide the base copy
-    let base: Vec<(String, String)> = conflicts.iter().filter(|(o, _)| o == BASE_OWNER).cloned().collect();
+    let base: Vec<(String, String)> = conflicts
+        .iter()
+        .filter(|(o, _)| o == BASE_OWNER)
+        .cloned()
+        .collect();
     if !base.is_empty() {
         ui::print_file_conflicts(pkg_name, &base);
         bail!(

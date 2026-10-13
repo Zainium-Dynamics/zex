@@ -28,9 +28,12 @@ const UNION_BIN: &str = "/overlayer/zexlib/union/bin";
 /// each other, order doesn't matter for correctness here, just listed by
 /// how common each is.
 const FHS_BIN_ROOTS: &[&str] = &[
-    "/usr/local/bin/", "/usr/local/sbin/",
-    "/usr/bin/", "/usr/sbin/",
-    "/bin/", "/sbin/",
+    "/usr/local/bin/",
+    "/usr/local/sbin/",
+    "/usr/bin/",
+    "/usr/sbin/",
+    "/bin/",
+    "/sbin/",
 ];
 
 fn is_script(head: &[u8]) -> bool {
@@ -48,7 +51,9 @@ fn is_script(head: &[u8]) -> bool {
 /// shebang almost always names. Returns `None` if `interp` isn't under a
 /// recognized FHS bin root at all — nothing to rewrite.
 fn rewrite_interpreter(interp: &str) -> Option<String> {
-    let base_name = FHS_BIN_ROOTS.iter().find_map(|root| interp.strip_prefix(root))?;
+    let base_name = FHS_BIN_ROOTS
+        .iter()
+        .find_map(|root| interp.strip_prefix(root))?;
     if base_name.is_empty() {
         return None;
     }
@@ -92,7 +97,10 @@ fn find_existing(bin_name: &str) -> Option<String> {
 /// isn't under a recognized FHS bin root, or whose shebang is already
 /// correct.
 pub fn patch_one(path: &Path) -> anyhow::Result<()> {
-    let is_regular = path.symlink_metadata().map(|m| m.is_file()).unwrap_or(false);
+    let is_regular = path
+        .symlink_metadata()
+        .map(|m| m.is_file())
+        .unwrap_or(false);
     if !is_regular {
         return Ok(());
     }
@@ -116,7 +124,10 @@ pub fn patch_one(path: &Path) -> anyhow::Result<()> {
     };
 
     let rest = &first_line[2..]; // strip leading "#!"
-    let (interp, args) = rest.trim_start().split_once(' ').unwrap_or((rest.trim_start(), ""));
+    let (interp, args) = rest
+        .trim_start()
+        .split_once(' ')
+        .unwrap_or((rest.trim_start(), ""));
 
     let Some(new_interp) = rewrite_interpreter(interp) else {
         return Ok(());

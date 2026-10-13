@@ -13,8 +13,8 @@ use super::ui;
 
 #[derive(Parser, Debug)]
 #[command(
-    name    = "remove",
-    about   = "Zainium OS — package removal",
+    name = "remove",
+    about = "Zainium OS — package removal",
     version,
     override_usage = "elevate zex remove <PACKAGE>..."
 )]

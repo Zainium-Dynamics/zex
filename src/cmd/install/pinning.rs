@@ -25,15 +25,15 @@ const INSTALLED_DIR: &str = "/overlayer/zexlib/registry/installed";
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PinnedPackage {
     /// Package name (lowercase)
-    pub name:           String,
+    pub name: String,
     /// Version locked at
     pub pinned_version: String,
     /// ISO 8601 timestamp
-    pub pinned_at:      String,
+    pub pinned_at: String,
     /// User who set the pin (from $SUDO_USER or $USER)
-    pub pinned_by:      String,
+    pub pinned_by: String,
     /// Optional reason
-    pub reason:         Option<String>,
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
@@ -46,7 +46,9 @@ struct PinnedFile {
 
 pub fn load_pinned() -> Vec<PinnedPackage> {
     let path = Path::new(PINNED_PATH);
-    if !path.exists() { return Vec::new(); }
+    if !path.exists() {
+        return Vec::new();
+    }
     std::fs::read_to_string(path)
         .ok()
         .and_then(|raw| toml::from_str::<PinnedFile>(&raw).ok())
@@ -55,11 +57,13 @@ pub fn load_pinned() -> Vec<PinnedPackage> {
 }
 
 fn save_pinned(entries: &[PinnedPackage]) -> Result<()> {
-    let file = PinnedFile { pinned: entries.to_vec() };
-    let text = toml::to_string_pretty(&file)
-        .context("serializing pinned.toml")?;
+    let file = PinnedFile {
+        pinned: entries.to_vec(),
+    };
+    let text = toml::to_string_pretty(&file).context("serializing pinned.toml")?;
 
-    let dir = Path::new(PINNED_PATH).parent()
+    let dir = Path::new(PINNED_PATH)
+        .parent()
         .unwrap_or(Path::new("/overlayer/zexlib/registry"));
     std::fs::create_dir_all(dir)?;
 
@@ -71,11 +75,15 @@ fn save_pinned(entries: &[PinnedPackage]) -> Result<()> {
 }
 
 pub fn is_pinned(name: &str) -> bool {
-    load_pinned().iter().any(|p| p.name.eq_ignore_ascii_case(name))
+    load_pinned()
+        .iter()
+        .any(|p| p.name.eq_ignore_ascii_case(name))
 }
 
 pub fn get_pin(name: &str) -> Option<PinnedPackage> {
-    load_pinned().into_iter().find(|p| p.name.eq_ignore_ascii_case(name))
+    load_pinned()
+        .into_iter()
+        .find(|p| p.name.eq_ignore_ascii_case(name))
 }
 
 // ── Public commands ───────────────────────────────────────────────────────────
@@ -94,11 +102,16 @@ pub fn pin(name: &str, reason: Option<&str>) -> Result<()> {
     }
 
     #[derive(Deserialize, Default)]
-    struct R { version: String }
-    let raw = std::fs::read_to_string(&receipt_path)
-        .context("reading receipt")?;
+    struct R {
+        version: String,
+    }
+    let raw = std::fs::read_to_string(&receipt_path).context("reading receipt")?;
     let receipt: R = toml::from_str(&raw).unwrap_or_default();
-    let version = if receipt.version.is_empty() { "unknown".to_string() } else { receipt.version };
+    let version = if receipt.version.is_empty() {
+        "unknown".to_string()
+    } else {
+        receipt.version
+    };
 
     // Re-pin replaces existing
     let mut pinned = load_pinned();
@@ -109,11 +122,11 @@ pub fn pin(name: &str, reason: Option<&str>) -> Result<()> {
         .unwrap_or_else(|_| "root".to_string());
 
     pinned.push(PinnedPackage {
-        name:           name.to_lowercase(),
+        name: name.to_lowercase(),
         pinned_version: version.clone(),
-        pinned_at:      chrono::Utc::now().to_rfc3339(),
-        pinned_by:      user,
-        reason:         reason.map(str::to_string),
+        pinned_at: chrono::Utc::now().to_rfc3339(),
+        pinned_by: user,
+        reason: reason.map(str::to_string),
     });
 
     save_pinned(&pinned)?;
@@ -137,7 +150,9 @@ pub fn unpin(name: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn list_pinned() -> Vec<PinnedPackage> { load_pinned() }
+pub fn list_pinned() -> Vec<PinnedPackage> {
+    load_pinned()
+}
 
 // ── Upgrade guard ─────────────────────────────────────────────────────────────
 
@@ -156,14 +171,14 @@ mod tests {
     #[test]
     fn roundtrip_toml() {
         let pkg = PinnedPackage {
-            name:           "gcc".to_string(),
+            name: "gcc".to_string(),
             pinned_version: "14.2.0".to_string(),
-            pinned_at:      "2026-06-25T12:00:00Z".to_string(),
-            pinned_by:      "alizain".to_string(),
-            reason:         Some("kernel build".to_string()),
+            pinned_at: "2026-06-25T12:00:00Z".to_string(),
+            pinned_by: "alizain".to_string(),
+            reason: Some("kernel build".to_string()),
         };
-        let file   = PinnedFile { pinned: vec![pkg] };
-        let text   = toml::to_string_pretty(&file).unwrap();
+        let file = PinnedFile { pinned: vec![pkg] };
+        let text = toml::to_string_pretty(&file).unwrap();
         let parsed: PinnedFile = toml::from_str(&text).unwrap();
         assert_eq!(parsed.pinned[0].name, "gcc");
         assert_eq!(parsed.pinned[0].pinned_version, "14.2.0");

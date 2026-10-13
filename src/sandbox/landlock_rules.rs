@@ -4,7 +4,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use landlock::{
-    path_beneath_rules, Access, ABI, AccessFs, Ruleset, RulesetAttr, RulesetCreatedAttr,
+    ABI, Access, AccessFs, Ruleset, RulesetAttr, RulesetCreatedAttr, path_beneath_rules,
 };
 
 const SYSHUB_BIN: &str = "/overlayer/syshub/bin";

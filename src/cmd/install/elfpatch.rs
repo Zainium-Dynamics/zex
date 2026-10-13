@@ -61,9 +61,14 @@ fn is_elf(path: &Path) -> bool {
 }
 
 fn is_fhs_lib_entry(entry: &str) -> bool {
-    entry == "/usr/lib" || entry == "/lib" || entry == "/usr/lib64" || entry == "/lib64"
-        || entry.starts_with("/usr/lib/") || entry.starts_with("/lib/")
-        || entry.starts_with("/usr/lib64/") || entry.starts_with("/lib64/")
+    entry == "/usr/lib"
+        || entry == "/lib"
+        || entry == "/usr/lib64"
+        || entry == "/lib64"
+        || entry.starts_with("/usr/lib/")
+        || entry.starts_with("/lib/")
+        || entry.starts_with("/usr/lib64/")
+        || entry.starts_with("/lib64/")
 }
 
 /// Rewrite RPATH/RUNPATH entries that point at FHS lib dirs to
@@ -75,7 +80,11 @@ fn is_fhs_lib_entry(entry: &str) -> bool {
 fn rebuild_rpath(existing: &str) -> String {
     let mut out: Vec<String> = Vec::new();
     for entry in existing.split(':').filter(|e| !e.is_empty()) {
-        let mapped = if is_fhs_lib_entry(entry) { ZEX_LIB_RPATH } else { entry };
+        let mapped = if is_fhs_lib_entry(entry) {
+            ZEX_LIB_RPATH
+        } else {
+            entry
+        };
         if !out.iter().any(|e| e == mapped) {
             out.push(mapped.to_string());
         }
@@ -172,7 +181,10 @@ pub fn patch_staged_elfs(staged_files: &[PathBuf]) -> anyhow::Result<()> {
             continue;
         }
         patch_one(path).map_err(|e| {
-            anyhow::anyhow!("failed to patch ELF interpreter/RPATH for '{}': {e}", path.display())
+            anyhow::anyhow!(
+                "failed to patch ELF interpreter/RPATH for '{}': {e}",
+                path.display()
+            )
         })?;
     }
     Ok(())

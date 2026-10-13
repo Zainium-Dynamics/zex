@@ -9,7 +9,6 @@ use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::str::FromStr;
 
-
 /// Package source tier for priority-based resolution scoring.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PackageTier {

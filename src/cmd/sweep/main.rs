@@ -16,8 +16,8 @@ use super::ui;
 
 #[derive(Parser, Debug)]
 #[command(
-    name    = "sweep",
-    about   = "Zainium Sweep Engine — System Cleaner",
+    name = "sweep",
+    about = "Zainium Sweep Engine — System Cleaner",
     version,
     override_usage = "elevate zex sweep [--dry-run] [--aggressive]"
 )]
@@ -70,7 +70,11 @@ pub async fn run(raw_args: Vec<String>) -> Result<()> {
     }
 
     if !cli.yes && !ui::print_proceed_prompt() {
-        println!("\n {DIM}Sweep cancelled.{RST}", DIM = ui::DIM, RST = ui::RST);
+        println!(
+            "\n {DIM}Sweep cancelled.{RST}",
+            DIM = ui::DIM,
+            RST = ui::RST
+        );
         return Ok(());
     }
 

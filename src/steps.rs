@@ -18,7 +18,10 @@ static RUNNING: Mutex<Option<Running>> = Mutex::new(None);
 pub fn start(running: String, done: String, failed: String) {
     finish();
     let pb = ProgressBar::new_spinner();
-    let template = format!("{}{{spinner}}", running.replace('{', "{{").replace('}', "}}"));
+    let template = format!(
+        "{}{{spinner}}",
+        running.replace('{', "{{").replace('}', "}}")
+    );
     pb.set_style(
         ProgressStyle::with_template(&template)
             .unwrap_or_else(|_| ProgressStyle::default_spinner())

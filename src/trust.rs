@@ -65,7 +65,11 @@ fn parse_for_verification(data: Vec<u8>) -> Result<ParsedZexForVerify> {
 
     for entry in archive.entries().context("tar read failed")? {
         let mut entry = entry.context("tar entry error")?;
-        let path = entry.path().context("tar path error")?.to_string_lossy().to_string();
+        let path = entry
+            .path()
+            .context("tar path error")?
+            .to_string_lossy()
+            .to_string();
 
         if path.contains("../") || path.contains("/..") {
             bail!("SECURITY: path traversal in package: {path}");
@@ -77,7 +81,9 @@ fn parse_for_verification(data: Vec<u8>) -> Result<ParsedZexForVerify> {
         // link_name() must happen before read_to_end() consumes the entry.
         let is_symlink = entry.header().entry_type().is_symlink();
         let link_target = if is_symlink {
-            entry.link_name().context("reading symlink target")?
+            entry
+                .link_name()
+                .context("reading symlink target")?
                 .map(|p| p.to_string_lossy().to_string())
         } else {
             None
@@ -116,7 +122,12 @@ fn parse_for_verification(data: Vec<u8>) -> Result<ParsedZexForVerify> {
 
     payload_files.sort_by(|a, b| a.0.cmp(&b.0));
 
-    Ok(ParsedZexForVerify { manifest, manifest_raw, sig_b3, payload_files })
+    Ok(ParsedZexForVerify {
+        manifest,
+        manifest_raw,
+        sig_b3,
+        payload_files,
+    })
 }
 
 /// Verify a parsed `.zex` against the Ed25519 pubkey embedded in its own
@@ -135,7 +146,12 @@ fn verify_embedded(parsed: &ParsedZexForVerify, key: &VerifyingKey) -> Result<bo
     }
     let computed_blake3 = payload_hasher.finalize().to_hex().to_string();
 
-    let expected_blake3 = parsed.manifest.package.blake3.as_deref().unwrap_or_default();
+    let expected_blake3 = parsed
+        .manifest
+        .package
+        .blake3
+        .as_deref()
+        .unwrap_or_default();
     if computed_blake3 != expected_blake3 {
         return Ok(false); // payload tampered
     }
@@ -168,12 +184,14 @@ pub fn verify_zex_archive(path: &Path, mode: SignatureVerificationMode) -> Resul
         return Ok(());
     }
 
-    let data = fs::read(path)
-        .with_context(|| format!("reading .zex archive {}", path.display()))?;
+    let data =
+        fs::read(path).with_context(|| format!("reading .zex archive {}", path.display()))?;
 
     let parsed = parse_for_verification(data)?;
 
-    if parsed.manifest.package.ed25519_sig.is_none() || parsed.manifest.package.ed25519_pubkey.is_none() {
+    if parsed.manifest.package.ed25519_sig.is_none()
+        || parsed.manifest.package.ed25519_pubkey.is_none()
+    {
         let msg = format!(
             "package '{}' has no ed25519_sig/ed25519_pubkey in manifest.toml",
             parsed.manifest.package.name
@@ -240,7 +258,10 @@ fn parse_embedded_pubkey(manifest: &ZexManifest) -> Result<VerifyingKey> {
         .context("manifest has no ed25519_pubkey")?;
     let key_bytes = hex::decode(hex_str).context("decoding ed25519_pubkey as hex")?;
     if key_bytes.len() != 32 {
-        bail!("ed25519_pubkey must be exactly 32 bytes, got {}", key_bytes.len());
+        bail!(
+            "ed25519_pubkey must be exactly 32 bytes, got {}",
+            key_bytes.len()
+        );
     }
     let key_arr: [u8; 32] = key_bytes
         .try_into()
@@ -285,7 +306,11 @@ mod tests {
     /// Builds a fully valid signed `ParsedZexForVerify` (as if produced by
     /// `substrate pack`) plus the verifying key, for a single payload file.
     fn build_valid() -> (ParsedZexForVerify, VerifyingKey) {
-        let payload_files = vec![("payload/bin/hello".to_string(), b"hello world".to_vec(), None)];
+        let payload_files = vec![(
+            "payload/bin/hello".to_string(),
+            b"hello world".to_vec(),
+            None,
+        )];
 
         let mut hasher = blake3::Hasher::new();
         for (path, bytes, _) in &payload_files {
@@ -309,7 +334,12 @@ mod tests {
         let sig_b3 = sig_hasher.finalize().to_hex().to_string();
 
         (
-            ParsedZexForVerify { manifest, manifest_raw, sig_b3, payload_files },
+            ParsedZexForVerify {
+                manifest,
+                manifest_raw,
+                sig_b3,
+                payload_files,
+            },
             verifying_key,
         )
     }
@@ -418,11 +448,17 @@ mod tests {
     #[test]
     fn end_to_end_missing_signature_rejected_strict_warned_audit() {
         let dir = std::env::temp_dir();
-        let path = dir.join(format!("zex_trust_test_unsigned_{}.zex", std::process::id()));
+        let path = dir.join(format!(
+            "zex_trust_test_unsigned_{}.zex",
+            std::process::id()
+        ));
         write_real_archive(&path, false);
 
         let strict_result = verify_zex_archive(&path, SignatureVerificationMode::Strict);
-        assert!(strict_result.is_err(), "unsigned package must be rejected in Strict mode");
+        assert!(
+            strict_result.is_err(),
+            "unsigned package must be rejected in Strict mode"
+        );
 
         let audit_result = verify_zex_archive(&path, SignatureVerificationMode::Audit);
         let _ = fs::remove_file(&path);

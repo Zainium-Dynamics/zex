@@ -19,7 +19,7 @@
 
 use super::audit;
 use super::backend::{self, PackageBackend};
-use super::common::{confirm_removal, PackageMeta, RunOpts};
+use super::common::{PackageMeta, RunOpts, confirm_removal};
 use crate::cmd::install::theme::{self, Tone};
 use futures::stream::{self, StreamExt};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
@@ -59,7 +59,13 @@ pub async fn remove(names: &[String], opts: &RunOpts) {
             "\n{}",
             theme::line(&[
                 (Tone::Red, "✗ "),
-                (Tone::Purple, &format!("Cannot remove [{}], they are locked inside the immutable Syshub.", blocked))
+                (
+                    Tone::Purple,
+                    &format!(
+                        "Cannot remove [{}], they are locked inside the immutable Syshub.",
+                        blocked
+                    )
+                )
             ])
         );
         if valid_names.is_empty() {
@@ -71,10 +77,7 @@ pub async fn remove(names: &[String], opts: &RunOpts) {
     let targets = valid_names.join(", ");
     println!(
         "\n{}",
-        theme::line(&[
-            (Tone::Green, "→ Targets: "),
-            (Tone::Purple, &targets)
-        ])
+        theme::line(&[(Tone::Green, "→ Targets: "), (Tone::Purple, &targets)])
     );
 
     // ── Confirmation prompt ──────────────────────────────────────────────
@@ -97,10 +100,7 @@ pub async fn remove(names: &[String], opts: &RunOpts) {
     // ── Starting removal ─────────────────────────────────────────────────
     println!(
         "{}",
-        theme::line(&[
-            (Tone::Green, "Starting "),
-            (Tone::Purple, "removal...")
-        ])
+        theme::line(&[(Tone::Green, "Starting "), (Tone::Purple, "removal...")])
     );
 
     // ── Progress bar (install driver style) ───────────────────────────────
@@ -149,7 +149,10 @@ pub async fn remove(names: &[String], opts: &RunOpts) {
                     "  {}",
                     theme::line(&[
                         (Tone::Red, "⚠ "),
-                        (Tone::Purple, &format!("'{}' is not installed — skipping.", name))
+                        (
+                            Tone::Purple,
+                            &format!("'{}' is not installed — skipping.", name)
+                        )
                     ])
                 );
                 not_found.push(name);
@@ -193,24 +196,15 @@ pub async fn remove(names: &[String], opts: &RunOpts) {
         .collect::<Vec<_>>()
         .join(", ");
 
-    let summary = format!(
-        "completed successfully ✓ ({} packages)",
-        removed.len()
-    );
+    let summary = format!("completed successfully ✓ ({} packages)", removed.len());
 
     println!(
         "\n{}",
-        theme::line(&[
-            (Tone::Green, "Removal "),
-            (Tone::Purple, &summary)
-        ])
+        theme::line(&[(Tone::Green, "Removal "), (Tone::Purple, &summary)])
     );
     println!(
         "\n{}",
-        theme::line(&[
-            (Tone::Green, "Removal "),
-            (Tone::Purple, "Summary:")
-        ])
+        theme::line(&[(Tone::Green, "Removal "), (Tone::Purple, "Summary:")])
     );
     println!(
         "{}",
@@ -299,7 +293,15 @@ async fn print_dry_run_table(names: &[String], _opts: &RunOpts) {
                     theme::line(&[
                         (Tone::Green, "  • "),
                         (Tone::Purple, &m.display_name),
-                        (Tone::Black, &format!(" (v{})  [{}]  ~{} MB", m.version, backend.label(), m.size_mb))
+                        (
+                            Tone::Black,
+                            &format!(
+                                " (v{})  [{}]  ~{} MB",
+                                m.version,
+                                backend.label(),
+                                m.size_mb
+                            )
+                        )
                     ])
                 );
                 total_mb += m.size_mb;
@@ -320,7 +322,12 @@ async fn print_dry_run_table(names: &[String], _opts: &RunOpts) {
     println!();
     println!(
         "{}",
-        theme::kv_line(20, "Total would free", Tone::Blue, &format!("~{:.1} MB", total_mb))
+        theme::kv_line(
+            20,
+            "Total would free",
+            Tone::Blue,
+            &format!("~{:.1} MB", total_mb)
+        )
     );
     println!(
         "\n{}",

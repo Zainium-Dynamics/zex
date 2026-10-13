@@ -6,25 +6,25 @@
 //!
 //! Storage: /overlayer/zexlib/registry/pinned.toml
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 
-const PINNED_PATH:   &str = "/overlayer/zexlib/registry/pinned.toml";
+const PINNED_PATH: &str = "/overlayer/zexlib/registry/pinned.toml";
 const INSTALLED_DIR: &str = "/overlayer/zexlib/registry/installed";
 
-const G:   &str = "\x1b[92m";
-const P:   &str = "\x1b[95m";
-const B:   &str = "\x1b[96m";
-const Y:   &str = "\x1b[93m";
+const G: &str = "\x1b[92m";
+const P: &str = "\x1b[95m";
+const B: &str = "\x1b[96m";
+const Y: &str = "\x1b[93m";
 const DIM: &str = "\x1b[2m";
 const RST: &str = "\x1b[0m";
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PinnedPackage {
-    pub name:           String,
+    pub name: String,
     pub pinned_version: String,
-    pub pinned_at:      String,
-    pub pinned_by:      String,
-    pub reason:         Option<String>,
+    pub pinned_at: String,
+    pub pinned_by: String,
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Default)]
@@ -35,7 +35,9 @@ struct PinnedFile {
 
 pub fn load_pinned() -> Vec<PinnedPackage> {
     let path = std::path::Path::new(PINNED_PATH);
-    if !path.exists() { return Vec::new(); }
+    if !path.exists() {
+        return Vec::new();
+    }
     std::fs::read_to_string(path)
         .ok()
         .and_then(|raw| toml::from_str::<PinnedFile>(&raw).ok())
@@ -44,7 +46,9 @@ pub fn load_pinned() -> Vec<PinnedPackage> {
 }
 
 fn save_pinned(entries: &[PinnedPackage]) -> Result<()> {
-    let file = PinnedFile { pinned: entries.to_vec() };
+    let file = PinnedFile {
+        pinned: entries.to_vec(),
+    };
     let text = toml::to_string_pretty(&file)?;
     if let Some(p) = std::path::Path::new(PINNED_PATH).parent() {
         std::fs::create_dir_all(p)?;
@@ -56,18 +60,21 @@ fn save_pinned(entries: &[PinnedPackage]) -> Result<()> {
 }
 
 pub fn is_pinned(name: &str) -> bool {
-    load_pinned().iter().any(|p| p.name.eq_ignore_ascii_case(name))
+    load_pinned()
+        .iter()
+        .any(|p| p.name.eq_ignore_ascii_case(name))
 }
 
 pub fn get_pin(name: &str) -> Option<PinnedPackage> {
-    load_pinned().into_iter().find(|p| p.name.eq_ignore_ascii_case(name))
+    load_pinned()
+        .into_iter()
+        .find(|p| p.name.eq_ignore_ascii_case(name))
 }
 
 /// Pin a package at its currently installed version.
 pub fn pin(name: &str, reason: Option<&str>) -> Result<()> {
     // Read version from receipt
-    let receipt = std::path::Path::new(INSTALLED_DIR)
-        .join(format!("{}.toml", name.to_lowercase()));
+    let receipt = std::path::Path::new(INSTALLED_DIR).join(format!("{}.toml", name.to_lowercase()));
     if !receipt.exists() {
         bail!(
             "Package '{}' is not installed — cannot pin.\n\
@@ -76,7 +83,8 @@ pub fn pin(name: &str, reason: Option<&str>) -> Result<()> {
         );
     }
     let raw = std::fs::read_to_string(&receipt)?;
-    let version = raw.lines()
+    let version = raw
+        .lines()
         .find(|l| l.starts_with("version"))
         .and_then(|l| l.split('"').nth(1))
         .unwrap_or("unknown")
@@ -105,11 +113,11 @@ pub fn pin(name: &str, reason: Option<&str>) -> Result<()> {
     };
 
     pinned.push(PinnedPackage {
-        name:           name.to_lowercase(),
+        name: name.to_lowercase(),
         pinned_version: version.clone(),
-        pinned_at:      now,
-        pinned_by:      user,
-        reason:         reason.map(str::to_string),
+        pinned_at: now,
+        pinned_by: user,
+        reason: reason.map(str::to_string),
     });
 
     save_pinned(&pinned)?;
@@ -148,9 +156,14 @@ pub fn print_pins(pins: &[PinnedPackage]) {
         println!("\n {DIM}No packages are currently pinned.{RST}\n");
         return;
     }
-    println!("\n{G}Pinned Packages{RST}  {DIM}({} total){RST}\n", pins.len());
+    println!(
+        "\n{G}Pinned Packages{RST}  {DIM}({} total){RST}\n",
+        pins.len()
+    );
     for p in pins {
-        let reason = p.reason.as_deref()
+        let reason = p
+            .reason
+            .as_deref()
             .map(|r| format!("  {DIM}\u{2014} {r}{RST}"))
             .unwrap_or_default();
         println!(

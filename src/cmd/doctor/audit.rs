@@ -20,23 +20,23 @@ use crate::cmd::install::registry::PkgRecord;
 
 #[derive(Debug, Default)]
 pub struct AuditResult {
-    pub dangling_symlinks:     Vec<String>,
-    pub broken_receipts:       Vec<String>,
-    pub libc_violations:       Vec<LibcViolation>,
-    pub syshub_ok:             bool,
-    pub syshub_total:          usize,
-    pub syshub_clean:          usize,
-    pub orphaned_packages:     Vec<String>,
-    pub orphaned_libs:         Vec<String>,
-    pub unsatisfied_deps:      Vec<(String, String)>,  // (pkg, missing_dep)
-    pub missing_syshub_dirs:   Vec<String>,
-    pub missing_musl_files:    Vec<String>,
-    pub missing_relibc_files:  Vec<String>,
+    pub dangling_symlinks: Vec<String>,
+    pub broken_receipts: Vec<String>,
+    pub libc_violations: Vec<LibcViolation>,
+    pub syshub_ok: bool,
+    pub syshub_total: usize,
+    pub syshub_clean: usize,
+    pub orphaned_packages: Vec<String>,
+    pub orphaned_libs: Vec<String>,
+    pub unsatisfied_deps: Vec<(String, String)>, // (pkg, missing_dep)
+    pub missing_syshub_dirs: Vec<String>,
+    pub missing_musl_files: Vec<String>,
+    pub missing_relibc_files: Vec<String>,
 }
 
 #[derive(Debug)]
 pub struct LibcViolation {
-    pub path:   String,
+    pub path: String,
     pub reason: String,
 }
 
@@ -51,7 +51,6 @@ impl AuditResult {
             + self.missing_syshub_dirs.len()
             + self.missing_musl_files.len()
             + self.missing_relibc_files.len()
-
     }
 
     pub fn registry_ok(&self) -> bool {
@@ -72,12 +71,13 @@ impl AuditResult {
 #[derive(Debug, Deserialize)]
 struct SyshubManifest {
     core_info: Option<CoreInfo>,
-    packages:  HashMap<String, toml::Value>,
+    packages: HashMap<String, toml::Value>,
 }
 
 #[derive(Debug, Deserialize)]
 struct CoreInfo {
-    #[allow(dead_code)] build_version: String,
+    #[allow(dead_code)]
+    build_version: String,
 }
 
 // ── Main audit runner ─────────────────────────────────────────────────────────
@@ -118,11 +118,13 @@ pub fn run_full_audit() -> Result<AuditResult> {
     // 8. Syshub package count
     r.syshub_total = syshub_pkgs;
     r.syshub_clean = syshub_pkgs; // verified if no corrupted files found
-    r.syshub_ok    = r.missing_syshub_dirs.is_empty()
-                   && r.missing_relibc_files.is_empty()
-                   && r.missing_musl_files.is_empty();
+    r.syshub_ok = r.missing_syshub_dirs.is_empty()
+        && r.missing_relibc_files.is_empty()
+        && r.missing_musl_files.is_empty();
     // syshub total reflects known installed packages
-    if r.syshub_ok { r.syshub_clean = r.syshub_total; }
+    if r.syshub_ok {
+        r.syshub_clean = r.syshub_total;
+    }
 
     // 9. Orphaned packages (receipt exists but no files on disk)
     check_orphaned_packages(&receipts, &mut r);
@@ -138,9 +140,15 @@ pub fn run_full_audit() -> Result<AuditResult> {
 fn load_syshub(r: &mut AuditResult) -> (usize, HashSet<String>) {
     let mut provides = HashSet::new();
     let path = Path::new(SYSHUB_MANIFEST);
-    if !path.exists() { return (0, provides); }
-    let Ok(raw) = fs::read_to_string(path) else { return (0, provides) };
-    let Ok(manifest) = toml::from_str::<SyshubManifest>(&raw) else { return (0, provides) };
+    if !path.exists() {
+        return (0, provides);
+    }
+    let Ok(raw) = fs::read_to_string(path) else {
+        return (0, provides);
+    };
+    let Ok(manifest) = toml::from_str::<SyshubManifest>(&raw) else {
+        return (0, provides);
+    };
 
     let count = manifest.packages.len();
     for (name, val) in &manifest.packages {
@@ -162,13 +170,18 @@ fn load_syshub(r: &mut AuditResult) -> (usize, HashSet<String>) {
 fn load_receipts(r: &mut AuditResult) -> Vec<PkgRecord> {
     let mut receipts = Vec::new();
     let dir = Path::new(INSTALLED_DIR);
-    if !dir.exists() { return receipts; }
-    let Ok(entries) = fs::read_dir(dir) else { return receipts };
+    if !dir.exists() {
+        return receipts;
+    }
+    let Ok(entries) = fs::read_dir(dir) else {
+        return receipts;
+    };
 
     for entry in entries.flatten() {
         let path = entry.path();
         if path.extension().map(|e| e == "toml").unwrap_or(false) {
-            match fs::read_to_string(&path).ok()
+            match fs::read_to_string(&path)
+                .ok()
                 .and_then(|raw| toml::from_str::<PkgRecord>(&raw).ok())
             {
                 Some(rcpt) => receipts.push(rcpt),
@@ -183,20 +196,23 @@ fn load_receipts(r: &mut AuditResult) -> Vec<PkgRecord> {
 
 fn check_dangling_symlinks(base: &str, r: &mut AuditResult) {
     let p = Path::new(base);
-    if !p.exists() { return; }
+    if !p.exists() {
+        return;
+    }
     for entry in WalkDir::new(p).into_iter().filter_map(|e| e.ok()) {
         let path = entry.path();
         if path.is_symlink() && !path.exists() {
-            r.dangling_symlinks.push(path.to_string_lossy().into_owned());
+            r.dangling_symlinks
+                .push(path.to_string_lossy().into_owned());
         }
     }
 }
 
 fn check_deps(
-    receipts:   &[PkgRecord],
-    caps:       &HashSet<String>,
-    syshub:     &HashSet<String>,
-    r:          &mut AuditResult,
+    receipts: &[PkgRecord],
+    caps: &HashSet<String>,
+    syshub: &HashSet<String>,
+    r: &mut AuditResult,
 ) {
     for rcpt in receipts {
         for dep in &rcpt.dependencies {
@@ -217,14 +233,18 @@ fn check_deps(
 fn check_libc_boundaries(r: &mut AuditResult) {
     for lib_dir in [UNION_LIB, UNION_LIB64] {
         let p = Path::new(lib_dir);
-        if !p.exists() { continue; }
+        if !p.exists() {
+            continue;
+        }
         for entry in WalkDir::new(p).into_iter().filter_map(|e| e.ok()) {
-            if !entry.file_type().is_file() { continue; }
+            if !entry.file_type().is_file() {
+                continue;
+            }
             let name = entry.file_name().to_string_lossy().to_string();
             for forbidden in GLIBC_FORBIDDEN_SO {
                 if name == *forbidden {
                     r.libc_violations.push(LibcViolation {
-                        path:   entry.path().to_string_lossy().into_owned(),
+                        path: entry.path().to_string_lossy().into_owned(),
                         reason: format!("glibc artifact '{}' found in userland", name),
                     });
                 }
@@ -244,7 +264,11 @@ fn check_syshub_dirs(r: &mut AuditResult) {
     if !lib64.is_symlink() {
         r.missing_syshub_dirs.push(format!(
             "/overlayer/syshub/lib64 must be a symlink → lib (currently: {})",
-            if lib64.exists() { "real dir (wrong)" } else { "missing" }
+            if lib64.exists() {
+                "real dir (wrong)"
+            } else {
+                "missing"
+            }
         ));
     }
 }
@@ -279,13 +303,13 @@ fn check_musl_sysroot(r: &mut AuditResult) {
     }
 }
 
-
 fn check_orphaned_packages(receipts: &[PkgRecord], r: &mut AuditResult) {
     for rcpt in receipts {
-        if rcpt.installed_files.is_empty() { continue; }
+        if rcpt.installed_files.is_empty() {
+            continue;
+        }
 
-        let all_gone = rcpt.installed_files.iter()
-            .all(|f| !Path::new(f).exists());
+        let all_gone = rcpt.installed_files.iter().all(|f| !Path::new(f).exists());
         if all_gone {
             r.orphaned_packages.push(rcpt.name.clone());
         }
@@ -297,16 +321,22 @@ fn check_orphaned_packages(receipts: &[PkgRecord], r: &mut AuditResult) {
 fn check_orphaned_libs(receipts: &[PkgRecord], r: &mut AuditResult) {
     let mut registered_files: HashSet<String> = HashSet::new();
     for rcpt in receipts {
-        for f in &rcpt.installed_files { registered_files.insert(f.clone()); }
+        for f in &rcpt.installed_files {
+            registered_files.insert(f.clone());
+        }
     }
 
     for lib_dir in [UNION_LIB, UNION_LIB64] {
         let p = Path::new(lib_dir);
-        if !p.exists() { continue; }
+        if !p.exists() {
+            continue;
+        }
         for entry in fs::read_dir(p).into_iter().flatten().flatten() {
             let path = entry.path();
             let name = path.file_name().unwrap_or_default().to_string_lossy();
-            if !name.starts_with("lib") || !name.contains(".so") { continue; }
+            if !name.starts_with("lib") || !name.contains(".so") {
+                continue;
+            }
             let abs = path.to_string_lossy().into_owned();
             if !registered_files.contains(&abs) {
                 r.orphaned_libs.push(abs);

@@ -12,11 +12,11 @@ pub struct ZexServices {
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Mirror {
-    pub id:              String,
-    pub base_url:        String,
-    pub index_url:       String,
-    pub format:          String,
-    pub priority:        u32,
+    pub id: String,
+    pub base_url: String,
+    pub index_url: String,
+    pub format: String,
+    pub priority: u32,
     #[serde(default)]
     pub supported_archs: Vec<String>,
 }
@@ -31,7 +31,9 @@ impl ZexServices {
                 }
             }
         }
-        Self { mirrors: Vec::new() }
+        Self {
+            mirrors: Vec::new(),
+        }
     }
 
     pub fn mirror_by_id(&self, id: &str) -> Option<&Mirror> {
@@ -39,9 +41,7 @@ impl ZexServices {
     }
 
     pub fn mirrors_by_format(&self, fmt: &str) -> Vec<&Mirror> {
-        let mut ms: Vec<&Mirror> = self.mirrors.iter()
-            .filter(|m| m.format == fmt)
-            .collect();
+        let mut ms: Vec<&Mirror> = self.mirrors.iter().filter(|m| m.format == fmt).collect();
         ms.sort_by_key(|m| m.priority);
         ms
     }

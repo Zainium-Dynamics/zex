@@ -15,11 +15,11 @@
 //!   5. On any error: restore `.bak`
 //!   6. After full upgrade success: delete `.bak`
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::{fs, path::Path};
 
-const ZEX_LIVE: &str    = "/overlayer/syshub/bin/zex";
-const ZEX_BAK:  &str    = "/overlayer/syshub/bin/zex.bak";
+const ZEX_LIVE: &str = "/overlayer/syshub/bin/zex";
+const ZEX_BAK: &str = "/overlayer/syshub/bin/zex.bak";
 
 /// Called by syscore after syshub.new is fully extracted and verified.
 ///
@@ -28,11 +28,7 @@ const ZEX_BAK:  &str    = "/overlayer/syshub/bin/zex.bak";
 /// trigger a swap when zex itself actually changed.
 ///
 /// Returns `Ok(true)` if a swap was performed, `Ok(false)` if no swap needed.
-pub fn maybe_swap_zex(
-    new_syshub:   &Path,
-    old_zex_ver:  &str,
-    new_zex_ver:  &str,
-) -> Result<bool> {
+pub fn maybe_swap_zex(new_syshub: &Path, old_zex_ver: &str, new_zex_ver: &str) -> Result<bool> {
     if old_zex_ver == new_zex_ver {
         return Ok(false); // zex version unchanged — nothing to do
     }
@@ -48,8 +44,7 @@ pub fn maybe_swap_zex(
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
-        let meta = fs::metadata(&new_bin)
-            .context("reading metadata of syshub.new/bin/zex")?;
+        let meta = fs::metadata(&new_bin).context("reading metadata of syshub.new/bin/zex")?;
         if meta.mode() & 0o111 == 0 {
             bail!(
                 "syshub.new/bin/zex is not executable (mode {:o}) — aborting swap",
@@ -111,8 +106,7 @@ pub fn restore_bak() -> Result<()> {
         if Path::new(ZEX_LIVE).exists() {
             let _ = fs::remove_file(ZEX_LIVE);
         }
-        fs::rename(ZEX_BAK, ZEX_LIVE)
-            .context("restoring zex from .bak during rollback")?;
+        fs::rename(ZEX_BAK, ZEX_LIVE).context("restoring zex from .bak during rollback")?;
     }
     Ok(())
 }

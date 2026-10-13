@@ -3,16 +3,16 @@
 //!   pub async fn run(raw_args: Vec<String>) — for async commands
 //!   pub fn run(raw_args: Vec<String>)       — for sync commands
 
-pub mod install;
-pub mod upgrade;
-pub mod remove;
-pub mod search;
-pub mod refresh;
-pub mod doctor;
-pub mod rollback;
-pub mod update;
-pub mod sweep;
-pub mod inspect;
 pub mod depends;
-pub mod why;
+pub mod doctor;
 pub mod history;
+pub mod inspect;
+pub mod install;
+pub mod refresh;
+pub mod remove;
+pub mod rollback;
+pub mod search;
+pub mod sweep;
+pub mod update;
+pub mod upgrade;
+pub mod why;

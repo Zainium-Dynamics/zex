@@ -7,18 +7,23 @@ use std::io::Read;
 use crate::cmd::search::models::{Origin, SearchResult};
 
 pub async fn probe_xbps(
-    query:     &str,
-    client:    &reqwest::Client,
+    query: &str,
+    client: &reqwest::Client,
     index_url: &str,
 ) -> Result<Vec<SearchResult>> {
     let q = query.to_ascii_lowercase();
 
-    let bytes = client.get(index_url).send().await?
-        .error_for_status()?.bytes().await?;
+    let bytes = client
+        .get(index_url)
+        .send()
+        .await?
+        .error_for_status()?
+        .bytes()
+        .await?;
 
     let q_inner = q.clone();
     let results = tokio::task::spawn_blocking(move || -> Vec<SearchResult> {
-        let dec  = match zstd::stream::read::Decoder::new(&bytes[..]) {
+        let dec = match zstd::stream::read::Decoder::new(&bytes[..]) {
             Ok(d) => d,
             Err(_) => return vec![],
         };
@@ -41,7 +46,9 @@ pub async fn probe_xbps(
             }
         }
 
-        if plist_bytes.is_empty() { return vec![]; }
+        if plist_bytes.is_empty() {
+            return vec![];
+        }
 
         let val = match plist::from_bytes::<plist::Value>(&plist_bytes) {
             Ok(v) => v,
@@ -50,26 +57,36 @@ pub async fn probe_xbps(
 
         let dict = match val.into_dictionary() {
             Some(d) => d,
-            None    => return vec![],
+            None => return vec![],
         };
 
         let mut out = Vec::new();
         for (key, meta_val) in dict {
-            let Some(meta) = meta_val.as_dictionary() else { continue };
+            let Some(meta) = meta_val.as_dictionary() else {
+                continue;
+            };
 
             // The current Void repodata schema keys the dictionary by the
             // package name itself; there's no separate "pkgname" field and
             // no plain "version" field (only combined "pkgver").
             let name = key.clone();
-            let pkgver = meta.get("pkgver").and_then(|v| v.as_string()).unwrap_or(&key);
+            let pkgver = meta
+                .get("pkgver")
+                .and_then(|v| v.as_string())
+                .unwrap_or(&key);
             let ver = pkgver
                 .strip_prefix(&format!("{key}-"))
                 .unwrap_or(pkgver)
                 .to_string();
-            let desc = meta.get("short_desc")
-                .and_then(|v| v.as_string()).unwrap_or("").to_string();
+            let desc = meta
+                .get("short_desc")
+                .and_then(|v| v.as_string())
+                .unwrap_or("")
+                .to_string();
 
-            if name.is_empty() { continue; }
+            if name.is_empty() {
+                continue;
+            }
 
             let lname = name.to_ascii_lowercase();
             let ldesc = desc.to_ascii_lowercase();
@@ -77,16 +94,18 @@ pub async fn probe_xbps(
             if lname.contains(&q_inner) || ldesc.contains(&q_inner) {
                 out.push(SearchResult {
                     name,
-                    version:     ver,
-                    origin:      Origin::Void,
+                    version: ver,
+                    origin: Origin::Void,
                     description: desc,
-                    installed:   false,
-                    tags:        Vec::new(),
+                    installed: false,
+                    tags: Vec::new(),
                 });
             }
         }
         out
-    }).await.unwrap_or_default();
+    })
+    .await
+    .unwrap_or_default();
 
     Ok(results)
 }

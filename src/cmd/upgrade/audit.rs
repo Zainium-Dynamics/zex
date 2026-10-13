@@ -8,16 +8,15 @@ use std::path::Path;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AuditEntry {
-    pub timestamp:   String,
-    pub kind:        String,   // "syshub" | "uland"
-    pub outcome:     String,   // "success" | "rolled_back" | "failed"
-    pub packages:    Vec<String>,
+    pub timestamp: String,
+    pub kind: String,    // "syshub" | "uland"
+    pub outcome: String, // "success" | "rolled_back" | "failed"
+    pub packages: Vec<String>,
     pub duration_ms: u64,
-    pub error:       Option<String>,
+    pub error: Option<String>,
 }
 
-const AUDIT_PATH: &str =
-    "/overlayer/zexlib/registry/upgrade-audit.toml";
+const AUDIT_PATH: &str = "/overlayer/zexlib/registry/upgrade-audit.toml";
 
 pub fn append(entry: AuditEntry) -> Result<()> {
     let mut entries: Vec<AuditEntry> = if Path::new(AUDIT_PATH).exists() {
@@ -34,7 +33,9 @@ pub fn append(entry: AuditEntry) -> Result<()> {
     }
 
     #[derive(Serialize)]
-    struct Root { entries: Vec<AuditEntry> }
+    struct Root {
+        entries: Vec<AuditEntry>,
+    }
     let out = toml::to_string_pretty(&Root { entries })?;
 
     if let Some(p) = Path::new(AUDIT_PATH).parent() {

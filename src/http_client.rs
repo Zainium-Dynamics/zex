@@ -5,12 +5,11 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use base64::Engine;
-use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
-use rustls::client::WebPkiServerVerifier;
-use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::DigitallySignedStruct;
+use rustls::client::WebPkiServerVerifier;
+use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{Error, RootCertStore, SignatureScheme};
-
 
 /// Optional SPKI SHA-256 pins (base64) per host, `[host]` table in this file.
 /// No pins are built in: Cloudflare rotates the archive's leaf cert, and a
@@ -71,7 +70,9 @@ impl ZainiumResolver {
             .map_err(|e| log::warn!("{RESOLV_CONF_PATH}: {e}"))
             .ok()?;
         opts.ip_strategy = hickory_resolver::config::LookupIpStrategy::Ipv4thenIpv6;
-        Some(Self(hickory_resolver::TokioAsyncResolver::tokio(config, opts)))
+        Some(Self(hickory_resolver::TokioAsyncResolver::tokio(
+            config, opts,
+        )))
     }
 }
 
@@ -80,8 +81,11 @@ impl reqwest::dns::Resolve for ZainiumResolver {
         let resolver = self.0.clone();
         Box::pin(async move {
             let lookup = resolver.lookup_ip(name.as_str()).await?;
-            let addrs: reqwest::dns::Addrs =
-                Box::new(lookup.into_iter().map(|ip| std::net::SocketAddr::new(ip, 0)));
+            let addrs: reqwest::dns::Addrs = Box::new(
+                lookup
+                    .into_iter()
+                    .map(|ip| std::net::SocketAddr::new(ip, 0)),
+            );
             Ok(addrs)
         })
     }
@@ -96,7 +100,9 @@ fn load_pins() -> HashMap<String, Vec<Vec<u8>>> {
                 let decoded: Vec<Vec<u8>> = b64_list
                     .iter()
                     .filter_map(|b64| {
-                        base64::engine::general_purpose::STANDARD.decode(b64.trim()).ok()
+                        base64::engine::general_purpose::STANDARD
+                            .decode(b64.trim())
+                            .ok()
                     })
                     .collect();
                 if !decoded.is_empty() {
@@ -156,9 +162,7 @@ impl ServerCertVerifier for SpkiPinVerifier {
             if let Some(expected) = self.pins.get(host) {
                 let spki = spki_hash(end_entity)?;
                 if !expected.iter().any(|pin| pin == &spki) {
-                    return Err(Error::General(format!(
-                        "TLS SPKI pin mismatch for {host}"
-                    )));
+                    return Err(Error::General(format!("TLS SPKI pin mismatch for {host}")));
                 }
                 log::debug!("TLS SPKI pin verified for {host}");
             }

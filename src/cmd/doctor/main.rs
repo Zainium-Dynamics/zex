@@ -13,8 +13,8 @@ use super::ui;
 
 #[derive(Parser, Debug)]
 #[command(
-    name    = "doctor",
-    about   = "Zex Doctor — System Health & Dependency Audit Engine",
+    name = "doctor",
+    about = "Zex Doctor — System Health & Dependency Audit Engine",
     version,
     override_usage = "elevate zex doctor [--fix]"
 )]
@@ -44,7 +44,10 @@ fn run_audit_mode() {
 
     let result = match audit::run_full_audit() {
         Ok(r) => r,
-        Err(e) => { ui::print_error(e.to_string().as_str()); return; }
+        Err(e) => {
+            ui::print_error(e.to_string().as_str());
+            return;
+        }
     };
 
     ui::print_audit_results_header();
@@ -72,13 +75,19 @@ fn run_audit_mode() {
     let libc_detail = if libc_ok {
         "\u{2713} None".to_string()
     } else {
-        format!("{} glibc artifacts in userland", result.libc_violations.len())
+        format!(
+            "{} glibc artifacts in userland",
+            result.libc_violations.len()
+        )
     };
     ui::print_audit_row("libc Boundary Violations", libc_ok, &libc_detail);
 
     // Syshub integrity
     let syshub_detail = if result.syshub_ok {
-        format!("\u{2713} Verified ({}/{} components clean)", result.syshub_clean, result.syshub_total)
+        format!(
+            "\u{2713} Verified ({}/{} components clean)",
+            result.syshub_clean, result.syshub_total
+        )
     } else {
         let issues = result.missing_syshub_dirs.len()
             + result.missing_relibc_files.len()
@@ -97,17 +106,13 @@ fn run_audit_mode() {
     ui::print_audit_row("relibc (Zainium native libc)", relibc_ok, &relibc_detail);
 
     // musl sysroot check (x86_64-zainium-linux-musl)
-    let musl_ok  = result.missing_musl_files.is_empty();
+    let musl_ok = result.missing_musl_files.is_empty();
     let musl_det = if musl_ok {
         format!("✓ libc.so + ld-musl-x86_64.so.1 + libgcc_s + specs")
     } else {
         format!("{} file(s) missing", result.missing_musl_files.len())
     };
-    ui::print_audit_row(
-        "musl (x86_64-zainium-linux-musl)",
-        musl_ok,
-        &musl_det,
-    );
+    ui::print_audit_row("musl (x86_64-zainium-linux-musl)", musl_ok, &musl_det);
 
     // Orphaned packages
     let orp_ok = result.orphaned_packages.is_empty();
@@ -161,7 +166,10 @@ fn run_fix_mode() {
 
     let audit = match audit::run_full_audit() {
         Ok(r) => r,
-        Err(e) => { ui::print_error(e.to_string().as_str()); return; }
+        Err(e) => {
+            ui::print_error(e.to_string().as_str());
+            return;
+        }
     };
 
     if audit.total_issues() == 0 {
@@ -173,7 +181,10 @@ fn run_fix_mode() {
 
     let report = match fix::run_fix(&audit) {
         Ok(r) => r,
-        Err(e) => { ui::print_error(e.to_string().as_str()); return; }
+        Err(e) => {
+            ui::print_error(e.to_string().as_str());
+            return;
+        }
     };
 
     if !report.manual_items.is_empty() {

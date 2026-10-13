@@ -1,9 +1,13 @@
 //! apply.rs — Download and apply upgrades for userland and syshub.
 
 use anyhow::Result;
-use futures_util::{stream, StreamExt};
+use futures_util::{StreamExt, stream};
 use indicatif::MultiProgress;
-use std::{fs, io::Write, path::{Path, PathBuf}};
+use std::{
+    fs,
+    io::Write,
+    path::{Path, PathBuf},
+};
 
 use super::diff::UpgradePkg;
 use super::ui;
@@ -14,10 +18,10 @@ const UNION_PATH: &str = "/overlayer/zexlib/union";
 /// Download + extract userland packages 2 at a time into union.
 pub async fn apply_uland(
     upgrades: &[UpgradePkg],
-    client:   &reqwest::Client,
-    dl_tmp:   &Path,
-    mp:       &MultiProgress,
-    overall:  &indicatif::ProgressBar,
+    client: &reqwest::Client,
+    dl_tmp: &Path,
+    mp: &MultiProgress,
+    overall: &indicatif::ProgressBar,
     sig_mode: crate::trust::SignatureVerificationMode,
 ) -> Result<u64> {
     let mut total_bytes = 0u64;
@@ -27,22 +31,23 @@ pub async fn apply_uland(
     // finished, so a package that finished early just sat at 100% instead
     // of immediately picking up the next one while its chunk-mate kept
     // streaming (same fix as cmd::upgrade::syscore/userland).
-    let mut in_flight = stream::iter(upgrades.iter()).map(|pkg| {
-        let label = format!("{:<22} → {}", pkg.name, pkg.new_ver);
-        let bar   = ui::make_pkg_bar(mp, pkg.size_bytes, &label);
+    let mut in_flight = stream::iter(upgrades.iter())
+        .map(|pkg| {
+            let label = format!("{:<22} → {}", pkg.name, pkg.new_ver);
+            let bar = ui::make_pkg_bar(mp, pkg.size_bytes, &label);
 
-        let url       = pkg.url.clone();
-        let dest      = dl_tmp.join(&pkg.filename);
-        let name      = pkg.name.clone();
-        let new_ver   = pkg.new_ver.clone();
-        let cl2       = client.clone();
-        let overall_h = overall.clone();
-        async move {
-            let result = download_with_bar(&cl2, &url, &dest, &bar, &overall_h).await;
-            (name, new_ver, dest, result)
-        }
-    })
-    .buffer_unordered(2);
+            let url = pkg.url.clone();
+            let dest = dl_tmp.join(&pkg.filename);
+            let name = pkg.name.clone();
+            let new_ver = pkg.new_ver.clone();
+            let cl2 = client.clone();
+            let overall_h = overall.clone();
+            async move {
+                let result = download_with_bar(&cl2, &url, &dest, &bar, &overall_h).await;
+                (name, new_ver, dest, result)
+            }
+        })
+        .buffer_unordered(2);
 
     // `buffer_unordered` completes futures in COMPLETION order, not
     // submission order — each result carries its own package identity
@@ -56,13 +61,17 @@ pub async fn apply_uland(
             // the package's own manifest.toml.
             crate::trust::verify_zex_archive(&zex_path, sig_mode)?;
             // through the merged mount, so the update is visible right away
-            let written = extract_into(&zex_path, &crate::archive_safety::live_path(Path::new(UNION_PATH)))?;
+            let written = extract_into(
+                &zex_path,
+                &crate::archive_safety::live_path(Path::new(UNION_PATH)),
+            )?;
             // No separate staging root here (UNION_PATH is live), so this
             // is the only "just written" window there is — same reasoning
             // as cmd::upgrade::userland's identical extract_*_into fix.
             crate::cmd::install::elfpatch::patch_staged_elfs(&written)?;
             crate::cmd::install::pcpatch::patch_staged_pkgconfig(
-                &written, crate::archive_safety::UNION_ROOT,
+                &written,
+                crate::archive_safety::UNION_ROOT,
             )?;
             crate::cmd::install::shebangpatch::patch_staged_scripts(&written)?;
             crate::triggers::note(&written);
@@ -75,11 +84,11 @@ pub async fn apply_uland(
 
 /// Download + extract syshub packages 2 at a time into syshub.new then atomic overwrite.
 pub async fn apply_syshub(
-    upgrades:    &[UpgradePkg],
-    client:      &reqwest::Client,
-    dl_tmp:      &Path,
-    mp:          &MultiProgress,
-    overall:     &indicatif::ProgressBar,
+    upgrades: &[UpgradePkg],
+    client: &reqwest::Client,
+    dl_tmp: &Path,
+    mp: &MultiProgress,
+    overall: &indicatif::ProgressBar,
     syshub_path: &str,
     remote_manifest: &str,
 ) -> Result<u64> {
@@ -90,20 +99,21 @@ pub async fn apply_syshub(
     let mut staged_files: Vec<PathBuf> = Vec::new();
 
     // Sliding-window concurrency — same fix as apply_uland above.
-    let mut in_flight = stream::iter(upgrades.iter()).map(|pkg| {
-        let label = format!("{:<22} → {}", pkg.name, pkg.new_ver);
-        let bar   = ui::make_pkg_bar(mp, pkg.size_bytes, &label);
+    let mut in_flight = stream::iter(upgrades.iter())
+        .map(|pkg| {
+            let label = format!("{:<22} → {}", pkg.name, pkg.new_ver);
+            let bar = ui::make_pkg_bar(mp, pkg.size_bytes, &label);
 
-        let url       = pkg.url.clone();
-        let dest      = dl_tmp.join(&pkg.filename);
-        let cl2       = client.clone();
-        let overall_h = overall.clone();
-        async move {
-            let result = download_with_bar(&cl2, &url, &dest, &bar, &overall_h).await;
-            (dest, result)
-        }
-    })
-    .buffer_unordered(2);
+            let url = pkg.url.clone();
+            let dest = dl_tmp.join(&pkg.filename);
+            let cl2 = client.clone();
+            let overall_h = overall.clone();
+            async move {
+                let result = download_with_bar(&cl2, &url, &dest, &bar, &overall_h).await;
+                (dest, result)
+            }
+        })
+        .buffer_unordered(2);
 
     while let Some((zex_path, result)) = in_flight.next().await {
         if let Ok(bytes) = result {
@@ -111,7 +121,10 @@ pub async fn apply_syshub(
             // Syshub core is always Strict, regardless of the userland
             // `require_signatures` config — same invariant as
             // `cmd::upgrade::syscore`.
-            crate::trust::verify_zex_archive(&zex_path, crate::trust::SignatureVerificationMode::Strict)?;
+            crate::trust::verify_zex_archive(
+                &zex_path,
+                crate::trust::SignatureVerificationMode::Strict,
+            )?;
             staged_files.extend(extract_into(&zex_path, &staging)?);
         }
     }
@@ -146,10 +159,10 @@ pub async fn apply_syshub(
 /// attempt's partial bytes on a retry — an acceptable trade-off against
 /// aborting outright.
 async fn download_with_bar(
-    client:  &reqwest::Client,
-    url:     &str,
-    dest:    &Path,
-    bar:     &indicatif::ProgressBar,
+    client: &reqwest::Client,
+    url: &str,
+    dest: &Path,
+    bar: &indicatif::ProgressBar,
     overall: &indicatif::ProgressBar,
 ) -> Result<u64> {
     const DELAYS_MS: [u64; 4] = [0, 500, 1_000, 2_000];
@@ -159,7 +172,10 @@ async fn download_with_bar(
             tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
         }
         match download_once(client, url, dest, bar, overall).await {
-            Ok(tot) => { bar.finish(); return Ok(tot); }
+            Ok(tot) => {
+                bar.finish();
+                return Ok(tot);
+            }
             Err(e) => last_err = Some(e),
         }
     }
@@ -167,17 +183,19 @@ async fn download_with_bar(
 }
 
 async fn download_once(
-    client:  &reqwest::Client,
-    url:     &str,
-    dest:    &Path,
-    bar:     &indicatif::ProgressBar,
+    client: &reqwest::Client,
+    url: &str,
+    dest: &Path,
+    bar: &indicatif::ProgressBar,
     overall: &indicatif::ProgressBar,
 ) -> Result<u64> {
     let resp = client.get(url).send().await?.error_for_status()?;
-    if let Some(p) = dest.parent() { fs::create_dir_all(p)?; }
-    let mut f   = std::io::BufWriter::new(fs::File::create(dest)?);
+    if let Some(p) = dest.parent() {
+        fs::create_dir_all(p)?;
+    }
+    let mut f = std::io::BufWriter::new(fs::File::create(dest)?);
     let mut tot = 0u64;
-    let mut s   = resp.bytes_stream();
+    let mut s = resp.bytes_stream();
     while let Some(chunk) = s.next().await {
         let chunk = chunk?;
         tot += chunk.len() as u64;
@@ -208,9 +226,11 @@ fn extract_into(zex_path: &Path, dest: &Path) -> Result<Vec<PathBuf>> {
     let mut written: Vec<PathBuf> = Vec::new();
     for entry in archive.entries()? {
         let mut entry = entry?;
-        let raw  = entry.path()?.into_owned();
-        let rel  = raw.to_string_lossy();
-        if !rel.starts_with("payload/") { continue; }
+        let raw = entry.path()?.into_owned();
+        let rel = raw.to_string_lossy();
+        if !rel.starts_with("payload/") {
+            continue;
+        }
         let inner = match raw.strip_prefix("payload") {
             Ok(p) => p,
             Err(_) => continue,
@@ -219,15 +239,23 @@ fn extract_into(zex_path: &Path, dest: &Path) -> Result<Vec<PathBuf>> {
             Ok(p) => p,
             Err(_) => continue,
         };
-        if clean.as_os_str().is_empty() { continue; }
+        if clean.as_os_str().is_empty() {
+            continue;
+        }
         let dst = dest.join(&clean);
         let typ = entry.header().entry_type();
-        if typ.is_dir() { fs::create_dir_all(&dst)?; continue; }
-        if let Some(p) = dst.parent() { fs::create_dir_all(p)?; }
+        if typ.is_dir() {
+            fs::create_dir_all(&dst)?;
+            continue;
+        }
+        if let Some(p) = dst.parent() {
+            fs::create_dir_all(p)?;
+        }
         if typ.is_file() {
             let mut out = fs::File::create(&dst)?;
             std::io::copy(&mut entry, &mut out)?;
-            #[cfg(unix)] {
+            #[cfg(unix)]
+            {
                 use std::os::unix::fs::PermissionsExt;
                 if entry.header().mode().unwrap_or(0) & 0o111 != 0 {
                     fs::set_permissions(&dst, fs::Permissions::from_mode(0o755))?;
@@ -261,4 +289,3 @@ fn update_receipt(name: &str, new_ver: &str) -> Result<()> {
     }
     crate::cmd::install::registry::update_version(name, new_ver)
 }
-

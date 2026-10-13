@@ -17,8 +17,7 @@ pub unsafe fn child_pre_exec(store_path: &Path) -> std::io::Result<()> {
 
     if let Err(e) = landlock_rules::restrict_postinst(store_path) {
         log::debug!("Landlock sandbox unavailable (non-fatal): {e}");
-        seccomp::apply_postinst_filter()
-            .map_err(|e| std::io::Error::other(e.to_string()))?;
+        seccomp::apply_postinst_filter().map_err(|e| std::io::Error::other(e.to_string()))?;
     }
     Ok(())
 }

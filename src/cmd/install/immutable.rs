@@ -200,8 +200,10 @@ pub fn create_snapshot(label: &str, affected_packages: &[String]) -> Result<Snap
     // source_mirror, which a real restore needs).
     let db = registry::load_all();
     let db_backup_path = snap_dir.join("db_backup.toml");
-    let db_toml = toml::to_string_pretty(&DbBackup { packages: db.clone() })
-        .context("Failed to serialise package registry backup")?;
+    let db_toml = toml::to_string_pretty(&DbBackup {
+        packages: db.clone(),
+    })
+    .context("Failed to serialise package registry backup")?;
     std::fs::write(&db_backup_path, &db_toml).context("Failed to write database backup")?;
 
     // 2. Build manifest with package entries
@@ -294,8 +296,11 @@ pub fn restore_snapshot(snapshot_id: &str) -> Result<()> {
         let raw = std::fs::read_to_string(&db_backup).context("reading db_backup.toml")?;
         let backup: DbBackup = toml::from_str(&raw).context("parsing db_backup.toml")?;
 
-        let snapshot_names: std::collections::HashSet<String> =
-            backup.packages.iter().map(|r| r.name.to_lowercase()).collect();
+        let snapshot_names: std::collections::HashSet<String> = backup
+            .packages
+            .iter()
+            .map(|r| r.name.to_lowercase())
+            .collect();
 
         for record in &backup.packages {
             registry::register(record).context("restoring package registry entry")?;

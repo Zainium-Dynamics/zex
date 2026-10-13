@@ -10,10 +10,10 @@
 //! each project (Alpine's `alpine-keys` package, Chimera's
 //! `repo.chimera-linux.org/apk/keys/`).
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
+use rsa::RsaPublicKey;
 use rsa::pkcs1::EncodeRsaPublicKey;
 use rsa::pkcs1v15::Pkcs1v15Sign;
-use rsa::RsaPublicKey;
 use sha1::Sha1;
 use sha2::{Digest, Sha256, Sha512};
 use std::io::Read;
@@ -27,7 +27,8 @@ enum HashAlg {
 
 fn parse_pubkey(pem: &str) -> Result<RsaPublicKey> {
     use rsa::pkcs8::DecodePublicKey;
-    RsaPublicKey::from_public_key_pem(pem).context("failed to parse embedded trust-anchor public key")
+    RsaPublicKey::from_public_key_pem(pem)
+        .context("failed to parse embedded trust-anchor public key")
 }
 
 fn verify_pkcs1v15(pubkey: &RsaPublicKey, alg: HashAlg, message: &[u8], sig: &[u8]) -> Result<()> {
@@ -144,10 +145,19 @@ pub fn verify_apk_v2(data: &[u8]) -> Result<()> {
         .context("failed to decompress apk signature tarball")?;
 
     let mut archive = tar::Archive::new(&sig_tar_bytes[..]);
-    for entry in archive.entries().context("failed to read apk signature tarball entries")? {
+    for entry in archive
+        .entries()
+        .context("failed to read apk signature tarball entries")?
+    {
         let mut entry = entry.context("failed to read apk signature tarball entry")?;
-        let path = entry.path().context("bad path in signature tarball")?.to_string_lossy().into_owned();
-        let Some(rest) = path.strip_prefix(".SIGN.") else { continue };
+        let path = entry
+            .path()
+            .context("bad path in signature tarball")?
+            .to_string_lossy()
+            .into_owned();
+        let Some(rest) = path.strip_prefix(".SIGN.") else {
+            continue;
+        };
 
         let (alg, keyname) = if let Some(k) = rest.strip_prefix("RSA256.") {
             (HashAlg::Sha256, k)
@@ -159,14 +169,17 @@ pub fn verify_apk_v2(data: &[u8]) -> Result<()> {
             continue;
         };
 
-        let Some((_, pem)) = ALPINE_KEYS.iter().find(|(name, _)| {
-            name.rsplit('/').next() == Some(keyname)
-        }) else {
+        let Some((_, pem)) = ALPINE_KEYS
+            .iter()
+            .find(|(name, _)| name.rsplit('/').next() == Some(keyname))
+        else {
             continue;
         };
 
         let mut sig_bytes = Vec::new();
-        entry.read_to_end(&mut sig_bytes).context("failed to read signature bytes")?;
+        entry
+            .read_to_end(&mut sig_bytes)
+            .context("failed to read signature bytes")?;
         let pubkey = parse_pubkey(pem)?;
         verify_pkcs1v15(&pubkey, alg, control_compressed, &sig_bytes)
             .context("apk package signature did not verify against a trusted Alpine key")?;
@@ -180,7 +193,9 @@ pub fn verify_apk_v2(data: &[u8]) -> Result<()> {
 
 fn chimera_key_id(pem: &str) -> Result<[u8; 16]> {
     let pubkey = parse_pubkey(pem)?;
-    let der = pubkey.to_pkcs1_der().context("failed to re-encode trust-anchor key as PKCS#1 DER")?;
+    let der = pubkey
+        .to_pkcs1_der()
+        .context("failed to re-encode trust-anchor key as PKCS#1 DER")?;
     let digest = Sha512::digest(der.as_bytes());
     let mut id = [0u8; 16];
     id.copy_from_slice(&digest[..16]);
@@ -250,7 +265,9 @@ pub fn verify_adb_v3(data: &[u8]) -> Result<()> {
         msg.extend_from_slice(&md);
 
         for (_, pem) in CHIMERA_KEYS {
-            let Ok(id) = chimera_key_id(pem) else { continue };
+            let Ok(id) = chimera_key_id(pem) else {
+                continue;
+            };
             if id != key_id {
                 continue;
             }
@@ -312,7 +329,8 @@ pub fn tofu_pin_void_key(mirror_id: &str, pem: &[u8], signed_by: &str) -> Result
 /// the SHA-256 digest of the *entire* `.xbps` file — matching
 /// `RSA_verify(NID_sha256, ...)` in xbps' own `verifysig.c` exactly.
 pub fn verify_xbps(pkg_bytes: &[u8], sig2_bytes: &[u8], pinned_pubkey_pem: &[u8]) -> Result<()> {
-    let pem = std::str::from_utf8(pinned_pubkey_pem).context("pinned Void key is not valid UTF-8")?;
+    let pem =
+        std::str::from_utf8(pinned_pubkey_pem).context("pinned Void key is not valid UTF-8")?;
     let pubkey = parse_pubkey(pem)?;
     verify_pkcs1v15(&pubkey, HashAlg::Sha256, pkg_bytes, sig2_bytes)
         .context("xbps package signature did not verify against the pinned repo key")

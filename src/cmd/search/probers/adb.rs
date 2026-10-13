@@ -7,14 +7,19 @@ use anyhow::Result;
 use crate::cmd::search::models::{Origin, SearchResult};
 
 pub async fn probe_adb(
-    query:     &str,
-    client:    &reqwest::Client,
+    query: &str,
+    client: &reqwest::Client,
     index_url: &str,
 ) -> Result<Vec<SearchResult>> {
     let q = query.to_ascii_lowercase();
 
-    let bytes = client.get(index_url).send().await?
-        .error_for_status()?.bytes().await?;
+    let bytes = client
+        .get(index_url)
+        .send()
+        .await?
+        .error_for_status()?
+        .bytes()
+        .await?;
 
     let q_inner = q.clone();
     let results = tokio::task::spawn_blocking(move || -> Vec<SearchResult> {
@@ -23,7 +28,8 @@ pub async fn probe_adb(
             Err(_) => return Vec::new(),
         };
 
-        records.into_iter()
+        records
+            .into_iter()
             .filter(|r| {
                 r.name.to_ascii_lowercase().contains(&q_inner)
                     || r.description.to_ascii_lowercase().contains(&q_inner)
@@ -37,7 +43,9 @@ pub async fn probe_adb(
                 tags: Vec::new(),
             })
             .collect()
-    }).await.unwrap_or_default();
+    })
+    .await
+    .unwrap_or_default();
 
     Ok(results)
 }

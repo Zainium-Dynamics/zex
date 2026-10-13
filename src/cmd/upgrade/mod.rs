@@ -2,12 +2,12 @@
 pub mod audit;
 pub mod benchmark;
 pub mod checksum;
+pub mod main;
 pub mod swap;
+pub mod syscore;
 pub mod transaction;
 pub mod ui;
-pub mod vercmp;
-pub mod syscore;
 pub mod userland;
-pub mod main;
+pub mod vercmp;
 
 pub use main::run;

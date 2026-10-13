@@ -54,11 +54,15 @@ enum PreState {
 /// fsync it, rename over the destination, then fsync the containing
 /// directory so the rename itself is durable across a power loss.
 fn write_atomic(path: &Path, contents: &[u8]) -> anyhow::Result<()> {
-    let dir = path.parent().ok_or_else(|| anyhow!("path has no parent: {:?}", path))?;
+    let dir = path
+        .parent()
+        .ok_or_else(|| anyhow!("path has no parent: {:?}", path))?;
     fs::create_dir_all(dir)?;
     let tmp_path = dir.join(format!(
         ".{}.tmp-{}",
-        path.file_name().and_then(|n| n.to_str()).unwrap_or("journal"),
+        path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("journal"),
         std::process::id()
     ));
     {
@@ -175,7 +179,8 @@ impl Transaction {
         write_atomic(&journal_path, &journal_json)?;
         self.checkpoint_seq += 1;
 
-        self.step_log.push(format!("checkpoint: {:?}", checkpoint.target));
+        self.step_log
+            .push(format!("checkpoint: {:?}", checkpoint.target));
         self.checkpoints.push(checkpoint);
         Ok(())
     }
@@ -193,7 +198,10 @@ impl Transaction {
         // below, `recover_stale` must see "committed" and just finish
         // deleting the directory, not mistakenly roll back a transaction
         // that had already fully succeeded.
-        let _ = write_atomic(&self.backup_root.join(STATE_FILE), STATE_COMMITTED.as_bytes());
+        let _ = write_atomic(
+            &self.backup_root.join(STATE_FILE),
+            STATE_COMMITTED.as_bytes(),
+        );
         for cp in &self.checkpoints {
             match &cp.state {
                 PreState::BackedUp(bp) => {
@@ -283,12 +291,20 @@ impl Transaction {
             journal_files.sort();
 
             for journal_path in journal_files.into_iter().rev() {
-                let Ok(raw) = fs::read_to_string(&journal_path) else { continue };
-                let Ok(cp) = serde_json::from_str::<Checkpoint>(&raw) else { continue };
+                let Ok(raw) = fs::read_to_string(&journal_path) else {
+                    continue;
+                };
+                let Ok(cp) = serde_json::from_str::<Checkpoint>(&raw) else {
+                    continue;
+                };
                 let target_display = cp.target.display().to_string();
                 match restore_checkpoint(cp) {
                     Ok(()) => recovered.push(target_display),
-                    Err(e) => log::warn!("crash recovery: failed to restore {}: {}", target_display, e),
+                    Err(e) => log::warn!(
+                        "crash recovery: failed to restore {}: {}",
+                        target_display,
+                        e
+                    ),
                 }
             }
 

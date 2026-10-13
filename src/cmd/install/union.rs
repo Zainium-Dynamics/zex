@@ -97,10 +97,9 @@ impl UnionLayer {
         }
 
         let event = build_sync_event();
-        let json = serde_json::to_string_pretty(&event)
-            .context("serialize zex upperlayer sync event")?;
-        fs::write(SYNC_STAMP, json)
-            .with_context(|| format!("write sync stamp {SYNC_STAMP}"))?;
+        let json =
+            serde_json::to_string_pretty(&event).context("serialize zex upperlayer sync event")?;
+        fs::write(SYNC_STAMP, json).with_context(|| format!("write sync stamp {SYNC_STAMP}"))?;
 
         ping_quantra_control();
         Ok(())

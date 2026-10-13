@@ -69,7 +69,9 @@ fn print_root_required() {
     eprintln!(
         "{GREEN}  This operation modifies system files and requires elevated privileges.{RESET}"
     );
-    eprintln!("\n{GREEN}  Run with: {PURPLE}elevate zex syshub --u{RESET} or {PURPLE}elevate zex uland --u{RESET}\n");
+    eprintln!(
+        "\n{GREEN}  Run with: {PURPLE}elevate zex syshub --u{RESET} or {PURPLE}elevate zex uland --u{RESET}\n"
+    );
 }
 
 pub async fn run(raw_args: Vec<String>) -> anyhow::Result<()> {
@@ -83,7 +85,7 @@ pub async fn run(raw_args: Vec<String>) -> anyhow::Result<()> {
     if args.len() > 1 && args[1] == "upgrade" {
         args.remove(1);
     }
-    
+
     let cli = Cli::parse_from(args);
     set_global_config(cli.dry_run, cli.verbose);
 

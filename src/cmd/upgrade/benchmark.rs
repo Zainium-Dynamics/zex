@@ -4,7 +4,7 @@ use std::time::Instant;
 
 /// Lightweight benchmark guard — prints elapsed on drop.
 pub struct Benchmark {
-    label:   String,
+    label: String,
     started: Instant,
     threshold_ms: u128,
 }

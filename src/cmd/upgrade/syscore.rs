@@ -20,7 +20,7 @@
 //!   7. quantra-ramfs applies it to the base layer at the next boot (never into zexlib)
 
 use anyhow::{Context, Result, bail};
-use futures_util::{stream, StreamExt};
+use futures_util::{StreamExt, stream};
 use indicatif::MultiProgress;
 use serde::Deserialize;
 use std::{
@@ -33,7 +33,6 @@ use walkdir::WalkDir;
 
 use super::{
     audit::{self, AuditEntry},
-
     transaction::Transaction,
     ui,
     vercmp::is_upgrade,
@@ -41,22 +40,23 @@ use super::{
 
 // ── Paths ──────────────────────────────────────────────────────────────────────
 /// Per-download temp dir — .zex files land here before extraction.
-const DL_TMP:         &str = "/overlayer/zexlib/tmp/syshub-dl";
+const DL_TMP: &str = "/overlayer/zexlib/tmp/syshub-dl";
 const LOCAL_MANIFEST: &str = "/overlayer/syshub/engine/services/syshub.toml";
-const ZEX_SERVICES:   &str = "/overlayer/syshub/engine/services/zex_services.toml";
+const ZEX_SERVICES: &str = "/overlayer/syshub/engine/services/zex_services.toml";
 const ROLLBACK_STAGE: &str = "/overlayer/zexlib/tmp/syshub-rollback";
 
 // ── TOML schemas ───────────────────────────────────────────────────────────────
 #[derive(Debug, Deserialize, Clone)]
 struct SyshubManifest {
     core_info: CoreInfo,
-    packages:  HashMap<String, toml::Value>,
+    packages: HashMap<String, toml::Value>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
 struct CoreInfo {
     build_version: String,
-    #[allow(dead_code)] os_name: String,
+    #[allow(dead_code)]
+    os_name: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -66,21 +66,21 @@ struct ZexServices {
 
 #[derive(Debug, Deserialize)]
 struct Mirror {
-    id:        String,
+    id: String,
     index_url: String,
-    base_url:  String,
-    format:    String,
-    priority:  u32,
+    base_url: String,
+    format: String,
+    priority: u32,
 }
 
 // ── Package to upgrade ─────────────────────────────────────────────────────────
 #[derive(Clone)]
 struct UpgradePkg {
-    name:     String,
-    old_ver:  String,
-    new_ver:  String,
+    name: String,
+    old_ver: String,
+    new_ver: String,
     filename: String,
-    url:      String,
+    url: String,
 }
 
 // ── Public entry ───────────────────────────────────────────────────────────────
@@ -112,11 +112,11 @@ pub async fn execute() -> Result<()> {
     }
 
     // ── 2. Read zex_services.toml ─────────────────────────────────────────────
-    let svc_raw = fs::read_to_string(ZEX_SERVICES)
-        .context("reading zex_services.toml")?;
-    let services: ZexServices = toml::from_str(&svc_raw)
-        .context("parsing zex_services.toml")?;
-    let mirror = services.mirrors.iter()
+    let svc_raw = fs::read_to_string(ZEX_SERVICES).context("reading zex_services.toml")?;
+    let services: ZexServices = toml::from_str(&svc_raw).context("parsing zex_services.toml")?;
+    let mirror = services
+        .mirrors
+        .iter()
         .filter(|m| m.id.contains("syshub") && m.format == "zex")
         .min_by_key(|m| m.priority)
         .context("No Tier-1 syshub mirror in zex_services.toml")?;
@@ -124,8 +124,8 @@ pub async fn execute() -> Result<()> {
     // ── 3. Load manifests ─────────────────────────────────────────────────────
     let local_raw = fs::read_to_string(LOCAL_MANIFEST)
         .context("Local syshub.toml missing — is syshub mounted?")?;
-    let local: SyshubManifest = toml::from_str(&local_raw)
-        .context("Malformed local syshub.toml")?;
+    let local: SyshubManifest =
+        toml::from_str(&local_raw).context("Malformed local syshub.toml")?;
     let current_ver = local.core_info.build_version.clone();
 
     ui::print_checking(&current_ver);
@@ -142,12 +142,16 @@ pub async fn execute() -> Result<()> {
     // from disk, and a real 5-package upgrade was doing this 10+ times
     // for what should be one client's worth of connections.
     let client = crate::http_client::build("zex-syshub")?;
-    let remote_raw = client.get(&mirror.index_url).send().await
+    let remote_raw = client
+        .get(&mirror.index_url)
+        .send()
+        .await
         .context("fetching remote syshub.toml")?
         .error_for_status()?
-        .text().await?;
-    let remote: SyshubManifest = toml::from_str(&remote_raw)
-        .context("Malformed remote syshub.toml")?;
+        .text()
+        .await?;
+    let remote: SyshubManifest =
+        toml::from_str(&remote_raw).context("Malformed remote syshub.toml")?;
 
     // ── 4. Diff ───────────────────────────────────────────────────────────────
     let upgrades = diff_packages(&local, &remote, &mirror.base_url);
@@ -159,7 +163,8 @@ pub async fn execute() -> Result<()> {
 
     ui::print_syshub_found(upgrades.len());
 
-    let pkg_list: Vec<(&str, &str, &str)> = upgrades.iter()
+    let pkg_list: Vec<(&str, &str, &str)> = upgrades
+        .iter()
         .map(|u| (u.name.as_str(), u.old_ver.as_str(), u.new_ver.as_str()))
         .collect();
     ui::print_syshub_package_list(&pkg_list);
@@ -171,14 +176,21 @@ pub async fn execute() -> Result<()> {
     // bar's percentage to mean anything. Fetched concurrently — these are
     // header-only HEAD requests, but sequential round-trips still add up
     // once there are more than a couple of components.
-    let head_checks: Vec<u64> = futures_util::future::join_all(
-        upgrades.iter().map(|u| content_length(&client, &u.url))
-    ).await.into_iter().map(|c| c.unwrap_or(0)).collect();
+    let head_checks: Vec<u64> =
+        futures_util::future::join_all(upgrades.iter().map(|u| content_length(&client, &u.url)))
+            .await
+            .into_iter()
+            .map(|c| c.unwrap_or(0))
+            .collect();
     let real_total_bytes: u64 = head_checks.iter().sum();
     ui::print_transaction_summary(upgrades.len(), real_total_bytes as f64 / 1_048_576.0);
 
     if !ui::print_proceed_prompt() {
-        println!("\n {DIM}Upgrade cancelled.{RST}", DIM = ui::DIM, RST = ui::RST);
+        println!(
+            "\n {DIM}Upgrade cancelled.{RST}",
+            DIM = ui::DIM,
+            RST = ui::RST
+        );
         return Ok(());
     }
 
@@ -191,7 +203,9 @@ pub async fn execute() -> Result<()> {
 
     // Per-download temp dir for .zex files
     let dl_tmp = Path::new(DL_TMP);
-    if dl_tmp.exists() { fs::remove_dir_all(dl_tmp)?; }
+    if dl_tmp.exists() {
+        fs::remove_dir_all(dl_tmp)?;
+    }
     fs::create_dir_all(dl_tmp)?;
 
     // ── 6. Download ALL packages (2 concurrent), extract into syshub.new ─────
@@ -205,7 +219,8 @@ pub async fn execute() -> Result<()> {
     // Paired with head_checks so the per-package bar's length reuses the
     // HEAD probe already done above instead of firing a second, redundant
     // request for the exact same URL.
-    let sized_upgrades: Vec<(&UpgradePkg, u64)> = upgrades.iter().zip(head_checks.iter().copied()).collect();
+    let sized_upgrades: Vec<(&UpgradePkg, u64)> =
+        upgrades.iter().zip(head_checks.iter().copied()).collect();
 
     // Sliding-window concurrency (`buffer_unordered`), not fixed pairs.
     // The old `for chunk in sized_upgrades.chunks(2)` held BOTH slots of a
@@ -220,11 +235,11 @@ pub async fn execute() -> Result<()> {
         let label = format!("{:<20} {} → {}", pkg.name, pkg.old_ver, pkg.new_ver);
         let bar = ui::make_pkg_bar(&mp, content_len, &label);
 
-        let url       = pkg.url.clone();
-        let dest      = dl_tmp.join(&pkg.filename);
-        let name      = pkg.name.clone();
+        let url = pkg.url.clone();
+        let dest = dl_tmp.join(&pkg.filename);
+        let name = pkg.name.clone();
         let overall_h = overall.clone();
-        let client_h  = client.clone();
+        let client_h = client.clone();
         async move {
             let result = download_with_bar(&client_h, &url, &dest, &bar, &overall_h).await;
             (name, dest, result)
@@ -240,8 +255,13 @@ pub async fn execute() -> Result<()> {
                 cleanup_dir(staging);
                 cleanup_dir(dl_tmp);
                 ui::print_download_interrupted(&pkg_name);
-                log_audit("syshub", &downloaded, "rolled_back",
-                          Some(&e.to_string()), started.elapsed().as_millis() as u64);
+                log_audit(
+                    "syshub",
+                    &downloaded,
+                    "rolled_back",
+                    Some(&e.to_string()),
+                    started.elapsed().as_millis() as u64,
+                );
                 std::process::exit(1);
             }
         };
@@ -249,11 +269,13 @@ pub async fn execute() -> Result<()> {
 
         // Ed25519 signature check — against the pubkey embedded in the
         // package's own manifest.toml (syshub core is always Strict).
-        crate::trust::verify_zex_archive(&zex_path, crate::trust::SignatureVerificationMode::Strict)?;
+        crate::trust::verify_zex_archive(
+            &zex_path,
+            crate::trust::SignatureVerificationMode::Strict,
+        )?;
 
         // Extract payload/* into /overlayer/syshub.new/  (merged tree)
-        extract_zex_into(&zex_path, staging)
-            .with_context(|| format!("extracting {pkg_name}"))?;
+        extract_zex_into(&zex_path, staging).with_context(|| format!("extracting {pkg_name}"))?;
 
         downloaded.push(pkg_name);
     }
@@ -298,8 +320,13 @@ pub async fn execute() -> Result<()> {
             crate::steps::fail();
             crate::syshub_pending::clear().ok();
             cleanup_dir(dl_tmp);
-            log_audit("syshub", &downloaded, "rolled_back",
-                      Some(&e.to_string()), started.elapsed().as_millis() as u64);
+            log_audit(
+                "syshub",
+                &downloaded,
+                "rolled_back",
+                Some(&e.to_string()),
+                started.elapsed().as_millis() as u64,
+            );
             return Err(e).context("staging syshub upgrade");
         }
     };
@@ -307,50 +334,78 @@ pub async fn execute() -> Result<()> {
     // ── 13. Commit + cleanup ──────────────────────────────────────────────────
     cleanup_dir(dl_tmp);
 
-    let elapsed  = started.elapsed().as_secs();
+    let elapsed = started.elapsed().as_secs();
     let total_mb = total_bytes as f64 / 1_048_576.0;
 
     steps.ok();
-    ui::print_syshub_done(downloaded.len(), total_mb, elapsed,
-                          &remote.core_info.build_version, &txn);
-    log_audit("syshub", &downloaded, "success",
-              None, started.elapsed().as_millis() as u64);
+    ui::print_syshub_done(
+        downloaded.len(),
+        total_mb,
+        elapsed,
+        &remote.core_info.build_version,
+        &txn,
+    );
+    log_audit(
+        "syshub",
+        &downloaded,
+        "success",
+        None,
+        started.elapsed().as_millis() as u64,
+    );
     Ok(())
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-
 fn is_pkg_pinned(name: &str) -> bool {
     const PINNED: &str = "/overlayer/zexlib/registry/pinned.toml";
-    let Ok(raw) = std::fs::read_to_string(PINNED) else { return false };
+    let Ok(raw) = std::fs::read_to_string(PINNED) else {
+        return false;
+    };
     #[derive(serde::Deserialize, Default)]
-    struct PF { #[serde(default)] pinned: Vec<Pin> }
+    struct PF {
+        #[serde(default)]
+        pinned: Vec<Pin>,
+    }
     #[derive(serde::Deserialize)]
-    struct Pin { name: String }
+    struct Pin {
+        name: String,
+    }
     toml::from_str::<PF>(&raw)
         .map(|f| f.pinned.iter().any(|p| p.name.eq_ignore_ascii_case(name)))
         .unwrap_or(false)
 }
 
 fn diff_packages(
-    local:    &SyshubManifest,
-    remote:   &SyshubManifest,
+    local: &SyshubManifest,
+    remote: &SyshubManifest,
     base_url: &str,
 ) -> Vec<UpgradePkg> {
     let mut out = Vec::new();
     for (name, rv) in &remote.packages {
-        if name == "provides" { continue; }
+        if name == "provides" {
+            continue;
+        }
         let rv_s = val_str(rv);
-        let lv_s = local.packages.get(name).map(val_str).unwrap_or_else(|| "0".into());
+        let lv_s = local
+            .packages
+            .get(name)
+            .map(val_str)
+            .unwrap_or_else(|| "0".into());
         if is_upgrade(&lv_s, &rv_s) {
             if is_pkg_pinned(name) {
                 log::info!("Syshub package '{}' is pinned — skipping", name);
                 continue;
             }
             let filename = format!("{}-{}.zex", name, rv_s);
-            let url      = format!("{}/{}", base_url.trim_end_matches('/'), filename);
-            out.push(UpgradePkg { name: name.clone(), old_ver: lv_s, new_ver: rv_s, filename, url });
+            let url = format!("{}/{}", base_url.trim_end_matches('/'), filename);
+            out.push(UpgradePkg {
+                name: name.clone(),
+                old_ver: lv_s,
+                new_ver: rv_s,
+                filename,
+                url,
+            });
         }
     }
     out
@@ -370,15 +425,19 @@ fn val_str(v: &toml::Value) -> String {
         // characters from the table blob broke indicatif's template
         // parser). Matches `cmd::update::diff::val_str`'s already-correct
         // handling of this same shape.
-        toml::Value::Table(t) => t.get("version")
+        toml::Value::Table(t) => t
+            .get("version")
             .and_then(|v| v.as_str())
-            .unwrap_or("0").to_string(),
+            .unwrap_or("0")
+            .to_string(),
         other => other.to_string().trim_matches('"').to_string(),
     }
 }
 
 async fn online() -> bool {
-    let Ok(client) = crate::http_client::build("zex-syshub/ping") else { return false };
+    let Ok(client) = crate::http_client::build("zex-syshub/ping") else {
+        return false;
+    };
 
     // There is no more zex-server / API backend behind archive.zainiumdynamics.tech
     // to ping (it was decommissioned — the domain now only serves static
@@ -386,15 +445,22 @@ async fn online() -> bool {
     // permanently 404, wasting a full network round-trip on every syshub
     // upgrade before falling through here anyway. Go straight to a generic
     // reachability probe.
-    client.head("https://mirrors.edge.kernel.org/").send().await
+    client
+        .head("https://mirrors.edge.kernel.org/")
+        .send()
+        .await
         .map(|r| r.status().is_success())
         .unwrap_or(false)
 }
 
 async fn content_length(client: &reqwest::Client, url: &str) -> Option<u64> {
     let r = client.head(url).send().await.ok()?;
-    r.headers().get(reqwest::header::CONTENT_LENGTH)?
-        .to_str().ok()?.parse().ok()
+    r.headers()
+        .get(reqwest::header::CONTENT_LENGTH)?
+        .to_str()
+        .ok()?
+        .parse()
+        .ok()
 }
 
 /// Retries the whole download from byte 0 on failure (not a range-resume)
@@ -419,7 +485,10 @@ async fn download_with_bar(
             tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
         }
         match download_once(client, url, dest, bar, overall).await {
-            Ok(tot) => { bar.finish(); return Ok(tot); }
+            Ok(tot) => {
+                bar.finish();
+                return Ok(tot);
+            }
             Err(e) => last_err = Some(e),
         }
     }
@@ -434,10 +503,12 @@ async fn download_once(
     overall: &indicatif::ProgressBar,
 ) -> Result<u64> {
     let resp = client.get(url).send().await?.error_for_status()?;
-    if let Some(p) = dest.parent() { fs::create_dir_all(p)?; }
-    let mut f   = std::io::BufWriter::new(fs::File::create(dest)?);
+    if let Some(p) = dest.parent() {
+        fs::create_dir_all(p)?;
+    }
+    let mut f = std::io::BufWriter::new(fs::File::create(dest)?);
     let mut tot = 0u64;
-    let mut s   = resp.bytes_stream();
+    let mut s = resp.bytes_stream();
     while let Some(chunk) = s.next().await {
         let chunk = chunk?;
         tot += chunk.len() as u64;
@@ -452,19 +523,27 @@ async fn download_once(
 /// Extract `payload/*` from a .zex (zexc / ZEX1) into `dest` root.
 /// Multiple packages extract into the SAME dest → their trees merge naturally.
 fn extract_zex_into(zex_path: &Path, dest: &Path) -> Result<()> {
-    #[cfg(unix)] use std::os::unix::fs::symlink;
+    #[cfg(unix)]
+    use std::os::unix::fs::symlink;
 
     let dec = crate::zex_codec::open_decoder(zex_path)?;
     let mut archive = tar::Archive::new(dec);
 
     for entry in archive.entries()? {
         let mut entry = entry?;
-        let raw   = entry.path()?.into_owned();
-        let rel   = raw.to_string_lossy();
+        let raw = entry.path()?.into_owned();
+        let rel = raw.to_string_lossy();
 
-        if !rel.starts_with("payload/") { continue; }
-        let inner = rel.strip_prefix("payload/").unwrap_or("").trim_start_matches('/');
-        if inner.is_empty() { continue; }
+        if !rel.starts_with("payload/") {
+            continue;
+        }
+        let inner = rel
+            .strip_prefix("payload/")
+            .unwrap_or("")
+            .trim_start_matches('/');
+        if inner.is_empty() {
+            continue;
+        }
 
         let dst = dest.join(inner);
         let typ = entry.header().entry_type();
@@ -473,12 +552,15 @@ fn extract_zex_into(zex_path: &Path, dest: &Path) -> Result<()> {
             fs::create_dir_all(&dst)?;
             continue;
         }
-        if let Some(p) = dst.parent() { fs::create_dir_all(p)?; }
+        if let Some(p) = dst.parent() {
+            fs::create_dir_all(p)?;
+        }
 
         if typ.is_file() {
             let mut out = fs::File::create(&dst)?;
             std::io::copy(&mut entry, &mut out)?;
-            #[cfg(unix)] {
+            #[cfg(unix)]
+            {
                 use std::os::unix::fs::PermissionsExt;
                 if entry.header().mode().unwrap_or(0) & 0o111 != 0 {
                     fs::set_permissions(&dst, fs::Permissions::from_mode(0o755))?;
@@ -487,7 +569,8 @@ fn extract_zex_into(zex_path: &Path, dest: &Path) -> Result<()> {
         } else if typ.is_symlink() {
             if let Some(target) = entry.link_name()? {
                 let _ = fs::remove_file(&dst);
-                #[cfg(unix)] symlink(&target, &dst)?;
+                #[cfg(unix)]
+                symlink(&target, &dst)?;
             }
         }
     }
@@ -497,8 +580,11 @@ fn extract_zex_into(zex_path: &Path, dest: &Path) -> Result<()> {
 /// Reject any .zex payload that contains glibc-versioned shared objects.
 fn verify_libc_boundaries(staging: &Path) -> Result<()> {
     const BAD: &[&str] = &[
-        "libc.so.6", "libpthread.so.0", "libm.so.6",
-        "ld-linux-x86-64.so.2", "ld-linux-aarch64.so.1",
+        "libc.so.6",
+        "libpthread.so.0",
+        "libm.so.6",
+        "ld-linux-x86-64.so.2",
+        "ld-linux-aarch64.so.1",
     ];
     for e in WalkDir::new(staging).into_iter().filter_map(|e| e.ok()) {
         let n = e.file_name().to_string_lossy();
@@ -524,21 +610,26 @@ fn verify_libc_boundaries(staging: &Path) -> Result<()> {
 fn cleanup_dir(path: &Path) {
     if let Err(e) = fs::remove_dir_all(path) {
         if e.kind() != std::io::ErrorKind::NotFound {
-            eprintln!("  {Y}WARN: could not clean up {}: {e}{RST}",
-                path.display(), Y = ui::Y, RST = ui::RST);
+            eprintln!(
+                "  {Y}WARN: could not clean up {}: {e}{RST}",
+                path.display(),
+                Y = ui::Y,
+                RST = ui::RST
+            );
         }
     }
 }
 
 fn log_audit(kind: &str, pkgs: &[String], outcome: &str, err: Option<&str>, ms: u64) {
     audit::append(AuditEntry {
-        timestamp:   chrono::Utc::now().to_rfc3339(),
-        kind:        kind.into(),
-        outcome:     outcome.into(),
-        packages:    pkgs.to_vec(),
+        timestamp: chrono::Utc::now().to_rfc3339(),
+        kind: kind.into(),
+        outcome: outcome.into(),
+        packages: pkgs.to_vec(),
         duration_ms: ms,
-        error:       err.map(str::to_string),
-    }).ok();
+        error: err.map(str::to_string),
+    })
+    .ok();
 
     // Also record to the cross-tier unified history (`zex history`) —
     // syshub upgrades used to only ever show up in their own
@@ -546,11 +637,13 @@ fn log_audit(kind: &str, pkgs: &[String], outcome: &str, err: Option<&str>, ms: 
     // operations are recorded.
     let _ = crate::cmd::install::history::record(
         crate::cmd::install::history::OperationType::Upgrade,
-        pkgs.iter().map(|name| crate::cmd::install::history::PackageRecord {
-            name: name.clone(),
-            version: String::new(),
-            format: "zex".to_string(),
-        }).collect(),
+        pkgs.iter()
+            .map(|name| crate::cmd::install::history::PackageRecord {
+                name: name.clone(),
+                version: String::new(),
+                format: "zex".to_string(),
+            })
+            .collect(),
         outcome == "success",
         err.map(str::to_string),
         ms,

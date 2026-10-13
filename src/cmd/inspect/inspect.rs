@@ -3,7 +3,7 @@
 //! Reads from installed receipts — not dpkg, not rpm, not pacman.
 //! Uses readelf to detect shared library deps from actual binaries.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use std::{
     collections::HashSet,
@@ -13,19 +13,19 @@ use std::{
 };
 use walkdir::WalkDir;
 
-const G:   &str = "\x1b[92m";
-const P:   &str = "\x1b[95m";
-const B:   &str = "\x1b[96m";
-const Y:   &str = "\x1b[93m";
-const R:   &str = "\x1b[91m";
+const G: &str = "\x1b[92m";
+const P: &str = "\x1b[95m";
+const B: &str = "\x1b[96m";
+const Y: &str = "\x1b[93m";
+const R: &str = "\x1b[91m";
 const DIM: &str = "\x1b[2m";
 const BLD: &str = "\x1b[1m";
 const RST: &str = "\x1b[0m";
 
-const INSTALLED_DIR:   &str = "/overlayer/zexlib/registry/installed";
+const INSTALLED_DIR: &str = "/overlayer/zexlib/registry/installed";
 const SYSHUB_MANIFEST: &str = "/overlayer/syshub/engine/services/syshub.toml";
-const UNION_PATH:      &str = "/overlayer/zexlib/union";
-const SYSHUB_PATH:     &str = "/overlayer/syshub";
+const UNION_PATH: &str = "/overlayer/zexlib/union";
+const SYSHUB_PATH: &str = "/overlayer/syshub";
 
 #[derive(Debug, Deserialize, Default)]
 struct SyshubManifest {
@@ -41,7 +41,7 @@ pub async fn run(name: &str) -> Result<()> {
 
     // Also check syshub
     let syshub_entry = syshub_lookup(&key);
-    let in_syshub    = syshub_entry.is_some();
+    let in_syshub = syshub_entry.is_some();
 
     if !receipt_path.exists() && !in_syshub {
         bail!(
@@ -65,25 +65,31 @@ pub async fn run(name: &str) -> Result<()> {
 
 // ── Receipt-based inspection (userland packages) ──────────────────────────────
 async fn inspect_from_receipt(_name: &str, path: &Path) -> Result<()> {
-    use crate::cmd::install::registry::{derive_origin, PkgRecord};
+    use crate::cmd::install::registry::{PkgRecord, derive_origin};
 
-    let raw     = fs::read_to_string(path).context("reading receipt")?;
+    let raw = fs::read_to_string(path).context("reading receipt")?;
     let receipt = toml::from_str::<PkgRecord>(&raw).context("parsing receipt")?;
 
     let scope = derive_origin(&receipt.format, &receipt.source_mirror);
-    let tier  = tier_badge(&scope);
+    let tier = tier_badge(&scope);
 
     println!("{G}Package Information{RST}");
     println!("  {DIM}Name         :{RST} {P}{}{RST}", receipt.name);
     println!("  {DIM}Version      :{RST} {B}{}{RST}", receipt.version);
     if !receipt.display_name.is_empty() && receipt.display_name != receipt.name {
-        println!("  {DIM}Description  :{RST} {DIM}{}{RST}", receipt.display_name);
+        println!(
+            "  {DIM}Description  :{RST} {DIM}{}{RST}",
+            receipt.display_name
+        );
     }
     println!("  {DIM}Status       :{RST} {G}installed{RST}");
     println!("  {DIM}Scope        :{RST} {tier}");
     println!("  {DIM}Format       :{RST} {B}{}{RST}", receipt.format);
     if !receipt.source_mirror.is_empty() {
-        println!("  {DIM}Mirror       :{RST} {B}{}{RST}", receipt.source_mirror);
+        println!(
+            "  {DIM}Mirror       :{RST} {B}{}{RST}",
+            receipt.source_mirror
+        );
     }
     if !receipt.sha256.is_empty() {
         println!("  {DIM}SHA256       :{RST} {DIM}{}{RST}", receipt.sha256);
@@ -95,7 +101,10 @@ async fn inspect_from_receipt(_name: &str, path: &Path) -> Result<()> {
         println!("  {DIM}Needs syshub :{RST} {B}{req}{RST}");
     }
     if !receipt.installed_at.is_empty() {
-        println!("  {DIM}Installed at :{RST} {DIM}{}{RST}", receipt.installed_at);
+        println!(
+            "  {DIM}Installed at :{RST} {DIM}{}{RST}",
+            receipt.installed_at
+        );
     }
 
     // Classify the flat installed_files list by actual on-disk type —
@@ -103,11 +112,16 @@ async fn inspect_from_receipt(_name: &str, path: &Path) -> Result<()> {
     let mut files: Vec<&String> = Vec::new();
     let mut symlinks: Vec<&String> = Vec::new();
     for f in &receipt.installed_files {
-        if Path::new(f).is_symlink() { symlinks.push(f); } else { files.push(f); }
+        if Path::new(f).is_symlink() {
+            symlinks.push(f);
+        } else {
+            files.push(f);
+        }
     }
 
     // ── Disk usage ────────────────────────────────────────────────────────────
-    let total_size: u64 = files.iter()
+    let total_size: u64 = files
+        .iter()
         .map(|f| fs::metadata(f).map(|m| m.len()).unwrap_or(0))
         .sum();
     let file_count = files.len();
@@ -115,13 +129,20 @@ async fn inspect_from_receipt(_name: &str, path: &Path) -> Result<()> {
     println!("\n{G}Disk Usage{RST}");
     println!("  {DIM}Files        :{RST} {B}{file_count}{RST}");
     println!("  {DIM}Symlinks     :{RST} {B}{}{RST}", symlinks.len());
-    println!("  {DIM}Total size   :{RST} {G}{}{RST}", human_bytes(total_size));
+    println!(
+        "  {DIM}Total size   :{RST} {G}{}{RST}",
+        human_bytes(total_size)
+    );
 
     // ── Installed locations ───────────────────────────────────────────────────
     if !files.is_empty() {
         println!("\n{G}Installed Locations{RST}");
         for f in files.iter().take(12) {
-            let missing = if !Path::new(f).exists() { format!("  {R}[missing]{RST}") } else { String::new() };
+            let missing = if !Path::new(f).exists() {
+                format!("  {R}[missing]{RST}")
+            } else {
+                String::new()
+            };
             println!("  {DIM}•{RST} {B}{f}{RST}{missing}");
         }
         if files.len() > 12 {
@@ -166,7 +187,8 @@ async fn inspect_from_receipt(_name: &str, path: &Path) -> Result<()> {
     }
 
     // ── Integrity check ───────────────────────────────────────────────────────
-    let missing: Vec<&String> = files.iter()
+    let missing: Vec<&String> = files
+        .iter()
         .filter(|f| !Path::new(f).exists())
         .cloned()
         .collect();
@@ -175,7 +197,10 @@ async fn inspect_from_receipt(_name: &str, path: &Path) -> Result<()> {
     if missing.is_empty() {
         println!("  {G}\u{2713}{RST} All {file_count} files present");
     } else {
-        println!("  {R}\u{2717}{RST} {}/{file_count} files present", file_count - missing.len());
+        println!(
+            "  {R}\u{2717}{RST} {}/{file_count} files present",
+            file_count - missing.len()
+        );
         for f in &missing {
             println!("    {R}missing:{RST} {f}");
         }
@@ -202,17 +227,16 @@ fn inspect_syshub_entry(name: &str, entry: &toml::Value) {
         }
         if let Some(deps) = t.get("depends").and_then(|v| v.as_array()) {
             if !deps.is_empty() {
-                let dep_strs: Vec<_> = deps.iter()
-                    .filter_map(|d| d.as_str())
-                    .collect();
-                println!("  {DIM}Depends      :{RST} {DIM}{}{RST}", dep_strs.join(", "));
+                let dep_strs: Vec<_> = deps.iter().filter_map(|d| d.as_str()).collect();
+                println!(
+                    "  {DIM}Depends      :{RST} {DIM}{}{RST}",
+                    dep_strs.join(", ")
+                );
             }
         }
         if let Some(provs) = t.get("provides").and_then(|v| v.as_array()) {
             if !provs.is_empty() {
-                let p_strs: Vec<_> = provs.iter()
-                    .filter_map(|p| p.as_str())
-                    .collect();
+                let p_strs: Vec<_> = provs.iter().filter_map(|p| p.as_str()).collect();
                 println!("  {DIM}Provides     :{RST} {DIM}{}{RST}", p_strs.join(", "));
             }
         }
@@ -226,7 +250,11 @@ fn inspect_syshub_entry(name: &str, entry: &toml::Value) {
     if !syshub_files.is_empty() {
         println!("\n{G}Installed Locations  {DIM}(syshub){RST}");
         for (path, size) in syshub_files.iter().take(10) {
-            println!("  {DIM}•{RST} {B}{}{RST}  {DIM}{}{RST}", path, human_bytes(*size));
+            println!(
+                "  {DIM}•{RST} {B}{}{RST}  {DIM}{}{RST}",
+                path,
+                human_bytes(*size)
+            );
         }
     }
     println!();
@@ -243,13 +271,22 @@ fn syshub_lookup(name: &str) -> Option<toml::Value> {
 /// Scan syshub dirs for files whose path contains the package name.
 fn find_syshub_files(name: &str) -> Vec<(String, u64)> {
     let mut out = Vec::new();
-    for base in [&format!("{SYSHUB_PATH}/bin"), &format!("{SYSHUB_PATH}/lib"),
-                  &format!("{SYSHUB_PATH}/lib64"), &format!("{SYSHUB_PATH}/sbin")] {
+    for base in [
+        &format!("{SYSHUB_PATH}/bin"),
+        &format!("{SYSHUB_PATH}/lib"),
+        &format!("{SYSHUB_PATH}/lib64"),
+        &format!("{SYSHUB_PATH}/sbin"),
+    ] {
         let p = Path::new(base);
-        if !p.exists() { continue; }
+        if !p.exists() {
+            continue;
+        }
         for entry in fs::read_dir(p).into_iter().flatten().flatten() {
             let fname = entry.file_name().to_string_lossy().to_string();
-            if fname.to_ascii_lowercase().contains(&name.to_ascii_lowercase()) {
+            if fname
+                .to_ascii_lowercase()
+                .contains(&name.to_ascii_lowercase())
+            {
                 let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
                 out.push((entry.path().to_string_lossy().into_owned(), size));
             }
@@ -264,7 +301,9 @@ fn detect_shared_libs(files: &[String]) -> Vec<String> {
     for f in files {
         let path = Path::new(f);
         // Only check ELF files (binaries and .so)
-        if !is_elf(path) { continue; }
+        if !is_elf(path) {
+            continue;
+        }
         if let Ok(out) = Command::new("readelf").args(["-d", f]).output() {
             for line in String::from_utf8_lossy(&out.stdout).lines() {
                 if line.contains("(NEEDED)") {
@@ -294,36 +333,52 @@ fn is_elf(path: &Path) -> bool {
 fn extract_needed(line: &str) -> Option<String> {
     // Format: "  0x... (NEEDED) Shared library: [libfoo.so.1]"
     let start = line.find('[')? + 1;
-    let end   = line.find(']')?;
+    let end = line.find(']')?;
     Some(line[start..end].to_string())
 }
 
 fn classify_lib(lib: &str) -> &'static str {
-    if lib.starts_with("ld-zainium") || lib == "libc.so.2" { "relibc" }
-    else if lib == "ld-musl-x86_64.so.1" || lib == "libc.so" { "musl" }
-    else if lib == "libc.so.6" || lib.contains("glibc") { "glibc (foreign!)" }
-    else if lib.starts_with("libstdc++") || lib.starts_with("libgcc") { "GCC runtime" }
-    else if lib.starts_with("libpthread") || lib.starts_with("libdl") { "POSIX thread/dl" }
-    else { "userland" }
+    if lib.starts_with("ld-zainium") || lib == "libc.so.2" {
+        "relibc"
+    } else if lib == "ld-musl-x86_64.so.1" || lib == "libc.so" {
+        "musl"
+    } else if lib == "libc.so.6" || lib.contains("glibc") {
+        "glibc (foreign!)"
+    } else if lib.starts_with("libstdc++") || lib.starts_with("libgcc") {
+        "GCC runtime"
+    } else if lib.starts_with("libpthread") || lib.starts_with("libdl") {
+        "POSIX thread/dl"
+    } else {
+        "userland"
+    }
 }
 
 fn tier_badge(origin: &str) -> String {
     match origin {
-        o if o.contains("tier1") || o.contains("zainium") =>
-            format!("{G}[T1-Zainium]{RST}", G=G, RST=RST),
-        o if o.contains("tier2") || o.contains("alpine") =>
-            format!("{B}[T2-Alpine]{RST}", B=B, RST=RST),
-        o if o.contains("tier3") || o.contains("void") =>
-            format!("{P}[T3-Void]{RST}", P=P, RST=RST),
-        o if o.contains("tier4") || o.contains("chimera") =>
-            format!("{Y}[T4-Chimera]{RST}", Y=Y, RST=RST),
-        _ => format!("{DIM}[userland]{RST}", DIM=DIM, RST=RST),
+        o if o.contains("tier1") || o.contains("zainium") => {
+            format!("{G}[T1-Zainium]{RST}", G = G, RST = RST)
+        }
+        o if o.contains("tier2") || o.contains("alpine") => {
+            format!("{B}[T2-Alpine]{RST}", B = B, RST = RST)
+        }
+        o if o.contains("tier3") || o.contains("void") => {
+            format!("{P}[T3-Void]{RST}", P = P, RST = RST)
+        }
+        o if o.contains("tier4") || o.contains("chimera") => {
+            format!("{Y}[T4-Chimera]{RST}", Y = Y, RST = RST)
+        }
+        _ => format!("{DIM}[userland]{RST}", DIM = DIM, RST = RST),
     }
 }
 
 fn human_bytes(b: u64) -> String {
-    if b >= 1_073_741_824 { format!("{:.2} GB", b as f64 / 1_073_741_824.0) }
-    else if b >= 1_048_576 { format!("{:.1} MB", b as f64 / 1_048_576.0) }
-    else if b >= 1024      { format!("{} KB", b / 1024) }
-    else                   { format!("{b} B") }
+    if b >= 1_073_741_824 {
+        format!("{:.2} GB", b as f64 / 1_073_741_824.0)
+    } else if b >= 1_048_576 {
+        format!("{:.1} MB", b as f64 / 1_048_576.0)
+    } else if b >= 1024 {
+        format!("{} KB", b / 1024)
+    } else {
+        format!("{b} B")
+    }
 }

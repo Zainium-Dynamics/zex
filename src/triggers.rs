@@ -19,20 +19,29 @@ pub fn note<P: AsRef<Path>>(paths: &[P]) {
     let mut t = TOUCHED.lock().unwrap_or_else(|e| e.into_inner());
     for p in paths {
         let p = p.as_ref();
-        let rel = p.strip_prefix(UNION_ROOT).or_else(|_| p.strip_prefix(LIVE_ROOT)).unwrap_or(p);
+        let rel = p
+            .strip_prefix(UNION_ROOT)
+            .or_else(|_| p.strip_prefix(LIVE_ROOT))
+            .unwrap_or(p);
         t.push(rel.to_path_buf());
     }
 }
 
 /// For callers that don't track individual files: run every trigger.
 pub fn note_all() {
-    TOUCHED.lock().unwrap_or_else(|e| e.into_inner()).push(PathBuf::new());
+    TOUCHED
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .push(PathBuf::new());
 }
 
 /// A package's manifest `post_install` / `post_remove` command.
 pub fn note_hook(pkg: &str, cmd: &str) {
     if !cmd.trim().is_empty() {
-        HOOKS.lock().unwrap_or_else(|e| e.into_inner()).push((pkg.to_string(), cmd.to_string()));
+        HOOKS
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push((pkg.to_string(), cmd.to_string()));
     }
 }
 
@@ -62,11 +71,20 @@ pub fn flush() {
     if has("share/dbus-1") || has("etc/dbus-1") {
         run(
             "busctl",
-            &["call", "org.freedesktop.DBus", "/org/freedesktop/DBus", "org.freedesktop.DBus", "ReloadConfig"],
+            &[
+                "call",
+                "org.freedesktop.DBus",
+                "/org/freedesktop/DBus",
+                "org.freedesktop.DBus",
+                "ReloadConfig",
+            ],
         );
     }
     if has("share/applications") {
-        run("update-desktop-database", &["-q", &live("share/applications")]);
+        run(
+            "update-desktop-database",
+            &["-q", &live("share/applications")],
+        );
     }
     if has("share/mime/packages") {
         run("update-mime-database", &[&live("share/mime")]);
@@ -81,8 +99,10 @@ pub fn flush() {
         .iter()
         .filter_map(|r| {
             let mut c = r.components();
-            (c.next()?.as_os_str() == "share" && c.next()?.as_os_str() == "icons")
-                .then(|| c.next().map(|t| t.as_os_str().to_string_lossy().into_owned()))?
+            (c.next()?.as_os_str() == "share" && c.next()?.as_os_str() == "icons").then(|| {
+                c.next()
+                    .map(|t| t.as_os_str().to_string_lossy().into_owned())
+            })?
         })
         .collect();
     if all {
@@ -156,5 +176,8 @@ fn run_hook(cmd: &str) -> Result<(), String> {
 }
 
 fn which(prog: &str) -> Option<PathBuf> {
-    TOOL_PATH.split(':').map(|d| Path::new(d).join(prog)).find(|p| p.is_file())
+    TOOL_PATH
+        .split(':')
+        .map(|d| Path::new(d).join(prog))
+        .find(|p| p.is_file())
 }

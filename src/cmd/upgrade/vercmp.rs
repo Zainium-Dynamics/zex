@@ -14,8 +14,8 @@ use std::cmp::Ordering;
 /// A parsed, comparable version.
 #[derive(Debug, Eq, PartialEq)]
 pub struct Version {
-    parts:   Vec<u64>,
-    suffix:  String,
+    parts: Vec<u64>,
+    suffix: String,
     release: u64,
 }
 
@@ -27,7 +27,11 @@ impl Version {
             .split('.')
             .filter_map(|p| p.parse::<u64>().ok())
             .collect();
-        Self { parts, suffix: suffix.to_string(), release }
+        Self {
+            parts,
+            suffix: suffix.to_string(),
+            release,
+        }
     }
 }
 
@@ -53,7 +57,9 @@ impl Ord for Version {
             }
         }
         // Suffix is raw remainder after the numeric stem — pure lexicographic.
-        self.suffix.cmp(&other.suffix).then(self.release.cmp(&other.release))
+        self.suffix
+            .cmp(&other.suffix)
+            .then(self.release.cmp(&other.release))
     }
 }
 
@@ -86,17 +92,48 @@ fn split_suffix(s: &str) -> (&str, &str) {
 mod tests {
     use super::*;
 
-    #[test] fn newer_minor()       { assert!(is_upgrade("26.0.0", "26.1.0")); }
-    #[test] fn newer_patch()       { assert!(is_upgrade("1.2.5",  "1.2.6")); }
-    #[test] fn same_not_upgrade()  { assert!(!is_upgrade("5.2",   "5.2")); }
-    #[test] fn older_not_upgrade() { assert!(!is_upgrade("26.1.0","26.0.0")); }
-    #[test] fn apk_revision()      { assert!(is_upgrade("9.1.0-r0","9.1.0-r1")); }
-    #[test] fn git_snapshot()      { assert!(is_upgrade("1.0", "1.0.g20260627")); }
-    #[test] fn pkgrel_rebuild()     { assert!(is_upgrade("3.18.3", "3.18.3-r1")); }
-    #[test] fn pkgrel_numeric()     { assert!(is_upgrade("3.18.3-r9", "3.18.3-r10")); }
-    #[test] fn pkgrel_r0_same()     { assert!(!is_upgrade("3.18.3", "3.18.3-r0")); }
-    #[test] fn new_version_beats_release() { assert!(is_upgrade("3.18.3-r5", "3.18.4")); }
-    #[test] fn empty_suffix_lt_any() {
+    #[test]
+    fn newer_minor() {
+        assert!(is_upgrade("26.0.0", "26.1.0"));
+    }
+    #[test]
+    fn newer_patch() {
+        assert!(is_upgrade("1.2.5", "1.2.6"));
+    }
+    #[test]
+    fn same_not_upgrade() {
+        assert!(!is_upgrade("5.2", "5.2"));
+    }
+    #[test]
+    fn older_not_upgrade() {
+        assert!(!is_upgrade("26.1.0", "26.0.0"));
+    }
+    #[test]
+    fn apk_revision() {
+        assert!(is_upgrade("9.1.0-r0", "9.1.0-r1"));
+    }
+    #[test]
+    fn git_snapshot() {
+        assert!(is_upgrade("1.0", "1.0.g20260627"));
+    }
+    #[test]
+    fn pkgrel_rebuild() {
+        assert!(is_upgrade("3.18.3", "3.18.3-r1"));
+    }
+    #[test]
+    fn pkgrel_numeric() {
+        assert!(is_upgrade("3.18.3-r9", "3.18.3-r10"));
+    }
+    #[test]
+    fn pkgrel_r0_same() {
+        assert!(!is_upgrade("3.18.3", "3.18.3-r0"));
+    }
+    #[test]
+    fn new_version_beats_release() {
+        assert!(is_upgrade("3.18.3-r5", "3.18.4"));
+    }
+    #[test]
+    fn empty_suffix_lt_any() {
         // Pure lex: "" < "-r1", so release stem alone is older than same stem + suffix.
         assert!(is_upgrade("1.0", "1.0-r1"));
     }

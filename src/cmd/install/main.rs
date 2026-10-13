@@ -6,9 +6,8 @@
 //! This file owns nothing but argument parsing and the tokio runtime bootstrap.
 //! All business logic lives in the modules below.
 
-use clap::Parser;
 use super::{infuse, ui};
-
+use clap::Parser;
 
 // ─── CLI definition ───────────────────────────────────────────────────────────
 
@@ -74,10 +73,6 @@ struct Cli {
     /// Download and reinstall packages that are already installed, even unchanged (`zex reinstall`).
     #[arg(long, default_value_t = false)]
     reinstall: bool,
-
-
-
-
 }
 
 // ─── Entry-point ──────────────────────────────────────────────────────────────
@@ -97,6 +92,7 @@ pub async fn run(raw_args: Vec<String>) {
         std::process::exit(1);
     }
 
+    let (raw_args, repository) = take_repository_flag(raw_args);
     let cli = Cli::parse_from(&raw_args);
     super::installer::set_force(cli.force);
     super::installer::set_reinstall(cli.reinstall);
@@ -142,7 +138,11 @@ pub async fn run(raw_args: Vec<String>) {
             Ok(lock) => {
                 let drift = super::lockfile::verify_against_registry(&lock);
                 ui::print_lock_verify_result(&lock, &drift);
-                if drift.is_empty() { Ok(()) } else { std::process::exit(1); }
+                if drift.is_empty() {
+                    Ok(())
+                } else {
+                    std::process::exit(1);
+                }
             }
             Err(e) => Err(e),
         };
@@ -165,6 +165,14 @@ pub async fn run(raw_args: Vec<String>) {
 
     // Normalise to lower-case so "VLC" and "vlc" are treated identically.
     let packages: Vec<String> = cli.packages.iter().map(|p| p.to_lowercase()).collect();
+    // the resolver reads "<repository>/<name>" as "only from that repository"
+    let packages: Vec<String> = match &repository {
+        Some(repo) => packages
+            .into_iter()
+            .map(|p| format!("{repo}/{p}"))
+            .collect(),
+        None => packages,
+    };
 
     if cli.lock_out.is_some() && packages.len() != 1 {
         ui::print_general_error(&anyhow::anyhow!(
@@ -186,4 +194,46 @@ pub async fn run(raw_args: Vec<String>) {
         }
         std::process::exit(1);
     }
+}
+
+/// Repository names usable as install flags: each mirror id in zex_services.toml
+/// (`--alpine-community`) and its first word (`--alpine`, `--void`, ...).
+pub fn repository_names() -> Vec<String> {
+    let Ok(config) = super::backend::BackendConfig::load() else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = Vec::new();
+    for m in &config.mirrors {
+        for n in [
+            m.id.split('-').next().unwrap_or(&m.id).to_string(),
+            m.id.clone(),
+        ] {
+            if !names.contains(&n) {
+                names.push(n);
+            }
+        }
+    }
+    names
+}
+
+/// Removes a `--<repository>` flag from the arguments and returns the repository.
+fn take_repository_flag(args: Vec<String>) -> (Vec<String>, Option<String>) {
+    let names = repository_names();
+    let mut repository = None;
+    let rest = args
+        .into_iter()
+        .filter(|a| {
+            match a
+                .strip_prefix("--")
+                .filter(|n| names.iter().any(|r| r == n))
+            {
+                Some(n) if repository.is_none() => {
+                    repository = Some(n.to_string());
+                    false
+                }
+                _ => true,
+            }
+        })
+        .collect();
+    (rest, repository)
 }

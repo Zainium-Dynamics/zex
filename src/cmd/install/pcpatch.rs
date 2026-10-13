@@ -35,7 +35,12 @@ use std::path::{Path, PathBuf};
 /// substrate repackage can say the wrong Zainium root entirely. Order
 /// matters: `/usr/local` must be checked before the shorter `/usr` so it
 /// isn't matched as a `/usr` prefix with `/local/...` left dangling.
-const KNOWN_ROOTS: &[&str] = &["/usr/local", "/usr", "/overlayer/syshub", "/overlayer/zexlib/union"];
+const KNOWN_ROOTS: &[&str] = &[
+    "/usr/local",
+    "/usr",
+    "/overlayer/syshub",
+    "/overlayer/zexlib/union",
+];
 
 fn is_pc_file(path: &Path) -> bool {
     path.extension()
@@ -104,7 +109,10 @@ fn patch_one(path: &Path, target_root: &str) -> anyhow::Result<()> {
 /// staging files, never from anything already inside the `.pc` file.
 pub fn patch_staged_pkgconfig(staged_files: &[PathBuf], target_root: &str) -> anyhow::Result<()> {
     for path in staged_files {
-        let is_regular = path.symlink_metadata().map(|m| m.is_file()).unwrap_or(false);
+        let is_regular = path
+            .symlink_metadata()
+            .map(|m| m.is_file())
+            .unwrap_or(false);
         if !is_regular || !is_pc_file(path) {
             continue;
         }

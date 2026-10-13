@@ -51,7 +51,9 @@ pub fn ensure_available() -> Result<()> {
 
 /// An upgrade already waiting for reboot, if any.
 pub fn waiting() -> Option<String> {
-    fs::read_to_string(Path::new(PENDING).join("READY")).ok().map(|s| s.trim().to_string())
+    fs::read_to_string(Path::new(PENDING).join("READY"))
+        .ok()
+        .map(|s| s.trim().to_string())
 }
 
 /// Fresh staging root; any older staged upgrade is replaced (it is superseded by this one).
@@ -103,7 +105,14 @@ pub fn commit(label: &str) -> Result<String> {
     let txn = format!(
         "{}-{}",
         chrono::Utc::now().format("%Y%m%dT%H%M%S"),
-        label.chars().map(|c| if c.is_ascii_alphanumeric() || c == '.' { c } else { '_' }).collect::<String>()
+        label
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() || c == '.' {
+                c
+            } else {
+                '_'
+            })
+            .collect::<String>()
     );
     write_synced(&pending.join("READY"), txn.as_bytes())?;
     lock(true);
@@ -158,7 +167,10 @@ fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
     let Ok(rd) = fs::read_dir(dir) else { return };
     for d in rd.filter_map(|d| d.ok()) {
         let p = d.path();
-        if fs::symlink_metadata(&p).map(|m| m.is_dir()).unwrap_or(false) {
+        if fs::symlink_metadata(&p)
+            .map(|m| m.is_dir())
+            .unwrap_or(false)
+        {
             walk(&p, out);
         }
         out.push(p);
@@ -166,7 +178,9 @@ fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
 }
 
 fn set_immutable(path: &Path, on: bool) {
-    let Ok(meta) = fs::symlink_metadata(path) else { return };
+    let Ok(meta) = fs::symlink_metadata(path) else {
+        return;
+    };
     if meta.file_type().is_symlink() {
         return;
     }
@@ -177,7 +191,11 @@ fn set_immutable(path: &Path, on: bool) {
         if libc::ioctl(f.as_raw_fd(), FS_IOC_GETFLAGS as _, &mut flags) != 0 {
             return;
         }
-        let new = if on { flags | FS_IMMUTABLE_FL } else { flags & !FS_IMMUTABLE_FL };
+        let new = if on {
+            flags | FS_IMMUTABLE_FL
+        } else {
+            flags & !FS_IMMUTABLE_FL
+        };
         if new != flags {
             libc::ioctl(f.as_raw_fd(), FS_IOC_SETFLAGS as _, &new);
         }

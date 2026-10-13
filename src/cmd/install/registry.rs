@@ -144,16 +144,20 @@ pub fn register(record: &PkgRecord) -> Result<()> {
     fs::create_dir_all(dir)
         .with_context(|| format!("Cannot create registry dir: {}", dir.display()))?;
 
-    let toml_str = toml::to_string_pretty(record)
-        .context("Failed to serialise PkgRecord to TOML")?;
+    let toml_str =
+        toml::to_string_pretty(record).context("Failed to serialise PkgRecord to TOML")?;
 
     // Atomic write: write to .tmp then rename
     let path = toml_path(&record.name.to_lowercase());
     let tmp = path.with_extension("toml.tmp");
     fs::write(&tmp, toml_str.as_bytes())
         .with_context(|| format!("Failed to write temp registry file: {}", tmp.display()))?;
-    fs::rename(&tmp, &path)
-        .with_context(|| format!("Failed to atomically install registry file: {}", path.display()))?;
+    fs::rename(&tmp, &path).with_context(|| {
+        format!(
+            "Failed to atomically install registry file: {}",
+            path.display()
+        )
+    })?;
 
     let _ = sync_master_index(record);
 
@@ -240,10 +244,15 @@ pub fn derive_origin(format: &str, source_mirror: &str) -> String {
         return "tier1-zainium".to_string();
     }
     let m = source_mirror.to_ascii_lowercase();
-    if m.starts_with("void") { "tier2-void".to_string() }
-    else if m.starts_with("alpine") { "tier3-alpine".to_string() }
-    else if m.starts_with("chimera") { "tier4-chimera".to_string() }
-    else { format!("tier?-{format}") }
+    if m.starts_with("void") {
+        "tier2-void".to_string()
+    } else if m.starts_with("alpine") {
+        "tier3-alpine".to_string()
+    } else if m.starts_with("chimera") {
+        "tier4-chimera".to_string()
+    } else {
+        format!("tier?-{format}")
+    }
 }
 
 fn load_master_index() -> MasterIndex {
@@ -258,27 +267,34 @@ fn write_master_index(index: &MasterIndex) -> Result<()> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir).ok();
     }
-    let toml_str = toml::to_string_pretty(index)
-        .context("Failed to serialise master packages.toml")?;
+    let toml_str =
+        toml::to_string_pretty(index).context("Failed to serialise master packages.toml")?;
     let tmp = path.with_extension("toml.tmp");
     fs::write(&tmp, toml_str.as_bytes())
         .with_context(|| format!("Failed to write temp master index: {}", tmp.display()))?;
-    fs::rename(&tmp, path)
-        .with_context(|| format!("Failed to atomically install master index: {}", path.display()))?;
+    fs::rename(&tmp, path).with_context(|| {
+        format!(
+            "Failed to atomically install master index: {}",
+            path.display()
+        )
+    })?;
     Ok(())
 }
 
 fn sync_master_index(record: &PkgRecord) -> Result<()> {
     let mut index = load_master_index();
     let key = record.name.to_lowercase();
-    index.packages.insert(key.clone(), MasterPkgEntry {
-        version: record.version.clone(),
-        origin: derive_origin(&record.format, &record.source_mirror),
-        description: record.display_name.clone(),
-        dependencies: record.dependencies.clone(),
-        receipt: format!("installed/{key}.toml"),
-        source_mirror: record.source_mirror.clone(),
-    });
+    index.packages.insert(
+        key.clone(),
+        MasterPkgEntry {
+            version: record.version.clone(),
+            origin: derive_origin(&record.format, &record.source_mirror),
+            description: record.display_name.clone(),
+            dependencies: record.dependencies.clone(),
+            receipt: format!("installed/{key}.toml"),
+            source_mirror: record.source_mirror.clone(),
+        },
+    );
     index.system.total_packages = index.packages.len();
     index.system.last_update = chrono::Utc::now().to_rfc3339();
     write_master_index(&index)
@@ -310,7 +326,9 @@ pub fn remove_from_master_index(name: &str) -> Result<()> {
 /// there.
 pub fn prune_master_index(keep_names: &HashSet<String>) -> Result<Vec<String>> {
     let mut index = load_master_index();
-    let stale: Vec<String> = index.packages.keys()
+    let stale: Vec<String> = index
+        .packages
+        .keys()
         .filter(|k| !keep_names.contains(k.as_str()))
         .cloned()
         .collect();
@@ -343,14 +361,17 @@ pub fn rebuild_master_index() -> Result<usize> {
 
     for record in &records {
         let key = record.name.to_lowercase();
-        index.packages.insert(key.clone(), MasterPkgEntry {
-            version: record.version.clone(),
-            origin: derive_origin(&record.format, &record.source_mirror),
-            description: record.display_name.clone(),
-            dependencies: record.dependencies.clone(),
-            receipt: format!("installed/{key}.toml"),
-            source_mirror: record.source_mirror.clone(),
-        });
+        index.packages.insert(
+            key.clone(),
+            MasterPkgEntry {
+                version: record.version.clone(),
+                origin: derive_origin(&record.format, &record.source_mirror),
+                description: record.display_name.clone(),
+                dependencies: record.dependencies.clone(),
+                receipt: format!("installed/{key}.toml"),
+                source_mirror: record.source_mirror.clone(),
+            },
+        );
     }
 
     index.system.total_packages = index.packages.len();
@@ -389,10 +410,7 @@ fn toml_path(name: &str) -> PathBuf {
 
 impl PkgRecord {
     /// Create a PkgRecord from a resolved PackageInfo + installed file list.
-    pub fn from_install(
-        info: &super::backend::PackageInfo,
-        installed_files: Vec<String>,
-    ) -> Self {
+    pub fn from_install(info: &super::backend::PackageInfo, installed_files: Vec<String>) -> Self {
         let format_str = match info.format {
             super::backend::PackageFormat::Zex => "zex",
             super::backend::PackageFormat::Apk => "apk",
@@ -437,8 +455,16 @@ impl PkgRecord {
             format,
             installed_at: self.installed_at,
             installed_files: self.installed_files,
-            sha256: if self.sha256.is_empty() { None } else { Some(self.sha256) },
-            blake3: if self.blake3.is_empty() { None } else { Some(self.blake3) },
+            sha256: if self.sha256.is_empty() {
+                None
+            } else {
+                Some(self.sha256)
+            },
+            blake3: if self.blake3.is_empty() {
+                None
+            } else {
+                Some(self.blake3)
+            },
         }
     }
 }

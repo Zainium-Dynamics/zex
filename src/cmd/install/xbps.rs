@@ -1,8 +1,10 @@
 //! xbps.rs — Native resolver for Void Linux
 //! Parses `<arch>-repodata` (zstd compressed plist archives).
 
+use super::backend::{
+    BackendConfig, MetadataManager, MirrorConfig, PackageFormat, PackageInfo, dynamic_metadata,
+};
 use anyhow::{Context, Result};
-use super::backend::{BackendConfig, MetadataManager, MirrorConfig, PackageFormat, PackageInfo, dynamic_metadata};
 
 /// Strips a version constraint from an XBPS dependency/provides token.
 ///
@@ -39,17 +41,21 @@ pub async fn resolve_xbps(
 ) -> Result<Option<PackageInfo>> {
     let mirror_name = mirror.id.clone();
 
-    #[cfg(target_arch = "x86_64")]  let arch = "x86_64";
-    #[cfg(target_arch = "aarch64")] let arch = "aarch64";
+    #[cfg(target_arch = "x86_64")]
+    let arch = "x86_64";
+    #[cfg(target_arch = "aarch64")]
+    let arch = "aarch64";
     #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
     let arch = std::env::var("ARCH").unwrap_or_else(|_| "x86_64".to_string());
     let arch = arch.to_string();
 
     let index_url = mirror.index_url.replace("{arch}", &arch);
-    let base_url  = mirror.base_url.replace("{arch}", &arch);
+    let base_url = mirror.base_url.replace("{arch}", &arch);
 
     // Fetch <arch>-musl-repodata
-    let (bytes, _) = mm.fetch(&index_url, client, super::installer::reinstalling()).await?;
+    let (bytes, _) = mm
+        .fetch(&index_url, client, super::installer::reinstalling())
+        .await?;
 
     // Unpack zstd -> tar -> plist in memory. index-meta.plist self-declares
     // the repo's RSA signing key (real field, confirmed against a live
@@ -65,15 +71,20 @@ pub async fn resolve_xbps(
         let mut plist_bytes = Vec::new();
         let mut meta_bytes = Vec::new();
 
-        for file in archive.entries().context("Failed to read xbps repodata tar entries")? {
+        for file in archive
+            .entries()
+            .context("Failed to read xbps repodata tar entries")?
+        {
             let mut file = file.context("Failed to unwrap tar entry")?;
             if let Ok(path) = file.path() {
                 match path.to_string_lossy().as_ref() {
                     "index.plist" => {
-                        file.read_to_end(&mut plist_bytes).context("Failed to read index.plist")?;
+                        file.read_to_end(&mut plist_bytes)
+                            .context("Failed to read index.plist")?;
                     }
                     "index-meta.plist" => {
-                        file.read_to_end(&mut meta_bytes).context("Failed to read index-meta.plist")?;
+                        file.read_to_end(&mut meta_bytes)
+                            .context("Failed to read index-meta.plist")?;
                     }
                     _ => {}
                 }
@@ -84,10 +95,17 @@ pub async fn resolve_xbps(
             if let Ok(meta_value) = plist::from_bytes::<plist::Value>(&meta_bytes) {
                 if let Some(meta) = meta_value.as_dictionary() {
                     let pubkey_pem = meta.get("public-key").and_then(|v| v.as_data());
-                    let signed_by = meta.get("signature-by").and_then(|v| v.as_string()).unwrap_or("unknown");
+                    let signed_by = meta
+                        .get("signature-by")
+                        .and_then(|v| v.as_string())
+                        .unwrap_or("unknown");
                     if let Some(pem) = pubkey_pem {
-                        if let Err(e) = super::native_sig::tofu_pin_void_key(&mirror_id_for_pin, pem, signed_by) {
-                            log::warn!("Void repo key pin check failed for '{mirror_id_for_pin}': {e}");
+                        if let Err(e) =
+                            super::native_sig::tofu_pin_void_key(&mirror_id_for_pin, pem, signed_by)
+                        {
+                            log::warn!(
+                                "Void repo key pin check failed for '{mirror_id_for_pin}': {e}"
+                            );
                         }
                     }
                 }
@@ -97,8 +115,11 @@ pub async fn resolve_xbps(
         if plist_bytes.is_empty() {
             anyhow::bail!("index.plist not found in repodata archive");
         }
-        let value: plist::Value = plist::from_bytes(&plist_bytes).context("Failed to parse index.plist")?;
-        value.into_dictionary().ok_or_else(|| anyhow::anyhow!("index.plist is not a dictionary"))
+        let value: plist::Value =
+            plist::from_bytes(&plist_bytes).context("Failed to parse index.plist")?;
+        value
+            .into_dictionary()
+            .ok_or_else(|| anyhow::anyhow!("index.plist is not a dictionary"))
     })
     .await
     .context("XBPS repodata decompression task panicked")??;
@@ -110,22 +131,49 @@ pub async fn resolve_xbps(
     // checksum are "filename-size" / "filename-sha256", not
     // "repository-filesize" / "repository-sha256".
     let target_lower = strip_constraint(name).to_ascii_lowercase();
+    // "so:libfoo.so.1" matches the package whose shlib-provides lists that library
+    let wanted_lib = target_lower.strip_prefix("so:").map(str::to_string);
 
     for (pkg_key, metadata_val) in &plist_dict {
-        if !pkg_key.to_ascii_lowercase().eq(&target_lower) {
+        let Some(meta) = metadata_val.as_dictionary() else {
+            continue;
+        };
+        let matches = match &wanted_lib {
+            Some(lib) => meta
+                .get("shlib-provides")
+                .and_then(|v| v.as_array())
+                .is_some_and(|libs| {
+                    libs.iter()
+                        .any(|l| l.as_string().is_some_and(|l| l.eq_ignore_ascii_case(lib)))
+                }),
+            None => pkg_key.to_ascii_lowercase().eq(&target_lower),
+        };
+        if !matches {
             continue;
         }
-        let Some(meta) = metadata_val.as_dictionary() else { continue };
 
-        let pkgver = meta.get("pkgver").and_then(|v| v.as_string()).unwrap_or(pkg_key);
+        let pkgver = meta
+            .get("pkgver")
+            .and_then(|v| v.as_string())
+            .unwrap_or(pkg_key);
         // pkgver = "{pkgname}-{version}_{revision}" — strip the "name-" prefix.
         let version = pkgver
             .strip_prefix(&format!("{pkg_key}-"))
             .unwrap_or(pkgver)
             .to_string();
-        let desc = meta.get("short_desc").and_then(|v| v.as_string()).unwrap_or("").to_string();
-        let size = meta.get("filename-size").and_then(|v| v.as_unsigned_integer()).unwrap_or(0);
-        let sha256 = meta.get("filename-sha256").and_then(|v| v.as_string()).map(|s| s.to_string());
+        let desc = meta
+            .get("short_desc")
+            .and_then(|v| v.as_string())
+            .unwrap_or("")
+            .to_string();
+        let size = meta
+            .get("filename-size")
+            .and_then(|v| v.as_unsigned_integer())
+            .unwrap_or(0);
+        let sha256 = meta
+            .get("filename-sha256")
+            .and_then(|v| v.as_string())
+            .map(|s| s.to_string());
 
         let mut deps = Vec::new();
         if let Some(run_depends) = meta.get("run_depends").and_then(|v| v.as_array()) {
@@ -144,8 +192,18 @@ pub async fn resolve_xbps(
                 }
             }
         }
+        if let Some(libs) = meta.get("shlib-provides").and_then(|v| v.as_array()) {
+            provides.extend(
+                libs.iter()
+                    .filter_map(|l| l.as_string())
+                    .map(|l| format!("so:{l}")),
+            );
+        }
 
-        let arch = meta.get("architecture").and_then(|v| v.as_string()).unwrap_or("x86_64");
+        let arch = meta
+            .get("architecture")
+            .and_then(|v| v.as_string())
+            .unwrap_or("x86_64");
         let filename = format!("{pkgver}.{arch}.xbps");
         let url = format!("{}/{}", base_url.trim_end_matches('/'), filename);
         let sig_url = Some(format!("{url}.sig2"));

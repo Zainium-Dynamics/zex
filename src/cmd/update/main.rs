@@ -13,17 +13,17 @@ use super::diff;
 use super::ui;
 use super::vercmp;
 
-const ZEX_SERVICES:    &str = "/overlayer/syshub/engine/services/zex_services.toml";
-const PACKAGES_TOML:   &str = "/overlayer/zexlib/registry/packages.toml";
-const INSTALLED_DIR:   &str = "/overlayer/zexlib/registry/installed";
+const ZEX_SERVICES: &str = "/overlayer/syshub/engine/services/zex_services.toml";
+const PACKAGES_TOML: &str = "/overlayer/zexlib/registry/packages.toml";
+const INSTALLED_DIR: &str = "/overlayer/zexlib/registry/installed";
 const SYSHUB_MANIFEST: &str = "/overlayer/syshub/engine/services/syshub.toml";
-const DL_TMP:          &str = "/overlayer/zexlib/tmp/update-dl";
-const SYSHUB_PATH:     &str = "/overlayer/syshub";
+const DL_TMP: &str = "/overlayer/zexlib/tmp/update-dl";
+const SYSHUB_PATH: &str = "/overlayer/syshub";
 
 #[derive(Parser, Debug)]
 #[command(
-    name    = "update",
-    about   = "Full system update — userland + syshub",
+    name = "update",
+    about = "Full system update — userland + syshub",
     version,
     override_usage = "elevate zex update"
 )]
@@ -42,7 +42,7 @@ struct Cli {
 }
 
 pub async fn run(raw_args: Vec<String>) -> Result<()> {
-    let cli     = Cli::parse_from(&raw_args);
+    let cli = Cli::parse_from(&raw_args);
     let started = Instant::now();
 
     // Internet check
@@ -60,14 +60,16 @@ pub async fn run(raw_args: Vec<String>) -> Result<()> {
     } else {
         crate::trust::SignatureVerificationMode::Audit
     };
-    let client   = crate::http_client::build(concat!(
+    let client = crate::http_client::build(concat!(
         "update/",
         env!("CARGO_PKG_VERSION"),
         " (Zainium OS)"
     ))?;
 
-    #[cfg(target_arch = "x86_64")]  let arch = "x86_64";
-    #[cfg(target_arch = "aarch64")] let arch = "aarch64";
+    #[cfg(target_arch = "x86_64")]
+    let arch = "x86_64";
+    #[cfg(target_arch = "aarch64")]
+    let arch = "aarch64";
     #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
     let arch = "x86_64";
 
@@ -76,18 +78,31 @@ pub async fn run(raw_args: Vec<String>) -> Result<()> {
 
     // ── Diff: userland ────────────────────────────────────────────────────────
     let uland_upgrades = if !cli.syshub_only {
-        { let r: anyhow::Result<Vec<super::diff::UpgradePkg>> = diff::diff_userland(&services, &client, arch, INSTALLED_DIR).await; r }
-            .unwrap_or_default()
-    } else { vec![] };
+        {
+            let r: anyhow::Result<Vec<super::diff::UpgradePkg>> =
+                diff::diff_userland(&services, &client, arch, INSTALLED_DIR).await;
+            r
+        }
+        .unwrap_or_default()
+    } else {
+        vec![]
+    };
 
     // ── Diff: syshub ──────────────────────────────────────────────────────────
     let (mut syshub_upgrades, syshub_remote_raw) = if !cli.uland_only {
-        diff::diff_syshub(&services, &client, SYSHUB_MANIFEST).await.unwrap_or_default()
-    } else { (vec![], String::new()) };
+        diff::diff_syshub(&services, &client, SYSHUB_MANIFEST)
+            .await
+            .unwrap_or_default()
+    } else {
+        (vec![], String::new())
+    };
     // the base can only be upgraded on an installed system; userland still updates on a live one
     if !syshub_upgrades.is_empty() {
         if let Err(e) = crate::syshub_pending::ensure_available() {
-            eprintln!(" \x1b[93m⚠\x1b[0m  Skipping {} System Hub update(s): {e}", syshub_upgrades.len());
+            eprintln!(
+                " \x1b[93m⚠\x1b[0m  Skipping {} System Hub update(s): {e}",
+                syshub_upgrades.len()
+            );
             syshub_upgrades.clear();
         }
     }
@@ -111,14 +126,14 @@ pub async fn run(raw_args: Vec<String>) -> Result<()> {
         + syshub_upgrades.iter().map(|u| u.size_bytes).sum::<u64>();
     let total_gb = total_bytes as f64 / 1_073_741_824.0;
 
-    ui::print_transaction_summary(
-        uland_upgrades.len(),
-        syshub_upgrades.len(),
-        total_gb,
-    );
+    ui::print_transaction_summary(uland_upgrades.len(), syshub_upgrades.len(), total_gb);
 
     if !cli.yes && !ui::print_proceed_prompt() {
-        println!("\n {DIM}Update cancelled.{RST}", DIM = ui::DIM, RST = ui::RST);
+        println!(
+            "\n {DIM}Update cancelled.{RST}",
+            DIM = ui::DIM,
+            RST = ui::RST
+        );
         return Ok(());
     }
 
@@ -126,10 +141,12 @@ pub async fn run(raw_args: Vec<String>) -> Result<()> {
 
     // ── Prepare download dir ──────────────────────────────────────────────────
     let dl = std::path::Path::new(DL_TMP);
-    if dl.exists() { std::fs::remove_dir_all(dl)?; }
+    if dl.exists() {
+        std::fs::remove_dir_all(dl)?;
+    }
     std::fs::create_dir_all(dl)?;
 
-    let mp      = indicatif::MultiProgress::new();
+    let mp = indicatif::MultiProgress::new();
     let overall = ui::make_overall_bar(&mp, total_bytes);
     overall.set_position(0);
 
@@ -138,9 +155,8 @@ pub async fn run(raw_args: Vec<String>) -> Result<()> {
     // ── Download + apply userland ─────────────────────────────────────────────
     if !uland_upgrades.is_empty() {
         ui::print_section_label("Userland");
-        let dl_bytes = apply::apply_uland(
-            &uland_upgrades, &client, dl, &mp, &overall, sig_mode
-        ).await?;
+        let dl_bytes =
+            apply::apply_uland(&uland_upgrades, &client, dl, &mp, &overall, sig_mode).await?;
         total_dl += dl_bytes;
     }
 
@@ -148,8 +164,15 @@ pub async fn run(raw_args: Vec<String>) -> Result<()> {
     if !syshub_upgrades.is_empty() {
         ui::print_section_label("System Hub");
         let dl_bytes = apply::apply_syshub(
-            &syshub_upgrades, &client, dl, &mp, &overall, SYSHUB_PATH, &syshub_remote_raw
-        ).await?;
+            &syshub_upgrades,
+            &client,
+            dl,
+            &mp,
+            &overall,
+            SYSHUB_PATH,
+            &syshub_remote_raw,
+        )
+        .await?;
         total_dl += dl_bytes;
     }
 
@@ -171,15 +194,16 @@ pub async fn run(raw_args: Vec<String>) -> Result<()> {
     crate::triggers::flush();
 
     let elapsed = started.elapsed().as_secs();
-    let mins    = elapsed / 60;
-    let secs    = elapsed % 60;
+    let mins = elapsed / 60;
+    let secs = elapsed % 60;
     let total_gb = total_dl as f64 / 1_073_741_824.0;
 
     ui::print_success(
         uland_upgrades.len(),
         syshub_upgrades.len(),
         total_gb,
-        mins, secs,
+        mins,
+        secs,
         !syshub_upgrades.is_empty(),
     );
 
@@ -192,9 +216,13 @@ pub async fn run(raw_args: Vec<String>) -> Result<()> {
 /// a real syshub upgrade to 2026v1.1 still showed "2026v3.2" here.
 fn local_core_version() -> String {
     #[derive(serde::Deserialize)]
-    struct CoreInfo { build_version: String }
+    struct CoreInfo {
+        build_version: String,
+    }
     #[derive(serde::Deserialize)]
-    struct Manifest { core_info: CoreInfo }
+    struct Manifest {
+        core_info: CoreInfo,
+    }
 
     std::fs::read_to_string(SYSHUB_MANIFEST)
         .ok()
@@ -204,14 +232,19 @@ fn local_core_version() -> String {
 }
 
 async fn online() -> bool {
-    let Ok(client) = crate::http_client::build("zex-update/ping") else { return false };
+    let Ok(client) = crate::http_client::build("zex-update/ping") else {
+        return false;
+    };
 
     // There is no more zex-server / API backend behind archive.zainiumdynamics.tech
     // to ping (it was decommissioned — the domain now only serves static
     // package files via Cloudflare/R2) — go straight to a generic
     // reachability probe rather than wasting a round-trip on a permanently
     // dead endpoint first.
-    client.head("https://mirrors.edge.kernel.org/").send().await
+    client
+        .head("https://mirrors.edge.kernel.org/")
+        .send()
+        .await
         .map(|r| r.status().is_success())
         .unwrap_or(false)
 }

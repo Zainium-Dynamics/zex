@@ -16,29 +16,41 @@ use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::time::Duration;
 
 // ── ANSI palette ─────────────────────────────────────────────────────────────
-pub const G:   &str = "\x1b[92m";   // bright green
-pub const P:   &str = "\x1b[95m";   // bright purple
-pub const B:   &str = "\x1b[96m";   // bright cyan
-pub const Y:   &str = "\x1b[93m";   // yellow
-pub const R:   &str = "\x1b[91m";   // bright red
+pub const G: &str = "\x1b[92m"; // bright green
+pub const P: &str = "\x1b[95m"; // bright purple
+pub const B: &str = "\x1b[96m"; // bright cyan
+pub const Y: &str = "\x1b[93m"; // yellow
+pub const R: &str = "\x1b[91m"; // bright red
 pub const DIM: &str = "\x1b[2m";
 pub const RST: &str = "\x1b[0m";
 pub const BLD: &str = "\x1b[1m";
 
 // ── Bar characters ───────────────────────────────────────────────────────────
-const FILLED:  char = '█';
-const EMPTY:   char = '░';
-const BAR_W:   usize = 22;   // inner bar width (matches visual spec)
-const STEP_W:  usize = 45;   // width of the "step" label column
+const FILLED: char = '█';
+const EMPTY: char = '░';
+const BAR_W: usize = 22; // inner bar width (matches visual spec)
+const STEP_W: usize = 45; // width of the "step" label column
 
 // ── Colour helpers ────────────────────────────────────────────────────────────
 
-pub fn g(s: &str)   -> String { format!("{G}{s}{RST}") }
-pub fn p(s: &str)   -> String { format!("{P}{s}{RST}") }
-pub fn b(s: &str)   -> String { format!("{B}{s}{RST}") }
-pub fn y(s: &str)   -> String { format!("{Y}{s}{RST}") }
-pub fn r(s: &str)   -> String { format!("{R}{s}{RST}") }
-pub fn dim(s: &str) -> String { format!("{DIM}{s}{RST}") }
+pub fn g(s: &str) -> String {
+    format!("{G}{s}{RST}")
+}
+pub fn p(s: &str) -> String {
+    format!("{P}{s}{RST}")
+}
+pub fn b(s: &str) -> String {
+    format!("{B}{s}{RST}")
+}
+pub fn y(s: &str) -> String {
+    format!("{Y}{s}{RST}")
+}
+pub fn r(s: &str) -> String {
+    format!("{R}{s}{RST}")
+}
+pub fn dim(s: &str) -> String {
+    format!("{DIM}{s}{RST}")
+}
 
 // ── Static bar renderer (fake-fill for verify/apply/manifest steps) ───────────
 
@@ -60,9 +72,9 @@ pub fn phase_bar(label: &str, width: usize) -> String {
 /// Template matches the visual spec:
 ///   "  rust-1.78.0       → 1.81.0  142.3/218.7 MB   [████████░░░░░░] 65%   19.4 MB/s  4s"
 pub fn make_pkg_bar(
-    mp:        &MultiProgress,
-    total_b:   u64,
-    pkg_label: &str,   // e.g. "rust-1.78.0       → 1.81.0"
+    mp: &MultiProgress,
+    total_b: u64,
+    pkg_label: &str, // e.g. "rust-1.78.0       → 1.81.0"
 ) -> ProgressBar {
     // Package name on its own line above the bar — confirmed live that
     // cramming it onto the same line as the bar/percent/speed/eta made it
@@ -73,11 +85,9 @@ pub fn make_pkg_bar(
     if total_b == 0 {
         let pb = mp.add(ProgressBar::new_spinner());
         pb.set_style(
-            ProgressStyle::with_template(&format!(
-                "{label}\n  {{spinner}} {{bytes}} downloaded"
-            ))
-            .unwrap()
-            .tick_strings(&["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"]),
+            ProgressStyle::with_template(&format!("{label}\n  {{spinner}} {{bytes}} downloaded"))
+                .unwrap()
+                .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]),
         );
         pb.enable_steady_tick(Duration::from_millis(80));
         pb
@@ -160,9 +170,7 @@ pub fn print_syshub_package_list(pkgs: &[(&str, &str, &str)]) {
     // pkgs: (name, old_ver, new_ver)
     println!("{G}Packages to be upgraded {DIM}(System Hub){RST}{G}:{RST}");
     for (name, old, new) in pkgs {
-        println!(
-            "  {DIM}•{RST} {P}{name:<22}{RST}  {B}{old}{RST} {DIM}→{RST} {G}{new}{RST}"
-        );
+        println!("  {DIM}•{RST} {P}{name:<22}{RST}  {B}{old}{RST} {DIM}→{RST} {G}{new}{RST}");
     }
 }
 
@@ -193,7 +201,12 @@ pub fn print_phase(label: &str) {
 
 /// Same line as `print_phase`, shown as running while the caller does the work.
 pub fn start_phase(label: &str) {
-    crate::steps::start_bar(&format!("{G}{label}{RST}"), STEP_W.saturating_sub(label.len() + 1), BAR_W, "100%");
+    crate::steps::start_bar(
+        &format!("{G}{label}{RST}"),
+        STEP_W.saturating_sub(label.len() + 1),
+        BAR_W,
+        "100%",
+    );
 }
 
 pub fn print_syshub_done(count: usize, total_mb: f64, secs: u64, new_ver: &str, txn: &str) {
@@ -209,15 +222,21 @@ pub fn print_syshub_done(count: usize, total_mb: f64, secs: u64, new_ver: &str, 
 }
 
 pub fn print_pending_waiting(txn: &str) {
-    println!(" {Y}⚠{RST}  Upgrade {DIM}{txn}{RST} is already waiting for a reboot; a new one will replace it.\n");
+    println!(
+        " {Y}⚠{RST}  Upgrade {DIM}{txn}{RST} is already waiting for a reboot; a new one will replace it.\n"
+    );
 }
 
 pub fn print_rollback_requested() {
-    println!("\n {G}✓{RST} Rollback requested: the last applied System Hub upgrade is undone at the next boot.\n");
+    println!(
+        "\n {G}✓{RST} Rollback requested: the last applied System Hub upgrade is undone at the next boot.\n"
+    );
 }
 
 pub fn print_pending_cancelled(txn: &str) {
-    println!("\n {G}✓{RST} Staged upgrade {DIM}{txn}{RST} cancelled; the base was never touched.\n");
+    println!(
+        "\n {G}✓{RST} Staged upgrade {DIM}{txn}{RST} cancelled; the base was never touched.\n"
+    );
 }
 
 // ── Error display ─────────────────────────────────────────────────────────────
@@ -272,9 +291,7 @@ pub fn print_uland_transaction(count: usize, total_gb: f64, est_secs: u64) {
     println!("\n{G}Transaction Summary{RST}");
     println!("  Packages to upgrade : {G}{count:02}{RST}");
     println!("  Total download      : {B}{total_gb:.2} GB{RST}");
-    println!(
-        "  Estimated time      : {DIM}~{mins} minutes {secs} seconds{RST}\n"
-    );
+    println!("  Estimated time      : {DIM}~{mins} minutes {secs} seconds{RST}\n");
 }
 
 pub fn print_uland_proceed_prompt() -> bool {
@@ -304,7 +321,7 @@ pub fn print_uland_done(count: usize, total_gb: f64, secs: u64) {
     println!("  Packages upgraded     : {G}{count:02}{RST}");
     println!("  Total downloaded      : {B}{total_gb:.2} GB{RST}");
     let mins = secs / 60;
-    let rem  = secs % 60;
+    let rem = secs % 60;
     println!("  Time taken            : {B}{mins} minutes {rem} seconds{RST}");
     println!("{G}Zainium OS is now running the latest userland components.{RST}\n");
 }
@@ -329,6 +346,8 @@ pub fn print_uland_download_interrupted(pkg: &str) {
     println!("{G}Suggestions:{RST}");
     println!("  {DIM}•{RST} Check your internet connection and try again");
     println!("  {DIM}•{RST} Run: {P}elevate zex uland --u{RST}");
-    println!("  {DIM}•{RST} Partial updates have been cleaned up to maintain system consistency.\n");
+    println!(
+        "  {DIM}•{RST} Partial updates have been cleaned up to maintain system consistency.\n"
+    );
     println!(" {R}Operation failed.{RST}\n");
 }

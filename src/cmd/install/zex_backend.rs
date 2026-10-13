@@ -9,27 +9,27 @@ use super::backend::{
 
 #[derive(Default, Debug, Clone)]
 pub struct ZexIndexEntry {
-    pub real_name:       String,
-    pub version:         Option<String>,
-    pub size:            Option<u64>,
-    pub file:            Option<String>,
-    pub blake3:          Option<String>,
-    pub ed25519_sig:     Option<String>,   // "sig:ed25519:<hex>"
-    pub depends:         Vec<String>,
-    pub provides:        Vec<String>,
+    pub real_name: String,
+    pub version: Option<String>,
+    pub size: Option<u64>,
+    pub file: Option<String>,
+    pub blake3: Option<String>,
+    pub ed25519_sig: Option<String>, // "sig:ed25519:<hex>"
+    pub depends: Vec<String>,
+    pub provides: Vec<String>,
     pub requires_syshub: Option<String>,
-    pub description:     Option<String>,
-    pub license:         Option<String>,
-    pub maintainer:      Option<String>,
-    pub tags:            Vec<String>,
-    pub build_type:      Option<String>,   // "static"|"dynamic"|"firmware"
-    pub libc_target:     Option<String>,   // "relibc"|"musl"|"freestanding"
-    pub edition:         Option<String>,   // package edition (e.g. Rust "2021")
+    pub description: Option<String>,
+    pub license: Option<String>,
+    pub maintainer: Option<String>,
+    pub tags: Vec<String>,
+    pub build_type: Option<String>,  // "static"|"dynamic"|"firmware"
+    pub libc_target: Option<String>, // "relibc"|"musl"|"freestanding"
+    pub edition: Option<String>,     // package edition (e.g. Rust "2021")
 }
 
 #[derive(Debug, Clone)]
 pub struct ZexIndex {
-    entries:    HashMap<String, ZexIndexEntry>,
+    entries: HashMap<String, ZexIndexEntry>,
     capabilities: HashMap<String, String>,
     /// Base URL for downloading packages — filled in by fetch_index from mirror config.
     pub base_url: String,
@@ -42,6 +42,13 @@ impl ZexIndex {
             return Some(entry);
         }
         if let Some(pkg_name) = self.capabilities.get(&lower) {
+            return self.entries.get(pkg_name);
+        }
+        // "so:libfoo.so.1": Zainium's provides list libraries without the prefix
+        if let Some(pkg_name) = lower
+            .strip_prefix("so:")
+            .and_then(|lib| self.capabilities.get(lib))
+        {
             return self.entries.get(pkg_name);
         }
         None
@@ -64,14 +71,16 @@ pub async fn fetch_index(
         .iter()
         .find(|m| m.id == "zainium-userland-zexlib" && m.format == "zex")
         .or_else(|| config.mirrors.iter().find(|m| m.format == "zex"))
-        .ok_or_else(|| anyhow::anyhow!(
-            "No native Zainium (.zex) mirror configured in zex_services.toml"
-        ))?;
+        .ok_or_else(|| {
+            anyhow::anyhow!("No native Zainium (.zex) mirror configured in zex_services.toml")
+        })?;
 
     let index_url = &mirror.index_url;
-    let base_url  = mirror.base_url.trim_end_matches('/').to_string();
+    let base_url = mirror.base_url.trim_end_matches('/').to_string();
 
-    let (arc_bytes, _) = mm.fetch(index_url, client, super::installer::reinstalling()).await?;
+    let (arc_bytes, _) = mm
+        .fetch(index_url, client, super::installer::reinstalling())
+        .await?;
     let bytes = arc_bytes.as_slice();
     let url_lower = index_url.trim().to_ascii_lowercase();
 
@@ -127,10 +136,7 @@ pub async fn resolve_zex(
     Ok(Some(info))
 }
 
-pub fn package_info_from_entry(
-    entry: &ZexIndexEntry,
-    base_url: &str,
-) -> Result<PackageInfo> {
+pub fn package_info_from_entry(entry: &ZexIndexEntry, base_url: &str) -> Result<PackageInfo> {
     let version = entry
         .version
         .as_ref()
@@ -163,14 +169,14 @@ pub fn package_info_from_entry(
     let filename = url.split('/').last().unwrap_or("package.zex").to_owned();
 
     let (display_name, launch_cmd) = dynamic_metadata(&entry.real_name, None);
-    let ed25519_sig  = entry.ed25519_sig.clone();
-    let description  = entry.description.clone();
-    let license      = entry.license.clone();
-    let maintainer   = entry.maintainer.clone();
-    let tags         = entry.tags.clone();
-    let build_type   = entry.build_type.clone();
-    let libc_target  = entry.libc_target.clone();
-    let edition      = entry.edition.clone();
+    let ed25519_sig = entry.ed25519_sig.clone();
+    let description = entry.description.clone();
+    let license = entry.license.clone();
+    let maintainer = entry.maintainer.clone();
+    let tags = entry.tags.clone();
+    let build_type = entry.build_type.clone();
+    let libc_target = entry.libc_target.clone();
+    let edition = entry.edition.clone();
 
     Ok(PackageInfo {
         name: entry.real_name.clone(),
@@ -189,9 +195,9 @@ pub fn package_info_from_entry(
             .as_ref()
             .filter(|v| !v.trim().is_empty())
             .cloned(),
-        depends:      entry.depends.clone(),
-        provides:     entry.provides.clone(),
-        conflicts:    Vec::new(),
+        depends: entry.depends.clone(),
+        provides: entry.provides.clone(),
+        conflicts: Vec::new(),
         description,
         license,
         maintainer,
@@ -275,7 +281,11 @@ fn parse_index_json(value: JsonValue) -> Result<ZexIndex> {
         }
     }
 
-    Ok(ZexIndex { entries, capabilities, base_url: String::new() })
+    Ok(ZexIndex {
+        entries,
+        capabilities,
+        base_url: String::new(),
+    })
 }
 
 fn parse_index_toml(value: TomlValue) -> Result<ZexIndex> {
@@ -330,7 +340,11 @@ fn parse_index_toml(value: TomlValue) -> Result<ZexIndex> {
         }
     }
 
-    Ok(ZexIndex { entries, capabilities, base_url: String::new() })
+    Ok(ZexIndex {
+        entries,
+        capabilities,
+        base_url: String::new(),
+    })
 }
 
 fn parse_entry(name_hint: Option<&str>, value: &JsonValue) -> Option<ZexIndexEntry> {
@@ -351,14 +365,14 @@ fn parse_entry(name_hint: Option<&str>, value: &JsonValue) -> Option<ZexIndexEnt
     let provides = parse_depends(obj.get("provides"));
     let requires_syshub = pick_string(obj, &["requires_syshub", "syshub", "base_os"]);
 
-    let ed25519_sig     = pick_string_json(obj, &["ed25519_sig", "sig", "signature"]);
-    let description     = pick_string_json(obj, &["description", "desc", "summary"]);
-    let license         = pick_string_json(obj, &["license", "spdx"]);
-    let maintainer      = pick_string_json(obj, &["maintainer", "author", "packager"]);
-    let tags            = parse_depends_json(obj.get("tags").or_else(|| obj.get("keywords")));
-    let build_type      = pick_string_json(obj, &["build_type", "link_type"]);
-    let libc_target     = pick_string_json(obj, &["libc_target", "libc"]);
-    let edition         = pick_string_json(obj, &["edition"]);
+    let ed25519_sig = pick_string_json(obj, &["ed25519_sig", "sig", "signature"]);
+    let description = pick_string_json(obj, &["description", "desc", "summary"]);
+    let license = pick_string_json(obj, &["license", "spdx"]);
+    let maintainer = pick_string_json(obj, &["maintainer", "author", "packager"]);
+    let tags = parse_depends_json(obj.get("tags").or_else(|| obj.get("keywords")));
+    let build_type = pick_string_json(obj, &["build_type", "link_type"]);
+    let libc_target = pick_string_json(obj, &["libc_target", "libc"]);
+    let edition = pick_string_json(obj, &["edition"]);
 
     Some(ZexIndexEntry {
         real_name,
@@ -394,14 +408,14 @@ fn parse_entry_toml(name_hint: Option<&str>, value: &TomlValue) -> Option<ZexInd
     // zex_ledger-x86_64.toml/syshub.toml are the only formats actually
     // published (see zex-server's ledger.rs) — no JSON index exists in
     // production, so this is the path that matters for these fields.
-    let ed25519_sig  = pick_string_toml(obj, &["ed25519_sig", "sig", "signature"]);
-    let description  = pick_string_toml(obj, &["description", "desc", "summary"]);
-    let license      = pick_string_toml(obj, &["license", "spdx"]);
-    let maintainer   = pick_string_toml(obj, &["maintainer", "author", "packager"]);
-    let tags         = parse_depends_toml(obj.get("tags").or_else(|| obj.get("keywords")));
-    let build_type   = pick_string_toml(obj, &["build_type", "link_type"]);
-    let libc_target  = pick_string_toml(obj, &["libc_target", "libc"]);
-    let edition      = pick_string_toml(obj, &["edition"]);
+    let ed25519_sig = pick_string_toml(obj, &["ed25519_sig", "sig", "signature"]);
+    let description = pick_string_toml(obj, &["description", "desc", "summary"]);
+    let license = pick_string_toml(obj, &["license", "spdx"]);
+    let maintainer = pick_string_toml(obj, &["maintainer", "author", "packager"]);
+    let tags = parse_depends_toml(obj.get("tags").or_else(|| obj.get("keywords")));
+    let build_type = pick_string_toml(obj, &["build_type", "link_type"]);
+    let libc_target = pick_string_toml(obj, &["libc_target", "libc"]);
+    let edition = pick_string_toml(obj, &["edition"]);
 
     Some(ZexIndexEntry {
         real_name,
@@ -575,10 +589,15 @@ fn push_dep(out: &mut Vec<String>, raw: &str) {
     out.push(name.to_ascii_lowercase());
 }
 
-fn pick_string_json(map: &serde_json::Map<String, serde_json::Value>, keys: &[&str]) -> Option<String> {
+fn pick_string_json(
+    map: &serde_json::Map<String, serde_json::Value>,
+    keys: &[&str],
+) -> Option<String> {
     for k in keys {
         if let Some(v) = map.get(*k) {
-            if let Some(s) = v.as_str() { return Some(s.to_string()); }
+            if let Some(s) = v.as_str() {
+                return Some(s.to_string());
+            }
             return Some(v.to_string());
         }
     }
@@ -590,7 +609,10 @@ fn parse_depends_json(value: Option<&serde_json::Value>) -> Vec<String> {
         return Vec::new();
     };
     if let Some(arr) = v.as_array() {
-        return arr.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect();
+        return arr
+            .iter()
+            .filter_map(|x| x.as_str().map(|s| s.to_string()))
+            .collect();
     }
     if let Some(s) = v.as_str() {
         return s.split_whitespace().map(|s| s.to_string()).collect();

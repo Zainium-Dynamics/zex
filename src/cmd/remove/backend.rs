@@ -100,7 +100,6 @@ impl PackageBackend {
 /// Execute removal for a Zex Content Store package.
 /// Reads metadata from TOML registry, cleans system + union, deletes registry entry, runs GC.
 async fn zex_store_removal(name: &str) -> bool {
-
     use std::collections::HashSet;
     use std::path::PathBuf;
 
@@ -117,12 +116,19 @@ async fn zex_store_removal(name: &str) -> bool {
     let union_path = PathBuf::from("/overlayer/zexlib/union");
 
     if store_path.exists() {
-        for entry in walkdir::WalkDir::new(&store_path).into_iter().filter_map(|e| e.ok()) {
+        for entry in walkdir::WalkDir::new(&store_path)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
             if entry.file_type().is_file() || entry.file_type().is_symlink() {
                 if let Ok(rel) = entry.path().strip_prefix(&store_path) {
                     // Remove system symlink
                     let system_path = std::path::Path::new("/").join(rel);
-                    if system_path.symlink_metadata().map(|m| m.file_type().is_symlink()).unwrap_or(false) {
+                    if system_path
+                        .symlink_metadata()
+                        .map(|m| m.file_type().is_symlink())
+                        .unwrap_or(false)
+                    {
                         let _ = std::fs::remove_file(&system_path);
                     }
                     // Remove union hardlink
@@ -160,7 +166,6 @@ async fn zex_store_removal(name: &str) -> bool {
             }
         }
     }
-
 
     true
 }

@@ -58,22 +58,50 @@ impl Lockfile {
 /// Drift between what a lockfile pins and what's actually installed right now.
 #[derive(Debug)]
 pub enum Drift {
-    Missing { name: String, expected_version: String },
-    VersionMismatch { name: String, expected: String, actual: String },
-    HashMismatch { name: String, expected: String, actual: String },
+    Missing {
+        name: String,
+        expected_version: String,
+    },
+    VersionMismatch {
+        name: String,
+        expected: String,
+        actual: String,
+    },
+    HashMismatch {
+        name: String,
+        expected: String,
+        actual: String,
+    },
 }
 
 impl std::fmt::Display for Drift {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Drift::Missing { name, expected_version } => {
+            Drift::Missing {
+                name,
+                expected_version,
+            } => {
                 write!(f, "{name}: missing (lockfile pins {expected_version})")
             }
-            Drift::VersionMismatch { name, expected, actual } => {
-                write!(f, "{name}: version drift — lockfile pins {expected}, installed is {actual}")
+            Drift::VersionMismatch {
+                name,
+                expected,
+                actual,
+            } => {
+                write!(
+                    f,
+                    "{name}: version drift — lockfile pins {expected}, installed is {actual}"
+                )
             }
-            Drift::HashMismatch { name, expected, actual } => {
-                write!(f, "{name}: hash drift — lockfile records {expected}, installed file hashes to {actual}")
+            Drift::HashMismatch {
+                name,
+                expected,
+                actual,
+            } => {
+                write!(
+                    f,
+                    "{name}: hash drift — lockfile records {expected}, installed file hashes to {actual}"
+                )
             }
         }
     }

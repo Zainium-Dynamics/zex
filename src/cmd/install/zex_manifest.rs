@@ -24,7 +24,7 @@
 //!   3. Know exactly which files to remove on uninstall
 //!   4. Handle edition selection
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -38,55 +38,55 @@ use std::{
 /// Full contents of `manifest.toml` inside a `.zex` archive.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ZexManifest {
-    pub package:  PackageMeta,
-    pub install:  InstallMap,
+    pub package: PackageMeta,
+    pub install: InstallMap,
     #[serde(default)]
-    pub remove:   RemoveMap,
+    pub remove: RemoveMap,
     #[serde(default)]
     pub editions: Option<EditionSet>,
     #[serde(default)]
-    pub hooks:    HookMap,
+    pub hooks: HookMap,
 }
 
 /// [package] — identity and metadata.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PackageMeta {
-    pub name:            String,
-    pub version:         String,
-    pub description:     String,
-    pub license:         String,
-    pub maintainer:      String,
+    pub name: String,
+    pub version: String,
+    pub description: String,
+    pub license: String,
+    pub maintainer: String,
     #[serde(default)]
-    pub homepage:        Option<String>,
+    pub homepage: Option<String>,
     /// "static" | "dynamic" | "firmware"
     #[serde(default)]
-    pub build_type:      Option<String>,
+    pub build_type: Option<String>,
     /// "relibc" | "musl" | "freestanding"
     #[serde(default)]
-    pub libc_target:     Option<String>,
+    pub libc_target: Option<String>,
     /// Active edition for this build (e.g. "2021" for Rust)
     #[serde(default)]
-    pub edition:         Option<String>,
+    pub edition: Option<String>,
     /// Ed25519 signature over the payload/ tree Blake3 hash
     #[serde(default)]
-    pub ed25519_sig:     Option<String>,
+    pub ed25519_sig: Option<String>,
     /// Blake3 of entire payload/ tree
     #[serde(default)]
-    pub blake3:          Option<String>,
+    pub blake3: Option<String>,
     /// Ed25519 verifying key embedded by `substrate pack` (hex, 32 bytes).
     /// Ephemeral per-build — there is no fixed publisher key any more, so
     /// this is what `trust.rs` verifies the signature against.
     #[serde(default)]
-    pub ed25519_pubkey:  Option<String>,
+    pub ed25519_pubkey: Option<String>,
     /// Minimum syshub version required
     #[serde(default)]
     pub requires_syshub: Option<String>,
     #[serde(default)]
-    pub depends:         Vec<String>,
+    pub depends: Vec<String>,
     #[serde(default)]
-    pub provides:        Vec<String>,
+    pub provides: Vec<String>,
     #[serde(default)]
-    pub tags:            Vec<String>,
+    pub tags: Vec<String>,
 }
 
 /// [install] — maps payload/ subdirs to absolute on-disk destinations.
@@ -122,7 +122,7 @@ pub struct RemoveMap {
     pub files: Vec<String>,
     /// Absolute paths of installed dirs (removed only if empty after file deletion)
     #[serde(default)]
-    pub dirs:  Vec<String>,
+    pub dirs: Vec<String>,
     /// Absolute paths of created symlinks
     #[serde(default)]
     pub symlinks: Vec<String>,
@@ -134,7 +134,7 @@ pub struct EditionSet {
     /// All editions shipped in this .zex
     pub available: Vec<String>,
     /// Default edition if user doesn't specify
-    pub default:   String,
+    pub default: String,
 }
 
 /// [edition.<name>] overrides — per-edition install path differences.
@@ -143,16 +143,16 @@ pub struct EditionSet {
 pub struct HookMap {
     /// Script to run BEFORE extraction (relative to payload/ or absolute)
     #[serde(default)]
-    pub pre_install:  Option<String>,
+    pub pre_install: Option<String>,
     /// Script to run AFTER extraction
     #[serde(default)]
     pub post_install: Option<String>,
     /// Script to run BEFORE removal
     #[serde(default)]
-    pub pre_remove:   Option<String>,
+    pub pre_remove: Option<String>,
     /// Script to run AFTER removal
     #[serde(default)]
-    pub post_remove:  Option<String>,
+    pub post_remove: Option<String>,
 }
 
 // ── Reader ────────────────────────────────────────────────────────────────────
@@ -170,8 +170,8 @@ pub fn read_from_zex(zex_path: &Path) -> Result<ZexManifest> {
         if path.to_string_lossy() == "manifest.toml" {
             let mut text = String::new();
             entry.read_to_string(&mut text)?;
-            let manifest: ZexManifest = toml::from_str(&text)
-                .context("parsing manifest.toml inside .zex")?;
+            let manifest: ZexManifest =
+                toml::from_str(&text).context("parsing manifest.toml inside .zex")?;
             return Ok(manifest);
         }
     }
@@ -188,9 +188,10 @@ pub fn read_from_zex(zex_path: &Path) -> Result<ZexManifest> {
 pub fn extract_payload(
     zex_path: &Path,
     manifest: &ZexManifest,
-    edition:  Option<&str>,
+    edition: Option<&str>,
 ) -> Result<RemoveMap> {
-    #[cfg(unix)] use std::os::unix::fs::symlink;
+    #[cfg(unix)]
+    use std::os::unix::fs::symlink;
 
     // Build the install map — payload_prefix → dest_root
     let install_map = &manifest.install.paths;
@@ -206,9 +207,16 @@ pub fn extract_payload(
         let rel = raw_path.to_string_lossy();
 
         // Only process payload/ entries
-        if !rel.starts_with("payload/") { continue; }
-        let inner = rel.strip_prefix("payload/").unwrap_or("").trim_start_matches('/');
-        if inner.is_empty() { continue; }
+        if !rel.starts_with("payload/") {
+            continue;
+        }
+        let inner = rel
+            .strip_prefix("payload/")
+            .unwrap_or("")
+            .trim_start_matches('/');
+        if inner.is_empty() {
+            continue;
+        }
 
         // Match the first path component against the install map
         let dest_abs = resolve_install_dest(inner, install_map)?;
@@ -219,12 +227,13 @@ pub fn extract_payload(
         // files from payload/<edition>/ and skip others for that component.
         if let Some(ed) = edition {
             let first_component = inner.split('/').next().unwrap_or("");
-            let all_editions = manifest.editions.as_ref()
+            let all_editions = manifest
+                .editions
+                .as_ref()
                 .map(|e| e.available.as_slice())
                 .unwrap_or(&[]);
             // If this is an edition-prefixed path for a *different* edition, skip
-            if all_editions.contains(&first_component.to_string())
-                && first_component != ed {
+            if all_editions.contains(&first_component.to_string()) && first_component != ed {
                 continue;
             }
         }
@@ -244,18 +253,19 @@ pub fn extract_payload(
         if typ.is_file() {
             let mut out = fs::File::create(&dest_abs)?;
             std::io::copy(&mut entry, &mut out)?;
-            #[cfg(unix)] {
+            #[cfg(unix)]
+            {
                 use std::os::unix::fs::PermissionsExt;
                 if entry.header().mode().unwrap_or(0) & 0o111 != 0 {
                     fs::set_permissions(&dest_abs, fs::Permissions::from_mode(0o755))?;
                 }
             }
             rm.files.push(dest_abs.to_string_lossy().into_owned());
-
         } else if typ.is_symlink() {
             if let Some(target) = entry.link_name()? {
                 let _ = fs::remove_file(&dest_abs);
-                #[cfg(unix)] symlink(&target, &dest_abs)?;
+                #[cfg(unix)]
+                symlink(&target, &dest_abs)?;
                 rm.symlinks.push(dest_abs.to_string_lossy().into_owned());
             }
         }
@@ -281,16 +291,17 @@ pub fn resolve_install_dest_pub(
 fn resolve_install_dest(inner: &str, install_map: &HashMap<String, String>) -> Result<PathBuf> {
     // Try longest prefix match first (e.g. "lib64" before "lib")
     let mut best_prefix = "";
-    let mut best_dest   = "";
+    let mut best_dest = "";
 
     for (prefix, dest) in install_map {
-        if prefix.starts_with('_') { continue; } // skip special keys
+        if prefix.starts_with('_') {
+            continue;
+        } // skip special keys
         let pfx = prefix.trim_end_matches('/');
-        if (inner == pfx || inner.starts_with(&format!("{pfx}/")))
-            && pfx.len() > best_prefix.len()
+        if (inner == pfx || inner.starts_with(&format!("{pfx}/"))) && pfx.len() > best_prefix.len()
         {
             best_prefix = pfx;
-            best_dest   = dest;
+            best_dest = dest;
         }
     }
 
@@ -303,7 +314,9 @@ fn resolve_install_dest(inner: &str, install_map: &HashMap<String, String>) -> R
     let remainder = if inner == best_prefix {
         ""
     } else {
-        inner.strip_prefix(&format!("{best_prefix}/")).unwrap_or(inner)
+        inner
+            .strip_prefix(&format!("{best_prefix}/"))
+            .unwrap_or(inner)
     };
 
     Ok(PathBuf::from(best_dest).join(remainder))
@@ -318,29 +331,29 @@ const INSTALLED_DIR: &str = "/overlayer/zexlib/registry/installed";
 pub fn write_receipt(manifest: &ZexManifest, rm: &RemoveMap) -> Result<()> {
     #[derive(Serialize)]
     struct Receipt<'a> {
-        name:         &'a str,
-        version:      &'a str,
-        description:  &'a str,
-        license:      &'a str,
-        maintainer:   &'a str,
-        build_type:   Option<&'a str>,
-        libc_target:  Option<&'a str>,
-        edition:      Option<&'a str>,
+        name: &'a str,
+        version: &'a str,
+        description: &'a str,
+        license: &'a str,
+        maintainer: &'a str,
+        build_type: Option<&'a str>,
+        libc_target: Option<&'a str>,
+        edition: Option<&'a str>,
         installed_at: String,
-        remove:       &'a RemoveMap,
+        remove: &'a RemoveMap,
     }
 
     let receipt = Receipt {
-        name:         &manifest.package.name,
-        version:      &manifest.package.version,
-        description:  &manifest.package.description,
-        license:      &manifest.package.license,
-        maintainer:   &manifest.package.maintainer,
-        build_type:   manifest.package.build_type.as_deref(),
-        libc_target:  manifest.package.libc_target.as_deref(),
-        edition:      manifest.package.edition.as_deref(),
+        name: &manifest.package.name,
+        version: &manifest.package.version,
+        description: &manifest.package.description,
+        license: &manifest.package.license,
+        maintainer: &manifest.package.maintainer,
+        build_type: manifest.package.build_type.as_deref(),
+        libc_target: manifest.package.libc_target.as_deref(),
+        edition: manifest.package.edition.as_deref(),
         installed_at: chrono::Utc::now().to_rfc3339(),
-        remove:       rm,
+        remove: rm,
     };
 
     fs::create_dir_all(INSTALLED_DIR)?;
@@ -353,7 +366,9 @@ pub fn write_receipt(manifest: &ZexManifest, rm: &RemoveMap) -> Result<()> {
 /// Read a receipt and return its RemoveMap for `zex remove`.
 pub fn read_receipt_remove_map(name: &str) -> Result<RemoveMap> {
     #[derive(Deserialize)]
-    struct Receipt { remove: RemoveMap }
+    struct Receipt {
+        remove: RemoveMap,
+    }
 
     let path = Path::new(INSTALLED_DIR).join(format!("{name}.toml"));
     if !path.exists() {
@@ -367,6 +382,8 @@ pub fn read_receipt_remove_map(name: &str) -> Result<RemoveMap> {
 /// Delete a receipt file after successful removal.
 pub fn delete_receipt(name: &str) -> Result<()> {
     let path = Path::new(INSTALLED_DIR).join(format!("{name}.toml"));
-    if path.exists() { fs::remove_file(path)?; }
+    if path.exists() {
+        fs::remove_file(path)?;
+    }
     Ok(())
 }

@@ -91,7 +91,9 @@ pub fn load_history() -> Vec<HistoryEntry> {
         return Vec::new();
     }
     match std::fs::read_to_string(path) {
-        Ok(data) => toml::from_str::<HistoryFile>(&data).map(|f| f.entries).unwrap_or_default(),
+        Ok(data) => toml::from_str::<HistoryFile>(&data)
+            .map(|f| f.entries)
+            .unwrap_or_default(),
         Err(_) => Vec::new(),
     }
 }
@@ -103,7 +105,9 @@ fn save_history(entries: &[HistoryEntry]) -> Result<()> {
         .unwrap_or(Path::new("/overlayer/zexlib"));
     std::fs::create_dir_all(dir)?;
 
-    let file = HistoryFile { entries: entries.to_vec() };
+    let file = HistoryFile {
+        entries: entries.to_vec(),
+    };
     let toml_str = toml::to_string_pretty(&file).context("Failed to serialize history")?;
 
     // Atomic write: write to temp, then rename
@@ -201,7 +205,9 @@ mod tests {
             user: "ali-zain".to_string(),
         };
 
-        let file = HistoryFile { entries: vec![entry] };
+        let file = HistoryFile {
+            entries: vec![entry],
+        };
         let toml_str = toml::to_string(&file).unwrap();
         let restored: HistoryFile = toml::from_str(&toml_str).unwrap();
         assert_eq!(restored.entries.len(), 1);

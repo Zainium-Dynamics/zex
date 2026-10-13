@@ -1,11 +1,10 @@
 //! ui.rs — Terminal UI for rollback driver. Same palette as all drivers.
 
-
-pub const G:   &str = "\x1b[92m";
-pub const P:   &str = "\x1b[95m";
-pub const B:   &str = "\x1b[96m";
-pub const Y:   &str = "\x1b[93m";
-pub const R:   &str = "\x1b[91m";
+pub const G: &str = "\x1b[92m";
+pub const P: &str = "\x1b[95m";
+pub const B: &str = "\x1b[96m";
+pub const Y: &str = "\x1b[93m";
+pub const R: &str = "\x1b[91m";
 pub const DIM: &str = "\x1b[2m";
 pub const BLD: &str = "\x1b[1m";
 pub const RST: &str = "\x1b[0m";
@@ -33,12 +32,12 @@ pub fn print_uland_header(tx_id: &str, operation: &str, target: &str, version: &
 }
 
 pub fn print_uland_success(
-    tx_id:      &str,
-    pkg_count:  usize,
-    pkg_names:  &str,
+    tx_id: &str,
+    pkg_count: usize,
+    pkg_names: &str,
     file_count: usize,
-    freed_mb:   f64,
-    secs:       f64,
+    freed_mb: f64,
+    secs: f64,
 ) {
     println!("\n {G}\u{2713} Userland rollback completed successfully{RST}\n");
     println!("{G}Rollback Summary{RST}");
@@ -87,9 +86,9 @@ pub fn print_not_found(tx_id: &str, recent: &[TxSummary]) {
 }
 
 pub struct TxSummary {
-    pub id:        String,
+    pub id: String,
     pub operation: String,
-    pub target:    String,
+    pub target: String,
 }
 
 pub fn print_list(transactions: &[TxSummary]) {

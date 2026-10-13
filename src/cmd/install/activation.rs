@@ -9,9 +9,7 @@ pub struct ActivationPlan {
 
 impl ActivationPlan {
     pub fn new() -> Self {
-        Self {
-            moves: Vec::new(),
-        }
+        Self { moves: Vec::new() }
     }
 
     pub fn add(&mut self, staged_path: PathBuf, final_path: PathBuf) {
@@ -41,17 +39,23 @@ fn place(staged: &Path, target: &Path) -> Result<()> {
     let tmp = target.with_file_name(format!(".{name}.zexnew"));
     let _ = fs::remove_file(&tmp);
 
-    let meta = fs::symlink_metadata(staged).with_context(|| format!("stat {}", staged.display()))?;
+    let meta =
+        fs::symlink_metadata(staged).with_context(|| format!("stat {}", staged.display()))?;
     if meta.file_type().is_symlink() {
         let link = fs::read_link(staged)?;
-        std::os::unix::fs::symlink(&link, &tmp).with_context(|| format!("symlink {}", tmp.display()))?;
+        std::os::unix::fs::symlink(&link, &tmp)
+            .with_context(|| format!("symlink {}", tmp.display()))?;
     } else if fs::rename(staged, &tmp).is_err() {
-        fs::copy(staged, &tmp).with_context(|| format!("copy {} -> {}", staged.display(), tmp.display()))?;
+        fs::copy(staged, &tmp)
+            .with_context(|| format!("copy {} -> {}", staged.display(), tmp.display()))?;
     }
 
     // a directory can't be renamed over; an old file or link can (once it isn't immutable)
     let _ = crate::immutable::try_clear_immutable(target);
-    if fs::symlink_metadata(target).map(|m| m.is_dir()).unwrap_or(false) {
+    if fs::symlink_metadata(target)
+        .map(|m| m.is_dir())
+        .unwrap_or(false)
+    {
         let _ = fs::remove_file(&tmp);
         anyhow::bail!("{} is a directory", target.display());
     }

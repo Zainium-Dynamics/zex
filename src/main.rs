@@ -34,9 +34,13 @@ use std::{env, process::exit};
 use std::os::unix::process::ExitStatusExt;
 
 #[cfg(unix)]
-unsafe extern "C" { fn geteuid() -> u32; }
+unsafe extern "C" {
+    fn geteuid() -> u32;
+}
 #[cfg(unix)]
-unsafe fn libc_geteuid() -> u32 { unsafe { geteuid() } }
+unsafe fn libc_geteuid() -> u32 {
+    unsafe { geteuid() }
+}
 
 // ── Help ──────────────────────────────────────────────────────────────────────
 
@@ -55,6 +59,17 @@ fn print_help() {
     println!();
     println!("  {Y}Package Management:{R}");
     println!("    {G}install{R} {D}<pkg>...{R}       Install packages");
+    let repos: Vec<String> = cmd::install::main::repository_names()
+        .into_iter()
+        .filter(|n| !n.contains('-'))
+        .map(|n| format!("--{n}"))
+        .collect();
+    if !repos.is_empty() {
+        println!(
+            "    {G}install{R} {D}--<repo> <pkg>{R}  Install from one repository: {D}{}{R}",
+            repos.join(" ")
+        );
+    }
     println!("    {G}reinstall{R} {D}<pkg>...{R}     Download and reinstall, even when unchanged");
     println!("    {G}remove{R}  {D}<pkg>...{R}       Remove packages");
     println!("    {G}update{R}              Full system update (userland + syshub)");
@@ -78,7 +93,9 @@ fn print_help() {
     println!("    {G}pins{R}                List all pinned packages");
     println!();
     println!("  {Y}Local Packages:{R}");
-    println!("    {G}local-install{R} {D}<file>{R}  Install local .zex/.apk/.xbps {D}(short: -i){R}");
+    println!(
+        "    {G}local-install{R} {D}<file>{R}  Install local .zex/.apk/.xbps {D}(short: -i){R}"
+    );
     println!("    {G}extract{R} {D}<file>{R}        Extract package contents {D}(short: -e){R}");
     println!();
     println!("  Zainium OS — {B}archive.zainiumdynamics.tech{R}");
@@ -90,7 +107,9 @@ fn print_help() {
 #[tokio::main]
 async fn main() {
     let all_args: Vec<String> = env::args().collect();
-    if all_args.is_empty() { exit(1); }
+    if all_args.is_empty() {
+        exit(1);
+    }
 
     // Detect argv[0] for symlink dispatch (zex-install, zex-remove, …)
     let argv0 = std::path::Path::new(&all_args[0])
@@ -117,9 +136,11 @@ async fn main() {
 
     // ── Dispatch ─────────────────────────────────────────────────────────────
     let result: anyhow::Result<()> = match command {
-
         // ── Built-ins (no driver binary needed) ──────────────────────────────
-        "-h" | "--help" | "help" => { print_help(); exit(0); }
+        "-h" | "--help" | "help" => {
+            print_help();
+            exit(0);
+        }
 
         "-V" | "--version" | "version" => {
             println!("zex {}", env!("CARGO_PKG_VERSION"));
@@ -136,10 +157,13 @@ async fn main() {
 
         "-i" | "--local-install" | "local-install" => {
             if cmd_args.is_empty() {
-                eprintln!("Usage: elevate zex local-install <file> [--dry-run] [--root <path>] [--force]");
+                eprintln!(
+                    "Usage: elevate zex local-install <file> [--dry-run] [--root <path>] [--force]"
+                );
                 exit(1);
             }
-            #[cfg(unix)] {
+            #[cfg(unix)]
+            {
                 let dry = cmd_args.iter().any(|a| a == "--dry-run");
                 let custom = cmd_args.iter().any(|a| a == "--root");
                 if !dry && !custom && unsafe { libc_geteuid() } != 0 {
@@ -162,7 +186,9 @@ async fn main() {
             while i < cmd_args.len() {
                 if cmd_args[i] == "--reason" {
                     i += 1;
-                    if i < cmd_args.len() { reason = Some(&cmd_args[i]); }
+                    if i < cmd_args.len() {
+                        reason = Some(&cmd_args[i]);
+                    }
                 } else {
                     pkgs.push(&cmd_args[i]);
                 }
@@ -170,7 +196,10 @@ async fn main() {
             }
             let mut err = None;
             for p in &pkgs {
-                if let Err(e) = pinning::pin(p, reason) { err = Some(e); break; }
+                if let Err(e) = pinning::pin(p, reason) {
+                    err = Some(e);
+                    break;
+                }
             }
             err.map(Err).unwrap_or(Ok(()))
         }
@@ -182,7 +211,10 @@ async fn main() {
             }
             let mut err = None;
             for p in &cmd_args {
-                if let Err(e) = pinning::unpin(p) { err = Some(e); break; }
+                if let Err(e) = pinning::unpin(p) {
+                    err = Some(e);
+                    break;
+                }
             }
             err.map(Err).unwrap_or(Ok(()))
         }
@@ -193,7 +225,10 @@ async fn main() {
         }
 
         // ── Driver commands (now compiled into this binary) ───────────────────
-        "install"  => { cmd::install::run(driver_args).await; Ok(()) }
+        "install" => {
+            cmd::install::run(driver_args).await;
+            Ok(())
+        }
         "reinstall" => {
             if cmd_args.is_empty() {
                 eprintln!("Usage: elevate zex reinstall <package>...");
@@ -204,17 +239,38 @@ async fn main() {
             cmd::install::run(args).await;
             Ok(())
         }
-        "remove"   => { cmd::remove::run(driver_args).await; Ok(()) }
-        "search"   => { cmd::search::run(driver_args).await; Ok(()) }
-        "refresh"  => cmd::refresh::run(driver_args).await,
-        "doctor"   => { cmd::doctor::run(driver_args); Ok(()) }
-        "rollback" => { cmd::rollback::run(driver_args); Ok(()) }
-        "sweep"    => cmd::sweep::run(driver_args).await,
-        "inspect"  => { cmd::inspect::run(driver_args).await; Ok(()) }
-        "depends"  => { cmd::depends::run(driver_args); Ok(()) }
-        "why"      => { cmd::why::run(driver_args); Ok(()) }
-        "history"  => cmd::history::run(driver_args),
-        "update"   => cmd::update::run(driver_args).await,
+        "remove" => {
+            cmd::remove::run(driver_args).await;
+            Ok(())
+        }
+        "search" => {
+            cmd::search::run(driver_args).await;
+            Ok(())
+        }
+        "refresh" => cmd::refresh::run(driver_args).await,
+        "doctor" => {
+            cmd::doctor::run(driver_args);
+            Ok(())
+        }
+        "rollback" => {
+            cmd::rollback::run(driver_args);
+            Ok(())
+        }
+        "sweep" => cmd::sweep::run(driver_args).await,
+        "inspect" => {
+            cmd::inspect::run(driver_args).await;
+            Ok(())
+        }
+        "depends" => {
+            cmd::depends::run(driver_args);
+            Ok(())
+        }
+        "why" => {
+            cmd::why::run(driver_args);
+            Ok(())
+        }
+        "history" => cmd::history::run(driver_args),
+        "update" => cmd::update::run(driver_args).await,
 
         // ── Upgrade: exactly two commands (syshub | uland) — no bare `upgrade` ─
         "syshub" | "uland" => {

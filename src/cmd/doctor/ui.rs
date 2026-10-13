@@ -1,11 +1,10 @@
 //! ui.rs — Terminal UI for doctor driver. Same palette as all other drivers.
 
-
-pub const G:   &str = "\x1b[92m";
-pub const P:   &str = "\x1b[95m";
-pub const B:   &str = "\x1b[96m";
-pub const Y:   &str = "\x1b[93m";
-pub const R:   &str = "\x1b[91m";
+pub const G: &str = "\x1b[92m";
+pub const P: &str = "\x1b[95m";
+pub const B: &str = "\x1b[96m";
+pub const Y: &str = "\x1b[93m";
+pub const R: &str = "\x1b[91m";
 pub const DIM: &str = "\x1b[2m";
 pub const BLD: &str = "\x1b[1m";
 pub const RST: &str = "\x1b[0m";
@@ -14,7 +13,12 @@ const BAR_W: usize = 22;
 
 // ── Animated step bar (shared with install/upgrade/remove) ───────────────────
 pub fn print_step(label: &str) {
-    crate::steps::start_bar(&format!("{G}• {label}{RST}"), 46usize.saturating_sub(label.len() + 1), BAR_W, "done");
+    crate::steps::start_bar(
+        &format!("{G}• {label}{RST}"),
+        46usize.saturating_sub(label.len() + 1),
+        BAR_W,
+        "done",
+    );
 }
 
 // ── Headers ───────────────────────────────────────────────────────────────────
@@ -43,9 +47,7 @@ pub fn print_audit_row(label: &str, ok: bool, detail: &str) {
     } else {
         (mark.as_str(), if ok { G } else { R })
     };
-    println!(
-        "  {DIM}•{RST} {label:<34} : {m} {c}{detail}{RST}"
-    );
+    println!("  {DIM}•{RST} {label:<34} : {m} {c}{detail}{RST}");
 }
 
 pub fn print_audit_results_header() {
@@ -57,19 +59,29 @@ pub fn print_repair_results_header() {
 }
 
 // ── Audit summary table ───────────────────────────────────────────────────────
-pub fn print_audit_summary(
-    registry_ok:  bool,
-    deps_ok:      bool,
-    fs_ok:        bool,
-    syshub_ok:    bool,
-) {
+pub fn print_audit_summary(registry_ok: bool, deps_ok: bool, fs_ok: bool, syshub_ok: bool) {
     println!("\n {G}Audit Summary{RST}");
-    let tick = |ok: bool| if ok { format!("{G}\u{2713} Perfect{RST}") }
-                          else { format!("{R}\u{2717} Issues found{RST}") };
-    let dep  = |ok: bool| if ok { format!("{G}\u{2713} 100% Satisfied{RST}") }
-                          else { format!("{R}\u{2717} Unsatisfied deps{RST}") };
-    let sys  = |ok: bool| if ok { format!("{G}\u{2713} Intact{RST}") }
-                          else { format!("{R}\u{2717} Corrupted{RST}") };
+    let tick = |ok: bool| {
+        if ok {
+            format!("{G}\u{2713} Perfect{RST}")
+        } else {
+            format!("{R}\u{2717} Issues found{RST}")
+        }
+    };
+    let dep = |ok: bool| {
+        if ok {
+            format!("{G}\u{2713} 100% Satisfied{RST}")
+        } else {
+            format!("{R}\u{2717} Unsatisfied deps{RST}")
+        }
+    };
+    let sys = |ok: bool| {
+        if ok {
+            format!("{G}\u{2713} Intact{RST}")
+        } else {
+            format!("{R}\u{2717} Corrupted{RST}")
+        }
+    };
     println!("   Registry Health          : {}", tick(registry_ok));
     println!("   Dependency Integrity     : {}", dep(deps_ok));
     println!("   Filesystem Integrity     : {}", tick(fs_ok));
@@ -99,11 +111,11 @@ pub fn print_fix_healthy() {
 }
 
 pub fn print_fix_summary(
-    fixed:   usize,
+    fixed: usize,
     remaining: usize,
     files_removed: usize,
     freed_mb: f64,
-    secs:    f64,
+    secs: f64,
 ) {
     if remaining == 0 {
         println!("\n {G}\u{2713} Automatic repair completed successfully{RST}\n");
@@ -131,7 +143,9 @@ pub fn print_fix_summary(
 
 pub fn print_manual_items(items: &[String]) {
     println!(" {Y}\u{26a0}{RST} Some issues require manual intervention:");
-    for item in items { println!("  {DIM}•{RST} {Y}{item}{RST}"); }
+    for item in items {
+        println!("  {DIM}•{RST} {Y}{item}{RST}");
+    }
 }
 
 pub fn print_error(msg: &str) {

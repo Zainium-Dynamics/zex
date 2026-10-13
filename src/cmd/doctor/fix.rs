@@ -12,12 +12,12 @@ use super::ui;
 
 #[derive(Debug, Default)]
 pub struct FixReport {
-    pub fixed:         usize,
-    pub remaining:     usize,
+    pub fixed: usize,
+    pub remaining: usize,
     pub files_removed: usize,
-    pub freed_bytes:   u64,
-    pub manual_items:  Vec<String>,
-    pub elapsed:       f64,
+    pub freed_bytes: u64,
+    pub manual_items: Vec<String>,
+    pub elapsed: f64,
 }
 
 /// Run all auto-repair operations on the audit result.
@@ -32,21 +32,28 @@ pub fn run_fix(audit: &AuditResult) -> Result<FixReport> {
 
     // ── 1. Fix dangling symlinks ──────────────────────────────────────────────
     if !audit.dangling_symlinks.is_empty() {
-        ui::print_step(&format!("Fixing {} dangling symlinks", audit.dangling_symlinks.len()));
+        ui::print_step(&format!(
+            "Fixing {} dangling symlinks",
+            audit.dangling_symlinks.len()
+        ));
         for link in &audit.dangling_symlinks {
             if fs::remove_file(link).is_ok() {
                 rep.fixed += 1;
                 rep.files_removed += 1;
             } else {
                 rep.remaining += 1;
-                rep.manual_items.push(format!("dangling symlink (remove manually): {link}"));
+                rep.manual_items
+                    .push(format!("dangling symlink (remove manually): {link}"));
             }
         }
     }
 
     // ── 2. Remove orphaned libs ───────────────────────────────────────────────
     if !audit.orphaned_libs.is_empty() {
-        ui::print_step(&format!("Removing {} orphaned libraries", audit.orphaned_libs.len()));
+        ui::print_step(&format!(
+            "Removing {} orphaned libraries",
+            audit.orphaned_libs.len()
+        ));
         for lib in &audit.orphaned_libs {
             let size = fs::metadata(lib).map(|m| m.len()).unwrap_or(0);
             if fs::remove_file(lib).is_ok() {
@@ -55,21 +62,26 @@ pub fn run_fix(audit: &AuditResult) -> Result<FixReport> {
                 rep.freed_bytes += size;
             } else {
                 rep.remaining += 1;
-                rep.manual_items.push(format!("orphaned lib (remove manually): {lib}"));
+                rep.manual_items
+                    .push(format!("orphaned lib (remove manually): {lib}"));
             }
         }
     }
 
     // ── 3. Remove orphaned packages ───────────────────────────────────────────
     if !audit.orphaned_packages.is_empty() {
-        ui::print_step(&format!("Cleaning {} orphaned packages", audit.orphaned_packages.len()));
+        ui::print_step(&format!(
+            "Cleaning {} orphaned packages",
+            audit.orphaned_packages.len()
+        ));
         for pkg in &audit.orphaned_packages {
             let receipt = Path::new(INSTALLED_DIR).join(format!("{pkg}.toml"));
             if fs::remove_file(&receipt).is_ok() {
                 rep.fixed += 1;
             } else {
                 rep.remaining += 1;
-                rep.manual_items.push(format!("orphaned package receipt: {pkg}.toml"));
+                rep.manual_items
+                    .push(format!("orphaned package receipt: {pkg}.toml"));
             }
         }
     }
@@ -101,15 +113,18 @@ pub fn run_fix(audit: &AuditResult) -> Result<FixReport> {
     // only report them for manual action.
     for f in &audit.missing_syshub_dirs {
         rep.remaining += 1;
-        rep.manual_items.push(format!("missing syshub dir (remount + restore): {f}"));
+        rep.manual_items
+            .push(format!("missing syshub dir (remount + restore): {f}"));
     }
     for f in &audit.missing_relibc_files {
         rep.remaining += 1;
-        rep.manual_items.push(format!("missing relibc file (reinstall relibc): {f}"));
+        rep.manual_items
+            .push(format!("missing relibc file (reinstall relibc): {f}"));
     }
     for f in &audit.missing_musl_files {
         rep.remaining += 1;
-        rep.manual_items.push(format!("missing musl file (reinstall musl): {f}"));
+        rep.manual_items
+            .push(format!("missing musl file (reinstall musl): {f}"));
     }
     if audit.missing_syshub_dirs.is_empty()
         && audit.missing_relibc_files.is_empty()
@@ -152,7 +167,9 @@ pub fn run_fix(audit: &AuditResult) -> Result<FixReport> {
 /// corrupted, or predates the sync logic that keeps it in sync today).
 fn rebuild_registry_index() -> Result<()> {
     let dir = Path::new(INSTALLED_DIR);
-    if !dir.exists() { return Ok(()); }
+    if !dir.exists() {
+        return Ok(());
+    }
 
     crate::cmd::install::registry::rebuild_master_index()?;
     Ok(())

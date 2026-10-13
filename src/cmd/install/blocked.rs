@@ -1,23 +1,31 @@
-//! blocked.rs — Dependency names that must never resolve to a separate
-//! userland package because Zainium's own syshub/core already provides
-//! equivalent functionality under a different name (or built directly
-//! into the base) — no file-level overlap for `backend::is_in_syshub` to
-//! catch automatically, so this is an explicit, hand-maintained list.
+//! blocked.rs — package names Zainium's base (syshub) already provides, so they
+//! are never installed into userland. As a dependency a blocked name counts as
+//! satisfied and is never downloaded; installing one directly is refused.
 //!
-//! To block a new dependency name: add a `("dependency-name", "what
-//! provides it")` pair below and rebuild. No other code changes needed —
-//! `depends.rs` checks this alongside `is_in_syshub` for every dependency
-//! token, so a blocked name is skipped before it's ever resolved/downloaded.
+//! This is the hand-kept fallback for names `backend::is_in_syshub` can't detect
+//! from files (e.g. `coreutils`, which Zainium's own `userutils` replaces). To
+//! block a name, add a `| "name"` line to the list in `provided_by`.
 
-const BLOCKED: &[(&str, &str)] = &[
-    ("coreutils", "userutils"),
-];
-
-/// Returns what provides `name`, if `name` is on the blocked list.
+/// What in the base provides `name`, if `name` is blocked in userland.
 /// `name` should already be constraint-stripped and lowercased.
 pub fn provided_by(name: &str) -> Option<&'static str> {
-    BLOCKED
-        .iter()
-        .find(|(dep, _)| *dep == name)
-        .map(|(_, provider)| *provider)
+    match name {
+        "coreutils" => Some("userutils"),
+
+        "musl" => Some("syshub"),
+
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn listed_names_are_blocked() {
+        assert_eq!(provided_by("coreutils"), Some("userutils"));
+        assert_eq!(provided_by("musl"), Some("syshub"));
+        assert_eq!(provided_by("wget"), None);
+    }
 }
