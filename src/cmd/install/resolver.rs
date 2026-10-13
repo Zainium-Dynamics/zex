@@ -66,28 +66,28 @@ pub async fn resolve(
     let mut sorted_mirrors = config.mirrors.clone();
     sorted_mirrors.sort_by_key(|m| m.priority);
 
-    // Creating a list of futures to await concurrently
-    let mut futures = Vec::new();
-    for mirror in &sorted_mirrors {
-        let fut = async {
+    // Ask every mirror at once but take the answers in priority order, and return as soon
+    // as the best mirror that has the package answers instead of waiting for the slowest
+    // index (Void's repodata alone is ~17 s). Dropping the rest cancels their downloads.
+    let name_ref = &normalised;
+    let mut answers: futures::stream::FuturesOrdered<_> = sorted_mirrors
+        .iter()
+        .map(|mirror| async move {
             match mirror.format.as_str() {
-                "apk" => super::apk::resolve_apk(&normalised, client, config, mm, mirror).await,
-                "xbps" => super::xbps::resolve_xbps(&normalised, client, config, mm, mirror).await,
-                "adb" => super::adb::resolve_adb(&normalised, client, config, mm, mirror).await,
-                "zex" => super::zex_backend::resolve_zex(&normalised, client, config, mm).await,
+                "apk" => super::apk::resolve_apk(name_ref, client, config, mm, mirror).await,
+                "xbps" => super::xbps::resolve_xbps(name_ref, client, config, mm, mirror).await,
+                "adb" => super::adb::resolve_adb(name_ref, client, config, mm, mirror).await,
+                "zex" => super::zex_backend::resolve_zex(name_ref, client, config, mm).await,
                 _ => {
                     log::warn!("Unknown mirror format: {}", mirror.format);
                     Ok(None)
                 }
             }
-        };
-        futures.push(fut);
-    }
+        })
+        .collect();
 
-    let results = futures::future::join_all(futures).await;
-
-    // Results are evaluated in priority order (since sorted_mirrors is sorted by priority).
-    for (i, result) in results.into_iter().enumerate() {
+    let mut i = 0;
+    while let Some(result) = futures::StreamExt::next(&mut answers).await {
         match result {
             Ok(Some(info)) => return Ok(info),
             Ok(None) => { /* not found in this mirror */ }
@@ -100,7 +100,9 @@ pub async fn resolve(
                 );
             }
         }
+        i += 1;
     }
+    drop(answers);
 
     // All mirrors exhausted.
     Err(ResolveError::NotFound(normalised))
