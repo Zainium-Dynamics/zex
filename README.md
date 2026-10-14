@@ -28,14 +28,16 @@ indices.
 | Tier | Distro | Format | Signature scheme |
 |------|--------|--------|-------------------|
 | T1 | Zainium (native) | `.zex` (tar + zexc compression) | Ed25519 + Blake3 |
-| T2 | Alpine Linux | `.apk` (gzip-tar) | RSA-PKCS1v15 over the compressed control member |
-| T3 | Void Linux (musl) | `.xbps` (zstd/xz-tar) | RSA-PKCS1v15-SHA256 over the whole file, TOFU-pinned key |
+| T2 | Void Linux (musl) | `.xbps` (zstd/xz-tar) | RSA-PKCS1v15-SHA256 over the whole file, TOFU-pinned key |
+| T3 | Alpine Linux | `.apk` (gzip-tar) | RSA-PKCS1v15 over the compressed control member |
 | T4 | Chimera Linux | `.apk` (apk-tools v3 ADB binary container — **not** gzip-tar) | RSA-PKCS1v15-SHA512 over the ADB signature block |
 
 If a package exists in more than one tier, the tier with the lowest
-priority number (as configured in `zex_services.toml`) wins. Dependencies
-additionally prefer staying on the same mirror as the package that pulled
-them in before falling back cross-tier.
+priority number (as configured in `zex_services.toml`) wins. All mirrors
+are asked at once and zex takes the first one, in priority order, that has
+the package, so a Zainium package never waits for the larger Void, Alpine
+or Chimera indexes. Dependencies additionally prefer staying on the same
+mirror as the package that pulled them in before falling back cross-tier.
 
 ## Building
 
@@ -68,9 +70,17 @@ dedicated man page (`man zex-<command>`).
 ### Package management
 
 ```bash
-# Install one or more packages
+# Install one or more packages (the best tier is picked by priority)
 zex install ripgrep
 zex install vim htop curl fd-find
+
+# Install from one repository only; the flags come from the mirror ids
+# in zex_services.toml (--zainium, --void, --alpine, --chimera, ...)
+zex install --void wget
+zex install --alpine wget
+
+# Download and install again, even when the installed version is current
+zex reinstall flatpak
 
 # Preview what would be installed, no download/install
 zex install neovim --dry-resolve
@@ -88,9 +98,34 @@ zex remove ripgrep
 zex remove vim htop --dry-run
 zex remove foo --force   # skip reverse-dependency check
 
-# Install a local package file directly
-zex -i ./myapp-1.0.zex
+# Install a local package file directly (short: zex -i)
+zex local-install ./myapp-1.0.zex
 ```
+
+### Dependencies and shared libraries
+
+Before a package is committed, zex reads which shared libraries its
+programs and libraries link against (ELF `NEEDED`), whatever tier it came
+from:
+
+- **Missing SONAME links** inside the package (e.g. a package that ships
+  `libfoo.so.1.2.3` but not the `libfoo.so.1` its binary loads) are added.
+- **Missing libraries** are installed from the repository that provides
+  them, looked up by name and by `so:` provides, and only when that package
+  provides the exact library version. Libraries another package in the same
+  install brings count as present.
+- **If no repository provides a library**, the package is not installed;
+  zex lists what is missing and asks before installing it anyway (default:
+  no).
+- **Library dependencies already on the system** (`so:libz.so.1`, ...) count
+  as satisfied, so a repository's own copy is never installed over the
+  base's.
+
+Names the immutable base provides are blocked from userland: as a
+dependency they count as satisfied, and installing one directly is refused.
+The list lives in [`src/cmd/install/blocked.rs`](./src/cmd/install/blocked.rs)
+(`coreutils` → userutils, `musl` → syshub); add a line there to block
+another name.
 
 ### Updating
 
@@ -139,7 +174,7 @@ zex rollback tx-1719446400000
 ```bash
 zex sweep --dry-run             # preview cache/tmp cleanup
 zex sweep --aggressive
-zex -e ./myapp-1.0.zex -o ./out # extract a package archive to a directory
+zex extract ./myapp-1.0.zex --output ./out   # unpack a package (short: zex -e … -o …)
 ```
 
 ## Configuration
