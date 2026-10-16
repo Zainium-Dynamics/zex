@@ -9,6 +9,7 @@ pub mod depends;
 pub mod downloader;
 pub mod edition;
 pub mod elfpatch;
+pub mod generated;
 pub mod history;
 pub mod hooks;
 pub mod immutable;

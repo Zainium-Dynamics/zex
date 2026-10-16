@@ -251,6 +251,19 @@ pub fn install(
     // Detect the actual binary name from extracted files (Phase 4 — launch_cmd fix)
     let detected_launch = detect_launch_cmd(&staged_files, &store_path);
 
+    // shared indexes and caches are rebuilt for the whole system, never taken from one package
+    staged_files.retain(|staged| {
+        let generated = staged.strip_prefix(&store_path).is_ok_and(|rel| {
+            super::generated::is_generated(&crate::archive_safety::remap_usr_paths(
+                rel.to_path_buf(),
+            ))
+        });
+        if generated {
+            let _ = std::fs::remove_file(staged);
+        }
+        !generated
+    });
+
     // ── Step 3b: ELF-patch + pkg-config-patch staged files ────────────────
     //
     // Alpine/Void/Chimera binaries carry a host-FHS PT_INTERP/RPATH that
@@ -363,36 +376,18 @@ pub fn install(
     // already exists in immutable syshub (OverlayFS always serves the
     // union/upperdir copy over syshub/lowerdir on a path collision).
     //
-    // For a *dependency* (not the package the user actually asked for),
-    // a file that's already owned by syshub specifically — not by another
-    // zex-tracked package — isn't a conflict, it's that file already being
-    // provided by the base OS under a different package name than syshub
-    // uses (confirmed live: Void's `ncurses-libs`/`ncurses-base` overlap
-    // almost entirely, but not 100%, with syshub's own `ncurses` build —
-    // an all-or-nothing "skip the whole dependency" check left a residual
-    // few files still blocking the install). So for dependencies, only the
-    // specific files syshub already owns are dropped from what actually
-    // gets staged/registered — whatever's left (genuinely new files) still
-    // installs normally. A conflict against another *real* zex package is
-    // always a hard stop, same as for the package the user explicitly
-    // named — this only ever narrows what a dependency writes, never what
-    // it's allowed to overwrite.
-    let conflicts = check_file_conflicts(&info.name, &committed_files);
-    if is_dependency && !conflicts.is_empty() {
-        const SYSHUB_OWNER: &str = "syshub (immutable base OS)";
-        if conflicts.iter().any(|(owner, _)| owner != SYSHUB_OWNER) {
-            ui::print_file_conflicts(&info.name, &conflicts);
-            cleanup_snapshot(&snapshot_dir);
-            bail!(
-                "File conflict: {} file(s) already owned by another package.",
-                conflicts.iter().filter(|(o, _)| o != SYSHUB_OWNER).count()
-            );
-        }
-        let syshub_owned: HashSet<&str> = conflicts.iter().map(|(_, p)| p.as_str()).collect();
+    // the base keeps its own copy of a file a package also ships (Void's ncurses-libs vs the base
+    // ncurses); the package installs without it. Another zex package's file is still a conflict.
+    let base_owned: HashSet<String> = check_file_conflicts(&info.name, &committed_files)
+        .into_iter()
+        .filter(|(owner, _)| owner == BASE_OWNER)
+        .map(|(_, path)| path)
+        .collect();
+    if !base_owned.is_empty() {
         let pairs: Vec<(PathBuf, PathBuf)> = staged_files
             .into_iter()
             .zip(committed_files.into_iter())
-            .filter(|(_, final_path)| !syshub_owned.contains(final_path.to_string_lossy().as_ref()))
+            .filter(|(_, final_path)| !base_owned.contains(final_path.to_string_lossy().as_ref()))
             .collect();
         let (new_staged, new_committed): (Vec<_>, Vec<_>) = pairs.into_iter().unzip();
         staged_files = new_staged;
@@ -400,13 +395,24 @@ pub fn install(
 
         if committed_files.is_empty() {
             cleanup_snapshot(&snapshot_dir);
+            if !is_dependency {
+                bail!("'{}' is already provided by the base OS.", info.name);
+            }
             steps.map(crate::steps::Guard::ok);
             return Ok(InstallTelemetry {
                 skipped_syshub_satisfied: true,
                 ..Default::default()
             });
         }
-    } else if let Err(e) = preflight_conflict_check(&info.name, &committed_files) {
+        if !is_dependency && !parallel {
+            crate::steps::finish();
+            let mut kept: Vec<&String> = base_owned.iter().collect();
+            kept.sort();
+            ui::print_base_files_kept(&info.name, &kept);
+        }
+    }
+
+    if let Err(e) = preflight_conflict_check(&info.name, &committed_files) {
         cleanup_snapshot(&snapshot_dir);
         return Err(e);
     }
@@ -640,7 +646,7 @@ fn sha256_of_file(path: &Path) -> Result<String> {
 fn verify_signature(
     path: &Path,
     info: &PackageInfo,
-    integrity_mode: IntegrityMode,
+    _integrity_mode: IntegrityMode,
     signature_mode: crate::trust::SignatureVerificationMode,
     xbps_sig: Option<&XbpsVerifyData>,
 ) -> Result<()> {
@@ -1661,8 +1667,8 @@ pub fn check_file_conflicts(pkg_name: &str, committed_files: &[PathBuf]) -> Vec<
     // exactly why `musl` was reaching this far in the first place and
     // needing a carve-out here). If a *different* package still lands on
     // a syshub path (e.g. Alpine's own libcurl/curl shadowing syshub's),
-    // that's a real, surprising conflict and stays blocked.
-    // a base file shows in the merged view but has no copy in the union layer
+    // that's a real, surprising conflict: the base copy is kept.
+    // a base path (file, link or directory) shows in the merged view but has no copy in the union layer
     for file in committed_files {
         if let Ok(rel) = file.strip_prefix(union_root) {
             let merged = Path::new(SYSHUB_ROOT).join(rel);
@@ -1680,27 +1686,12 @@ pub fn check_file_conflicts(pkg_name: &str, committed_files: &[PathBuf]) -> Vec<
 /// (Step 5) — true pre-flight, nothing registered or committed yet if this
 /// aborts.
 ///
-/// With `zex install --force` the conflicting files are overwritten instead
-/// (a base OS file is shadowed by the union copy).
+/// With `zex install --force` another package's files are overwritten instead.
 pub fn preflight_conflict_check(pkg_name: &str, committed_files: &[PathBuf]) -> Result<()> {
     let conflicts = check_file_conflicts(pkg_name, committed_files);
 
     if conflicts.is_empty() {
         return Ok(());
-    }
-
-    // userland never replaces a base file, even with --force: removing it later would hide the base copy
-    let base: Vec<(String, String)> = conflicts
-        .iter()
-        .filter(|(o, _)| o == BASE_OWNER)
-        .cloned()
-        .collect();
-    if !base.is_empty() {
-        ui::print_file_conflicts(pkg_name, &base);
-        bail!(
-            "File conflict: {} file(s) belong to the base OS; userland packages cannot replace them (not even with --force).",
-            base.len()
-        );
     }
 
     if FORCE.load(Ordering::Relaxed) {

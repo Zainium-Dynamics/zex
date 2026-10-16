@@ -672,6 +672,15 @@ pub fn print_file_conflicts(pkg: &str, conflicts: &[(String, String)]) {
     println!("\n  Use {P}--force{RST} to override.\n");
 }
 
+pub fn print_base_files_kept(pkg: &str, paths: &[&String]) {
+    println!(
+        "  {DIM}•{RST} {P}'{pkg}'{RST} {DIM}installs without these, the base OS already has them:{RST}"
+    );
+    for path in paths {
+        println!("    {DIM}{path}{RST}");
+    }
+}
+
 pub fn print_forced_conflicts(pkg: &str, conflicts: &[(String, String)]) {
     println!("\n {Y}!{RST} {P}'{pkg}'{RST} overwrites (--force):");
     for (owner, path) in conflicts {
