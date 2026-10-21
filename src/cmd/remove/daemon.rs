@@ -3,7 +3,7 @@
 // Daemon Mode: Long-Lived Background Service
 // ──────────────────────────────────────────
 //
-// Listens on Unix socket: /var/run/zx.sock (or /run/user/{uid}/zx.sock)
+// Listens on Unix socket: /run/zx.sock (or /run/user/{uid}/zx.sock)
 //
 // Benefits:
 //   • Pre-loaded environment checks
@@ -25,7 +25,7 @@ use std::path::Path;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
 
-const DAEMON_SOCKET: &str = "/var/run/zx.sock";
+const DAEMON_SOCKET: &str = "/run/zx.sock";
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DaemonRequest {
@@ -209,7 +209,7 @@ fn validate_package_name(name: &str) -> Result<()> {
 /// Returns the amount of disk space freed in MB.
 async fn remove_headless(name: &str, opts: &super::common::RunOpts) -> Result<f64> {
     use super::backend;
-    use super::common::query_package;
+    
 
     let pkg_backend = backend::find_backend(name)
         .await

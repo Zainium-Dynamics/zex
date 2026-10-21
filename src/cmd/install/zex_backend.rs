@@ -365,14 +365,14 @@ fn parse_entry(name_hint: Option<&str>, value: &JsonValue) -> Option<ZexIndexEnt
     let provides = parse_depends(obj.get("provides"));
     let requires_syshub = pick_string(obj, &["requires_syshub", "syshub", "base_os"]);
 
-    let ed25519_sig = pick_string_json(obj, &["ed25519_sig", "sig", "signature"]);
-    let description = pick_string_json(obj, &["description", "desc", "summary"]);
-    let license = pick_string_json(obj, &["license", "spdx"]);
-    let maintainer = pick_string_json(obj, &["maintainer", "author", "packager"]);
-    let tags = parse_depends_json(obj.get("tags").or_else(|| obj.get("keywords")));
-    let build_type = pick_string_json(obj, &["build_type", "link_type"]);
-    let libc_target = pick_string_json(obj, &["libc_target", "libc"]);
-    let edition = pick_string_json(obj, &["edition"]);
+    let _ed25519_sig = pick_string_json(obj, &["ed25519_sig", "sig", "signature"]);
+    let _description = pick_string_json(obj, &["description", "desc", "summary"]);
+    let _license = pick_string_json(obj, &["license", "spdx"]);
+    let _maintainer = pick_string_json(obj, &["maintainer", "author", "packager"]);
+    let _tags = parse_depends_json(obj.get("tags").or_else(|| obj.get("keywords")));
+    let _build_type = pick_string_json(obj, &["build_type", "link_type"]);
+    let _libc_target = pick_string_json(obj, &["libc_target", "libc"]);
+    let _edition = pick_string_json(obj, &["edition"]);
 
     Some(ZexIndexEntry {
         real_name,

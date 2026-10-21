@@ -3,7 +3,6 @@
 //! All paths are real Zainium overlayer layout — no /usr, no /var/cache/apt,
 //! no flatpak, no snap. Only what actually exists in Zainium OS.
 
-use anyhow::Result;
 use std::time::{Duration, SystemTime};
 use std::{fs, path::Path};
 use walkdir::WalkDir;

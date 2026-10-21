@@ -2,7 +2,7 @@
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
-use std::{collections::HashMap, fs, path::Path};
+use std::{collections::HashMap, fs};
 
 use super::vercmp::is_upgrade;
 

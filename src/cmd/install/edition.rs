@@ -23,12 +23,11 @@ use std::{fs, path::Path};
 
 use super::{
     ui,
-    zex_manifest::{self, EditionSet, RemoveMap, ZexManifest},
+    zex_manifest::{self, RemoveMap, ZexManifest},
 };
 
 const INSTALLED_DIR: &str = "/overlayer/zexlib/registry/installed";
 const CACHE_DIR: &str = "/overlayer/zexlib/registry/cache";
-const UNION_PATH: &str = "/overlayer/zexlib/union";
 
 // ── Receipt with edition tracking ─────────────────────────────────────────────
 

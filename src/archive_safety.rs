@@ -30,63 +30,59 @@ pub fn sanitize_archive_path(path: &Path) -> Result<PathBuf> {
     Ok(remap_usr_paths(out))
 }
 
-/// Resolves a **symlink's** target — relative or absolute, possibly
-/// containing `..` — into a safe, absolute path under [`UNION_ROOT`].
+/// Rewrites a **symlink's** target — relative or absolute, possibly
+/// containing `..` — into a target that is correct at the link's own
+/// install location.
 ///
 /// Not for hardlinks: use [`sanitize_archive_path`] on a hardlink's target
-/// instead (see that distinction below).
+/// instead.
 ///
 /// `owner_path` is the *raw, pre-remap* archive path of the symlink itself
 /// (e.g. `"usr/bin/xbps-trigger"`). Relative targets are resolved against
-/// its parent directory in the archive's *original* FHS namespace — not our
-/// flattened union layout — because that's the namespace the package
-/// author's path was written against. Two real, confirmed cases drive this:
-///   - Void's `xbps-triggers` ships `../../../usr/libexec/xbps-triggers` —
-///     only resolves correctly walking `..` from the *pre-remap* directory.
-///   - Chimera's and Void's own `base-files` ship real top-level usrmerge
-///     symlinks like `/lib -> usr/lib` with **no** `..` at all — but
-///     `usr/lib` is not a real directory anywhere in our flattened union
-///     tree (`remap_usr_paths` already strips the `usr/` prefix elsewhere),
-///     so leaving a target like this untouched creates a symlink that's
-///     dangling from the moment it's created. Any target with more than one
-///     path component (not just ones containing `..`) needs the same
-///     resolve-then-remap-then-absolutize treatment for this reason — only
-///     a bare filename with no directory component at all (e.g. a sibling
-///     symlink like `"sudo"`) is safe to leave untouched.
-/// A blanket "reject any `..`" rule made packages using the first pattern
-/// fail to install entirely; this still can't be used to escape the
-/// archive tree, since any `..` beyond the archive root is clamped
-/// (absorbed) rather than allowed to climb out — the same behavior a real
-/// absolute path resolution has at `/`.
+/// its parent directory in the archive's *original* FHS namespace, because
+/// that's the namespace the package author's path was written against
+/// (Void's `xbps-triggers` ships `../../../usr/libexec/xbps-triggers`;
+/// Void's and Chimera's `base-files` ship `/sbin -> usr/bin`). The resolved
+/// path is remapped like any other archive path, then written **relative to
+/// the link's own remapped directory**. A relative link resolves the same
+/// way in the union, in the merged `/overlayer/syshub` view, in the base and
+/// in a staged base upgrade, and it can point at a file another layer
+/// provides. A union-absolute target only worked when the target was a
+/// userland file, so a base package's links pointed into the userland.
+///
+/// A bare filename (a same-directory sibling such as `"sudo"`) is left as
+/// is. Absolute targets in the real root (`/dev/null` unit masks, `/run`,
+/// `/tmp`, `/home`, ...) or already in `/overlayer` are left as is; other
+/// absolute targets (`/usr/lib/libfoo.so`) are remapped and made relative.
+/// `..` beyond the archive root is clamped at the root, as a real path
+/// resolution is at `/`, so a target can't climb out of the tree.
 pub fn sanitize_link_target(owner_path: &Path, target: &Path) -> Result<PathBuf> {
     if target.as_os_str().is_empty() {
         bail!("empty link target");
     }
 
+    const REAL_ROOT: &[&str] = &["dev", "proc", "sys", "run", "tmp", "home", "root", "overlayer"];
+
+    let mut stack: Vec<std::ffi::OsString> = Vec::new();
     if target.is_absolute() {
-        // /usr/bin/foo → /overlayer/zexlib/union/bin/foo
-        let rel = remap_usr_paths(PathBuf::from(target.to_string_lossy().as_ref()));
-        if rel.as_os_str().is_empty() {
-            bail!("empty link target");
+        let first = target.components().find_map(|c| match c {
+            Component::Normal(s) => Some(s.to_string_lossy().into_owned()),
+            _ => None,
+        });
+        if first.is_some_and(|f| REAL_ROOT.contains(&f.as_str())) {
+            return Ok(target.to_path_buf());
         }
-        return Ok(PathBuf::from(UNION_ROOT).join(rel));
-    }
-
-    // A bare filename with no directory component at all (e.g. "sudo", a
-    // same-directory sibling) has nothing that needs remapping — leave it
-    // exactly as-is.
-    if !target.to_string_lossy().contains('/') {
+    } else if !target.to_string_lossy().contains('/') {
+        // A bare filename with no directory component at all (e.g. "sudo", a
+        // same-directory sibling) has nothing that needs remapping.
         return Ok(target.to_path_buf());
-    }
-
-    let base_dir = owner_path.parent().unwrap_or_else(|| Path::new(""));
-    let mut stack: Vec<std::ffi::OsString> = base_dir
-        .components()
-        .filter_map(|c| match c {
+    } else {
+        let base_dir = owner_path.parent().unwrap_or_else(|| Path::new(""));
+        stack.extend(base_dir.components().filter_map(|c| match c {
             Component::Normal(s) => Some(s.to_os_string()),
             _ => None,
-        })
-        .collect();
+        }));
+    }
 
     for component in target.components() {
         match component {
@@ -94,7 +90,7 @@ pub fn sanitize_link_target(owner_path: &Path, target: &Path) -> Result<PathBuf>
             Component::ParentDir => {
                 stack.pop();
             }
-            Component::CurDir => {}
+            Component::CurDir | Component::RootDir => {}
             _ => bail!(
                 "unsupported path component in link target: {}",
                 target.display()
@@ -114,7 +110,27 @@ pub fn sanitize_link_target(owner_path: &Path, target: &Path) -> Result<PathBuf>
     if remapped.as_os_str().is_empty() {
         bail!("empty link target after remap");
     }
-    Ok(PathBuf::from(UNION_ROOT).join(remapped))
+    let owner = remap_usr_paths(owner_path.to_path_buf());
+    let owner_dir = owner.parent().unwrap_or_else(|| Path::new(""));
+    Ok(relative_from(owner_dir, &remapped))
+}
+
+/// The relative path that leads from directory `from` to `to` (both relative to one root).
+fn relative_from(from: &Path, to: &Path) -> PathBuf {
+    let from: Vec<_> = from.components().collect();
+    let to: Vec<_> = to.components().collect();
+    let common = from.iter().zip(&to).take_while(|(a, b)| a == b).count();
+    let mut out = PathBuf::new();
+    for _ in common..from.len() {
+        out.push("..");
+    }
+    for c in &to[common..] {
+        out.push(c);
+    }
+    if out.as_os_str().is_empty() {
+        out.push(".");
+    }
+    out
 }
 
 /// Ensure `root.join(rel)` stays inside `root` after normalization.
@@ -399,10 +415,7 @@ mod tests {
         let owner = Path::new("usr/bin/xbps-trigger");
         let target = Path::new("../../../usr/libexec/xbps-triggers");
         let resolved = sanitize_link_target(owner, target).unwrap();
-        assert_eq!(
-            resolved,
-            Path::new("/overlayer/zexlib/union/libexec/xbps-triggers")
-        );
+        assert_eq!(resolved, Path::new("../libexec/xbps-triggers"));
     }
 
     #[test]
@@ -412,7 +425,7 @@ mod tests {
         let owner = Path::new("usr/bin/foo");
         let target = Path::new("../../../../../../etc/passwd");
         let resolved = sanitize_link_target(owner, target).unwrap();
-        assert_eq!(resolved, Path::new("/overlayer/zexlib/union/etc/passwd"));
+        assert_eq!(resolved, Path::new("../etc/passwd"));
     }
 
     #[test]
@@ -430,12 +443,12 @@ mod tests {
         // Real Void/Chimera `base-files` data: a top-level usrmerge symlink
         // like "/sbin -> usr/bin" has *no* ".." at all, but "usr/bin" isn't
         // a real directory anywhere in our flattened union tree — it must
-        // still be resolved + remapped + absolutized, not left as a
-        // dangling literal "usr/bin" string.
+        // still be resolved + remapped, not left as a dangling literal
+        // "usr/bin" string.
         let owner = Path::new("sbin");
         let target = Path::new("usr/bin");
         let resolved = sanitize_link_target(owner, target).unwrap();
-        assert_eq!(resolved, Path::new("/overlayer/zexlib/union/bin"));
+        assert_eq!(resolved, Path::new("bin"));
     }
 
     #[test]
@@ -443,7 +456,26 @@ mod tests {
         let owner = Path::new("usr/bin/foo");
         let target = Path::new("/usr/lib/libfoo.so");
         let resolved = sanitize_link_target(owner, target).unwrap();
-        assert_eq!(resolved, Path::new("/overlayer/zexlib/union/lib/libfoo.so"));
+        assert_eq!(resolved, Path::new("../lib/libfoo.so"));
+    }
+
+    #[test]
+    fn link_target_stays_relative_inside_the_package() {
+        // upower's unit enable link: must stay "../upower.service", not become
+        // a union path (wrong for a base package, and through `payload/`).
+        let owner = Path::new("lib/systemd/system/graphical.target.wants/upower.service");
+        let target = Path::new("../upower.service");
+        assert_eq!(sanitize_link_target(owner, target).unwrap(), target);
+        let owner = Path::new("payload/lib/systemd/system/graphical.target.wants/upower.service");
+        assert_eq!(sanitize_link_target(owner, target).unwrap(), target);
+    }
+
+    #[test]
+    fn link_target_keeps_real_root_and_overlayer_paths() {
+        let owner = Path::new("lib/systemd/system/foo.service");
+        for t in ["/dev/null", "/run/foo", "/overlayer/syshub/lib/libfoo.so"] {
+            assert_eq!(sanitize_link_target(owner, Path::new(t)).unwrap(), Path::new(t));
+        }
     }
 
     #[test]

@@ -7,7 +7,6 @@ use clap::Parser;
 use std::collections::HashSet;
 
 use super::config;
-use super::models;
 use super::probers;
 use super::suggest;
 use super::ui;

@@ -310,6 +310,10 @@ async fn run_single(
             ui::print_not_found(&n);
             return Err(InstallFailed.into());
         }
+        Err(ResolveError::Infra(e)) if e.to_string() == resolver::UNREACHABLE => {
+            ui::print_unreachable();
+            return Err(InstallFailed.into());
+        }
         Err(ResolveError::Infra(e)) => return Err(e),
     };
     let resolve_ms = resolve_start.elapsed().as_millis();
@@ -598,7 +602,7 @@ async fn run_single(
         t.update("installing", "verifying and extracting package");
     }
 
-    let xbps_sig = fetch_xbps_verify_data(&info, &client).await;
+    let _xbps_sig = fetch_xbps_verify_data(&info, &client).await;
     let install_telemetry = match install_checked(
         &pkg_path,
         &info,
@@ -765,6 +769,24 @@ async fn run_parallel(
     let resolved = batch.resolved;
     let not_found = batch.not_found;
 
+    // nothing resolved because no mirror could be reached: the network, not the names
+    if resolved.is_empty()
+        && not_found.is_empty()
+        && !batch.infra_failed.is_empty()
+        && batch
+            .infra_failed
+            .iter()
+            .all(|(_, r)| r == resolver::UNREACHABLE)
+    {
+        for (pkg, reason) in &batch.infra_failed {
+            if let Some(mut t) = txns.remove(pkg) {
+                t.mark_failed(&format!("infra failure during resolve: {}", reason));
+            }
+        }
+        ui::print_unreachable();
+        return Err(InstallFailed.into());
+    }
+
     if !not_found.is_empty() {
         for n in &not_found {
             if let Some(mut t) = txns.remove(n) {
@@ -772,13 +794,21 @@ async fn run_parallel(
             }
         }
         let refs: Vec<&str> = not_found.iter().map(String::as_str).collect();
+        let did_you_mean =
+            resolver::joined_suggestions(&filtered_names, &not_found, &client, &config, &mm).await;
         if resolved.is_empty() {
             for n in &not_found {
                 ui::print_not_found(n);
             }
+            if !did_you_mean.is_empty() {
+                ui::print_did_you_mean(&did_you_mean);
+            }
             return Err(InstallFailed.into());
         }
         ui::print_partial_not_found(&refs);
+        if !did_you_mean.is_empty() {
+            ui::print_did_you_mean(&did_you_mean);
+        }
         let found_refs: Vec<&str> = resolved.iter().map(|i| i.name.as_str()).collect();
         ui::print_partial_found(&found_refs);
         failed.extend(not_found.iter().cloned());
@@ -976,7 +1006,7 @@ async fn run_parallel(
         let pkg_path = pkg_path.clone();
         let sem = Arc::clone(&sem);
         let client = Arc::clone(&client);
-        let cfg = Arc::clone(&config);
+        let _cfg = Arc::clone(&config);
         let mut txn = txns.remove(&info.name);
         let is_dependency = !root_names.contains(&info.name);
         ui::print_parallel_pkg_steps(&info.name);

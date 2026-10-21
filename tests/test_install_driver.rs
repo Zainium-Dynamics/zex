@@ -13,7 +13,7 @@ use std::{fs, collections::HashSet};
 
 mod registry {
     use super::*;
-    use zex::cmd::install::registry::{PkgRecord, register, unregister, lookup, load_all, is_installed, get_installed_set};
+    use zex::cmd::install::registry::PkgRecord;
 
     // Fixture: build a PkgRecord with sensible defaults
     fn rec(name: &str, version: &str) -> PkgRecord {
@@ -35,14 +35,6 @@ mod registry {
                 format!("/overlayer/zexlib/union/bin/{name}"),
             ],
         }
-    }
-
-    // Override REGISTRY_DIR via env so tests don't write to real system
-    fn with_reg<F: FnOnce()>(env: &TempOverlayer, f: F) {
-        let reg_path = env.p("overlayer/zexlib/registry/installed");
-        unsafe { std::env::set_var("ZEX_REGISTRY_DIR", &reg_path) };
-        f();
-        unsafe { std::env::remove_var("ZEX_REGISTRY_DIR") };
     }
 
     #[test]
@@ -659,7 +651,7 @@ mod transaction {
 mod zex_manifest {
     use super::*;
     use zex::cmd::install::zex_manifest::{
-        ZexManifest, InstallMap, RemoveMap, PackageMeta, HookMap, EditionSet,
+        ZexManifest, InstallMap, RemoveMap, PackageMeta, HookMap,
     };
 
     fn minimal_manifest(name: &str, version: &str) -> ZexManifest {
@@ -917,7 +909,6 @@ mod zex_manifest {
 // ══════════════════════════════════════════════════════════════════════════════
 
 mod conflicts {
-    use super::*;
 
     #[test]
     fn no_conflict_empty_db() {

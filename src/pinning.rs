@@ -6,7 +6,7 @@
 //!
 //! Storage: /overlayer/zexlib/registry/pinned.toml
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 
 const PINNED_PATH: &str = "/overlayer/zexlib/registry/pinned.toml";
 const INSTALLED_DIR: &str = "/overlayer/zexlib/registry/installed";

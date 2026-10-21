@@ -8,7 +8,6 @@ use clap::Parser;
 
 use super::audit;
 use super::fix;
-use super::layout;
 use super::ui;
 
 #[derive(Parser, Debug)]

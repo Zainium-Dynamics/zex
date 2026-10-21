@@ -228,7 +228,7 @@ pub async fn download_to_vec_with_progress(
 
     // Check if we have a cached version to send If-Modified-Since
     let safe_name = url.replace(|c: char| !c.is_alphanumeric(), "_");
-    let cache_dir = "/var/cache/zex/equip"; // Should ideally come from config, but we'll use default for simplicity in downloader
+    let cache_dir = "/overlayer/syshub/var/cache/zex/equip";
     let cache_path = std::path::PathBuf::from(cache_dir).join(&safe_name);
 
     if let Ok(meta) = std::fs::metadata(&cache_path) {

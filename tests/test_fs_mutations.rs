@@ -6,7 +6,7 @@
 
 mod harness;
 use harness::*;
-use std::{fs, io, path::PathBuf};
+use std::{fs, io};
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  ATOMIC WRITE PATTERN — tmp → rename (15 tests)
@@ -515,13 +515,6 @@ mod error_handling {
 
 mod upgrade_swap {
     use super::*;
-
-    fn write_syshub_manifest(env: &TempOverlayer, content: &str) {
-        fs::write(
-            env.p("overlayer/syshub/engine/services/syshub.toml"),
-            content,
-        ).unwrap();
-    }
 
     #[test]
     fn syshub_manifest_always_present() {

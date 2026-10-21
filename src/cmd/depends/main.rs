@@ -47,8 +47,6 @@ struct PkgEntry {
     #[serde(default)]
     libc_target: Option<String>,
     #[serde(default)]
-    origin: String,
-    #[serde(default)]
     provides: Vec<String>,
 }
 
@@ -105,7 +103,6 @@ pub fn run(raw_args: Vec<String>) -> Result<()> {
                         version: r.version,
                         description: r.display_name,
                         libc_target: Some(r.format),
-                        origin: String::new(),
                         provides: r.provides,
                     },
                 );

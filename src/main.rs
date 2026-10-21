@@ -12,26 +12,11 @@
 //!   /overlayer/syshub/bin/zex-upgrade      → zex
 //!   /overlayer/syshub/drivers/system/*     → zex  (symlinks for driver compat)
 
-mod aliases;
-mod archive_safety;
-mod cmd;
-mod extract;
-mod http_client;
-mod immutable;
-mod local_install;
-mod pinning;
-mod sandbox;
-mod setuid;
-mod steps;
-mod syshub_pending;
-mod triggers;
-mod trust;
-mod zex_codec;
+// the modules live in the zex library (lib.rs); the binary is only the dispatcher
+use zex::{cmd, extract, local_install, pinning};
 
 use std::{env, process::exit};
 
-#[cfg(unix)]
-use std::os::unix::process::ExitStatusExt;
 
 #[cfg(unix)]
 unsafe extern "C" {
@@ -261,14 +246,8 @@ async fn main() {
             cmd::inspect::run(driver_args).await;
             Ok(())
         }
-        "depends" => {
-            cmd::depends::run(driver_args);
-            Ok(())
-        }
-        "why" => {
-            cmd::why::run(driver_args);
-            Ok(())
-        }
+        "depends" => cmd::depends::run(driver_args),
+        "why" => cmd::why::run(driver_args),
         "history" => cmd::history::run(driver_args),
         "update" => cmd::update::run(driver_args).await,
 

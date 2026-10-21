@@ -36,7 +36,7 @@ pub fn print_scanning(msg: &str) {
 
 // ── Audit result row ──────────────────────────────────────────────────────────
 pub fn print_audit_row(label: &str, ok: bool, detail: &str) {
-    let (mark, col) = if ok {
+    let (mark, _col) = if ok {
         (format!("{G}\u{2713}{RST}"), G)
     } else {
         (format!("{R}\u{2717}{RST}"), R)

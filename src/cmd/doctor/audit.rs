@@ -70,14 +70,7 @@ impl AuditResult {
 
 #[derive(Debug, Deserialize)]
 struct SyshubManifest {
-    core_info: Option<CoreInfo>,
     packages: HashMap<String, toml::Value>,
-}
-
-#[derive(Debug, Deserialize)]
-struct CoreInfo {
-    #[allow(dead_code)]
-    build_version: String,
 }
 
 // ── Main audit runner ─────────────────────────────────────────────────────────
@@ -137,7 +130,7 @@ pub fn run_full_audit() -> Result<AuditResult> {
 
 // ── Individual checks ─────────────────────────────────────────────────────────
 
-fn load_syshub(r: &mut AuditResult) -> (usize, HashSet<String>) {
+fn load_syshub(_r: &mut AuditResult) -> (usize, HashSet<String>) {
     let mut provides = HashSet::new();
     let path = Path::new(SYSHUB_MANIFEST);
     if !path.exists() {
@@ -201,7 +194,8 @@ fn check_dangling_symlinks(base: &str, r: &mut AuditResult) {
     }
     for entry in WalkDir::new(p).into_iter().filter_map(|e| e.ok()) {
         let path = entry.path();
-        if path.is_symlink() && !path.exists() {
+        // a union link may point at a base file: resolve it through the merged view
+        if path.is_symlink() && !crate::archive_safety::live_path(path).exists() {
             r.dangling_symlinks
                 .push(path.to_string_lossy().into_owned());
         }

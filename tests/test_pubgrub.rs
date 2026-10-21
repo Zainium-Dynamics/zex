@@ -7,7 +7,6 @@ use pubgrub::{
     version::SemanticVersion,
     range::Range,
 };
-use std::str::FromStr;
 
 // ── Minimal dependency provider for testing ───────────────────────────────────
 

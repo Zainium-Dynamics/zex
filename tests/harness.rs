@@ -6,6 +6,9 @@
 //!   • create_test_manifest() — builds manifest.toml strings
 //!   • assert_file_contains / assert_file_exists / assert_dir_exists
 
+// each test binary includes this module and uses only some of its helpers
+#![allow(dead_code)]
+
 use std::fs;
 use std::path::{Path, PathBuf};
 

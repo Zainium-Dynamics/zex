@@ -10,8 +10,11 @@ use crate::archive_safety::{LIVE_ROOT, UNION_ROOT};
 
 static TOUCHED: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
 static HOOKS: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+static INSTALLED: Mutex<Vec<String>> = Mutex::new(Vec::new());
+static REMOVED: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
-const TOOL_PATH: &str = "/overlayer/syshub/bin:/overlayer/syshub/sbin:/overlayer/zexlib/union/bin";
+pub const TOOL_PATH: &str =
+    "/overlayer/syshub/bin:/overlayer/syshub/sbin:/overlayer/zexlib/union/bin";
 const HOOK_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Remember paths (union or live) a transaction wrote or removed.
@@ -45,10 +48,28 @@ pub fn note_hook(pkg: &str, cmd: &str) {
     }
 }
 
+/// A package this command installed or upgraded, for hooks.d `post-install` hooks.
+pub fn note_installed(pkg: &str) {
+    INSTALLED
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .push(pkg.to_string());
+}
+
+/// A package this command removed, for hooks.d `post-remove` hooks.
+pub fn note_removed(pkg: &str) {
+    REMOVED
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .push(pkg.to_string());
+}
+
 pub fn flush() {
     let rels = std::mem::take(&mut *TOUCHED.lock().unwrap_or_else(|e| e.into_inner()));
     let hooks = std::mem::take(&mut *HOOKS.lock().unwrap_or_else(|e| e.into_inner()));
-    if rels.is_empty() && hooks.is_empty() {
+    let installed = std::mem::take(&mut *INSTALLED.lock().unwrap_or_else(|e| e.into_inner()));
+    let removed = std::mem::take(&mut *REMOVED.lock().unwrap_or_else(|e| e.into_inner()));
+    if rels.is_empty() && hooks.is_empty() && installed.is_empty() && removed.is_empty() {
         return;
     }
     let all = rels.iter().any(|r| r.as_os_str().is_empty());
@@ -124,6 +145,20 @@ pub fn flush() {
     for (pkg, cmd) in hooks {
         if let Err(e) = run_hook(&cmd) {
             warn(&format!("{pkg} hook"), &e);
+        }
+    }
+
+    use crate::cmd::install::hooks::{HookTrigger, run_hooks};
+    for (trigger, pkgs) in [
+        (HookTrigger::PostInstall, installed),
+        (HookTrigger::PostRemove, removed),
+    ] {
+        if !pkgs.is_empty() {
+            for r in run_hooks(&trigger, &pkgs) {
+                if !r.success {
+                    warn(&format!("{} hook", r.name), "failed");
+                }
+            }
         }
     }
 }

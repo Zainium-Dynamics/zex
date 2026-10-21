@@ -149,7 +149,7 @@ fn compute_category_scores(config: &BackendConfig) -> CategoryScores {
 fn compute_hard_gates(config: &BackendConfig) -> Vec<HardGateResult> {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let lock_graph_count = count_files_in(&Path::new(&config.cache_dir).join("lock-graphs"));
-    let txn_journal_count = count_files_in(Path::new("/var/lib/zex/txn"));
+    let txn_journal_count = count_files_in(Path::new("/overlayer/syshub/var/lib/zex/txn"));
 
     let no_hardcoded_guard_exists = manifest_dir
         .join("tests")

@@ -24,7 +24,6 @@ use std::{
     path::{Path, PathBuf},
     time::Instant,
 };
-use walkdir::WalkDir;
 
 use super::{
     audit::{self, AuditEntry},
@@ -44,8 +43,6 @@ const DL_TMP: &str = "/overlayer/zexlib/tmp/uland-dl";
 struct ZexServices {
     mirrors: Vec<Mirror>,
     #[serde(default)]
-    network: NetworkConf,
-    #[serde(default)]
     trust: TrustConf,
 }
 
@@ -60,45 +57,21 @@ struct Mirror {
 }
 
 #[derive(Debug, Deserialize, Default)]
-struct NetworkConf {
-    #[serde(default = "default_timeout")]
-    http_timeout_secs: u64,
-}
-fn default_timeout() -> u64 {
-    3600
-}
-
-#[derive(Debug, Deserialize, Default)]
 struct TrustConf {
     #[serde(default)]
     require_signatures: bool,
-    #[serde(default)]
-    force_https_enforcement: bool,
 }
 
 // ── packages.toml schema ───────────────────────────────────────────────────────
 #[derive(Debug, Deserialize, Clone)]
 struct PackagesToml {
-    system: SystemMeta,
     packages: HashMap<String, PackageEntry>,
-}
-
-#[derive(Debug, Deserialize, Clone)]
-struct SystemMeta {
-    last_update: String,
-    total_packages: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
 struct PackageEntry {
     version: String,
     origin: String, // "tier1-zainium" | "tier2-void" | "tier3-alpine" | "tier4-chimera"
-    #[serde(default)]
-    description: String,
-    #[serde(default)]
-    dependencies: Vec<String>,
-    #[serde(default)]
-    receipt: String,
     /// The *exact* mirror this package was resolved from (e.g.
     /// "alpine-community", not just "tier3-alpine"). A tier can have
     /// several mirrors — upgrade checking must use the one the package
@@ -131,17 +104,6 @@ enum PkgFmt {
     Adb,
 }
 
-impl PkgFmt {
-    fn ext(&self) -> &'static str {
-        match self {
-            Self::Zex => "zex",
-            Self::Apk => "apk",
-            Self::Xbps => "xbps",
-            Self::Adb => "apk",
-        }
-    }
-}
-
 // ── Public entry ───────────────────────────────────────────────────────────────
 
 // ── Pin check helper ──────────────────────────────────────────────────────────
@@ -161,32 +123,10 @@ fn is_pkg_pinned(name: &str) -> bool {
     #[derive(serde::Deserialize)]
     struct Pin {
         name: String,
-        pinned_version: String,
     }
     toml::from_str::<PinnedFile>(&raw)
         .map(|f| f.pinned.iter().any(|p| p.name.eq_ignore_ascii_case(name)))
         .unwrap_or(false)
-}
-
-fn pinned_version(name: &str) -> Option<String> {
-    const PINNED: &str = "/overlayer/zexlib/registry/pinned.toml";
-    let raw = std::fs::read_to_string(PINNED).ok()?;
-    #[derive(serde::Deserialize, Default)]
-    struct PinnedFile {
-        #[serde(default)]
-        pinned: Vec<Pin>,
-    }
-    #[derive(serde::Deserialize)]
-    struct Pin {
-        name: String,
-        pinned_version: String,
-    }
-    toml::from_str::<PinnedFile>(&raw)
-        .ok()?
-        .pinned
-        .into_iter()
-        .find(|p| p.name.eq_ignore_ascii_case(name))
-        .map(|p| p.pinned_version)
 }
 
 pub async fn execute() -> Result<()> {

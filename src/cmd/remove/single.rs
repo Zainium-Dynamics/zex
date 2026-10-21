@@ -6,7 +6,7 @@
 //! exactly the files listed in `installed_files` — no glob scanning, no
 //! guessing. Calls ui.rs for all output — zero println! here.
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use serde::Deserialize;
 use std::{fs, path::Path, time::Instant};
 
@@ -180,6 +180,7 @@ pub async fn remove_packages(names: &[String], dry_run: bool) -> Result<()> {
         .sum();
     for r in to_remove.iter().chain(orphans.iter()) {
         delete_receipt_files(&r.installed_files);
+        crate::triggers::note_removed(&r.name);
     }
     ui::print_arrow_phase(&format!("Removing files from {scope_path}..."));
 

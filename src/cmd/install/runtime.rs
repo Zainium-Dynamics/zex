@@ -114,7 +114,7 @@ fn is_valid_transition(from: &str, to: &str) -> bool {
 }
 
 fn zex_log_dir() -> PathBuf {
-    PathBuf::from("/var/log/zex")
+    PathBuf::from("/overlayer/syshub/var/log/zex")
 }
 
 fn zex_equip_log_path() -> PathBuf {
@@ -122,11 +122,11 @@ fn zex_equip_log_path() -> PathBuf {
 }
 
 fn zex_txn_dir() -> PathBuf {
-    PathBuf::from("/var/lib/zex/txn")
+    PathBuf::from("/overlayer/syshub/var/lib/zex/txn")
 }
 
 fn zex_lock_dir() -> PathBuf {
-    PathBuf::from("/var/lock/zex")
+    PathBuf::from("/run/lock/zex")
 }
 
 fn atomic_write(path: &Path, content: &str) -> anyhow::Result<()> {

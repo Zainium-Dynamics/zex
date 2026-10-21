@@ -1,13 +1,15 @@
 //! hooks.rs — Post-install/upgrade hook system for Zex.
 //!
-//! Hooks are TOML files in /etc/zex/hooks.d/ executed after package operations.
+//! Hooks are TOML files (`*.hook`) in /overlayer/syshub/etc/zex/hooks.d/ executed after package operations.
 //! Format: [hook] name="...", trigger="post-install", packages=["*"], exec="...", timeout_secs=30
 
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
-const HOOKS_DIR: &str = "/etc/zex/hooks.d";
+// the merged view: hooks shipped by the base and by userland packages
+const HOOKS_DIR: &str = "/overlayer/syshub/etc/zex/hooks.d";
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub enum HookTrigger {
@@ -42,7 +44,7 @@ struct HookCfg {
     packages: Vec<String>,
     exec: String,
     #[serde(default = "default_timeout")]
-    _timeout_secs: u64,
+    timeout_secs: u64,
 }
 
 fn default_timeout() -> u64 {
@@ -116,18 +118,12 @@ pub fn run_hooks(trigger: &HookTrigger, affected: &[String]) -> Vec<HookResult> 
     for (_, hook) in matching {
         super::ui::print_hook_running(&hook.name);
         let start = std::time::Instant::now();
-        let res = Command::new("sh")
-            .arg("-c")
-            .arg(&hook.exec)
-            .env_clear()
-            .env("PATH", "/usr/bin:/usr/sbin:/bin:/sbin")
-            .env("ZEX_HOOK_TRIGGER", trigger.to_string())
-            .output();
+        let res = run(&hook.exec, trigger, Duration::from_secs(hook.timeout_secs));
         let r = match res {
-            Ok(out) => HookResult {
+            Ok(success) => HookResult {
                 name: hook.name.clone(),
-                success: out.status.success(),
-                output: String::from_utf8_lossy(&out.stdout).to_string(),
+                success,
+                output: String::new(),
                 duration_ms: start.elapsed().as_millis() as u64,
             },
             Err(e) => HookResult {
@@ -141,6 +137,30 @@ pub fn run_hooks(trigger: &HookTrigger, affected: &[String]) -> Vec<HookResult> 
         results.push(r);
     }
     results
+}
+
+/// Runs one hook's command, killing it after `timeout`; Ok(exited successfully).
+fn run(exec: &str, trigger: &HookTrigger, timeout: Duration) -> std::io::Result<bool> {
+    let mut child = Command::new("/overlayer/syshub/bin/sh")
+        .arg("-c")
+        .arg(exec)
+        .env_clear()
+        .env("PATH", crate::triggers::TOOL_PATH)
+        .env("ZEX_HOOK_TRIGGER", trigger.to_string())
+        .stdin(Stdio::null())
+        .spawn()?;
+    let start = Instant::now();
+    loop {
+        if let Some(st) = child.try_wait()? {
+            return Ok(st.success());
+        }
+        if start.elapsed() > timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Ok(false);
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
 }
 
 #[cfg(test)]

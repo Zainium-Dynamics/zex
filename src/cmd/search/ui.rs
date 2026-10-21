@@ -1,7 +1,7 @@
 //! ui.rs — Terminal UI for the search driver.
 //! Same palette as install/upgrade/remove drivers.
 
-use super::models::{Origin, SearchResult};
+use super::models::SearchResult;
 
 pub const G: &str = "\x1b[92m";
 pub const P: &str = "\x1b[95m";

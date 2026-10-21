@@ -1,7 +1,7 @@
 [package]
 name        = "zex"
 version     = "6.0.0"
-Licence     = "GPL 3-strict only"
+license     = "GPL-3.0-only"
 description = "The Universal Executor & Package Manager for Zainium OS"
 edition     = "2024"
 authors     = ["Ali Zain <heyalizain@gmail.com>"]
@@ -93,9 +93,9 @@ oxipatch      = { git = "https://gitlab.com/alizain.arch/oxipatch.git", rev = "5
 
 [profile.release]
 opt-level        = 3
+debug            = true
 lto              = "thin"
 codegen-units    = 1
-debug            = false
 panic            = "abort"
 strip            = "symbols"
 overflow-checks  = true

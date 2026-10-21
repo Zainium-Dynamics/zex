@@ -202,4 +202,4 @@ commands, code style, and the PR checklist.
 
 ## License
 
-GPL-3.0, strict-only. See the `Licence` field in `Cargo.toml`.
+GPL-3.0-only. See the `license` field in `Cargo.toml`.

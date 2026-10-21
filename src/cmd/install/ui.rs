@@ -401,6 +401,21 @@ pub fn print_not_found(name: &str) {
     println!("\n{R}No packages were installed.{RST}\n");
 }
 
+pub fn print_did_you_mean(names: &[String]) {
+    println!("{G}Did you mean:{RST}");
+    for n in names {
+        println!("  {DIM}•{RST} {P}zex install {n}{RST}");
+    }
+    println!();
+}
+
+pub fn print_unreachable() {
+    println!("\n {R}Error:{RST} Could not reach any package repository.\n");
+    println!("{G}Suggestions:{RST}");
+    println!("  {DIM}•{RST} Check the internet connection, then run the command again");
+    println!("\n{R}No packages were installed.{RST}\n");
+}
+
 pub fn print_some_not_found(missing: &[&str], found: &[&str]) {
     println!("\n {R}Error:{RST} Some packages were not found:");
     for n in missing {

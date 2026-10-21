@@ -99,10 +99,12 @@ pub async fn resolve(
         .collect();
 
     let mut i = 0;
+    let mut answered = false;
+    let mut first_err = None;
     while let Some(result) = futures::StreamExt::next(&mut answers).await {
         match result {
             Ok(Some(info)) => return Ok(info),
-            Ok(None) => { /* not found in this mirror */ }
+            Ok(None) => answered = true,
             Err(e) => {
                 log::warn!(
                     "[Mirror: {}] infrastructure error for '{}': {:#}",
@@ -110,14 +112,49 @@ pub async fn resolve(
                     normalised,
                     e
                 );
+                if first_err.is_none() {
+                    first_err = Some(e);
+                }
             }
         }
         i += 1;
     }
     drop(answers);
 
+    // No mirror answered at all (offline, DNS, server down): that is not "not found"
+    if let (false, Some(e)) = (answered, first_err) {
+        return Err(ResolveError::Infra(e.context(UNREACHABLE)));
+    }
+
     // All mirrors exhausted.
     Err(ResolveError::NotFound(normalised))
+}
+
+/// Error message when no mirror could be reached.
+pub const UNREACHABLE: &str =
+    "could not reach any package repository; check the internet connection";
+
+/// Names a mistyped multi-word request probably meant: each pair of neighbouring
+/// requested names that were both not found, joined with '-' (`cosmic store` ->
+/// `cosmic-store`), kept when that name resolves.
+pub async fn joined_suggestions(
+    requested: &[String],
+    missing: &[String],
+    client: &reqwest::Client,
+    config: &BackendConfig,
+    mm: &backend::MetadataManager,
+) -> Vec<String> {
+    let mut found = Vec::new();
+    for pair in requested.windows(2) {
+        if !missing.contains(&pair[0]) || !missing.contains(&pair[1]) {
+            continue;
+        }
+        let joined = format!("{}-{}", pair[0], pair[1]);
+        if resolve(&joined, client, config, mm).await.is_ok() {
+            found.push(joined);
+        }
+    }
+    found
 }
 
 /// Result of [`resolve_preferring`] — same as a normal resolve, plus

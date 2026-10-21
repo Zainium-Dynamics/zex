@@ -20,7 +20,7 @@
 //!   • Supported formats only: `.zex` (zexc), `.apk` (gzip), `.xbps` (zstd).
 
 use std::collections::HashSet;
-use std::io::{Read, Seek, Write};
+use std::io::{Read, Seek};
 use std::os::unix::io::AsRawFd;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -100,7 +100,7 @@ impl Drop for InstallPackageLock {
 
 // ─── Snapshot Constants ───────────────────────────────────────────────────────
 
-const SNAPSHOT_BASE: &str = "/var/cache/zex/snapshots";
+const SNAPSHOT_BASE: &str = "/overlayer/syshub/var/cache/zex/snapshots";
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
@@ -120,6 +120,7 @@ fn detect_launch_cmd(staged_files: &[PathBuf], store_path: &Path) -> Option<Stri
     None
 }
 
+#[cfg(test)]
 fn compute_symlink_target(
     staged_path: &Path,
     store_path: &Path,
@@ -490,6 +491,7 @@ pub fn install(
     // userland files stay mutable: only zex replaces or removes them; the base is what stays locked
     if commit_result.is_ok() {
         crate::triggers::note(&committed_files);
+        crate::triggers::note_installed(&info.name);
         if info.format == PackageFormat::Zex {
             if let Ok(m) = super::zex_manifest::read_from_zex(pkg_path) {
                 if let Some(cmd) = m.hooks.post_install.as_deref() {
@@ -793,7 +795,7 @@ fn verify_file(path: &Path, expected_size: u64) -> Result<()> {
 }
 
 fn acquire_package_lock(package_name: &str) -> Result<InstallPackageLock> {
-    let lock_dir = Path::new("/var/lock/zex");
+    let lock_dir = Path::new("/run/lock/zex");
     std::fs::create_dir_all(lock_dir)?;
 
     let safe_name: String = package_name
@@ -1100,9 +1102,8 @@ fn extract_zex(
             payload_files.push((rel_str.to_string(), Vec::new(), None));
             // Unlike symlinks, a hardlink target must resolve to a sibling
             // already extracted into *this same staging tree* — it needs
-            // sanitize_archive_path's plain relative-and-remapped result,
-            // not sanitize_link_target's UNION_ROOT-absolute one (which
-            // wouldn't exist yet at extraction time).
+            // sanitize_archive_path's plain archive-relative, remapped result,
+            // not sanitize_link_target's link-relative one.
             let safe_target = crate::archive_safety::sanitize_archive_path(&link_target)?;
             pending_hardlinks.push((dest_path, safe_target));
             continue;
@@ -1391,7 +1392,7 @@ fn extract_adb(
                 // the walk (paths/files are emitted in on-disk order, so
                 // it always precedes its hardlinks). Needs the plain
                 // relative-and-remapped path (sanitize_archive_path), not
-                // sanitize_link_target's UNION_ROOT-absolute symlink form.
+                // sanitize_link_target's link-relative symlink form.
                 let target = entry.link_target.unwrap();
                 let safe_target = crate::archive_safety::sanitize_archive_path(Path::new(&target))?;
                 let target_path = dest.join(&safe_target);
@@ -1439,23 +1440,6 @@ fn extract_adb(
         }
     }
     Ok(None)
-}
-
-fn extract_tar_auto<R: Read>(
-    id: &str,
-    r: R,
-    dest: &Path,
-    inst: &mut Vec<PathBuf>,
-) -> Result<Option<PostInstallScript>> {
-    if id.ends_with(".gz") {
-        extract_tar(flate2::read::MultiGzDecoder::new(r), dest, inst, false)
-    } else if id.ends_with(".xz") {
-        extract_tar(xz2::read::XzDecoder::new(r), dest, inst, false)
-    } else if id.ends_with(".zst") {
-        extract_tar(zstd::stream::read::Decoder::new(r)?, dest, inst, false)
-    } else {
-        extract_tar(r, dest, inst, false)
-    }
 }
 
 /// A package-embedded install script captured during extraction (instead
@@ -1586,7 +1570,7 @@ fn extract_tar<R: Read>(
                 anyhow::anyhow!("hard link entry missing target: {}", rel.display())
             })?;
             // Needs the plain relative-and-remapped path, not
-            // sanitize_link_target's UNION_ROOT-absolute symlink form.
+            // sanitize_link_target's link-relative symlink form.
             let safe_target = crate::archive_safety::sanitize_archive_path(&link_target)?;
             let target_path = dest.join(&safe_target);
             if !target_path.exists() {

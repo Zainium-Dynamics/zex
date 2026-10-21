@@ -103,7 +103,7 @@ mod checksum {
 // ══════════════════════════════════════════════════════════════════════════════
 
 mod signing {
-    use ed25519_dalek::{SigningKey, Signer, VerifyingKey};
+    use ed25519_dalek::{SigningKey, Signer};
     use rand_core::OsRng;
 
     #[test]

@@ -11,10 +11,8 @@ use std::time::Instant;
 use super::apply;
 use super::diff;
 use super::ui;
-use super::vercmp;
 
 const ZEX_SERVICES: &str = "/overlayer/syshub/engine/services/zex_services.toml";
-const PACKAGES_TOML: &str = "/overlayer/zexlib/registry/packages.toml";
 const INSTALLED_DIR: &str = "/overlayer/zexlib/registry/installed";
 const SYSHUB_MANIFEST: &str = "/overlayer/syshub/engine/services/syshub.toml";
 const DL_TMP: &str = "/overlayer/zexlib/tmp/update-dl";

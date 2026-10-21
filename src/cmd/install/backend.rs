@@ -54,17 +54,6 @@ struct CoreConfigFile {
 // NOTE: ArchConfigFile removed — Arch tier permanently disabled.
 
 #[derive(Debug, Deserialize, Default)]
-struct AssayConfigFile {
-    nvidia_url: Option<String>,
-    amd_url: Option<String>,
-    intel_url: Option<String>,
-    intel_version: Option<String>,
-    nvidia_driver_template: Option<String>,
-    amd_driver_template: Option<String>,
-    intel_driver_template: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Default)]
 struct NetworkConfigFile {
     http_timeout_secs: Option<u64>,
 }
@@ -442,7 +431,7 @@ impl BackendConfig {
         }
         config.signature_verification_mode = sig_mode;
 
-        let ensure_https = |label: &str, url: &str| -> Result<()> {
+        let _ensure_https = |label: &str, url: &str| -> Result<()> {
             let trimmed = url.trim();
             if trimmed.is_empty() {
                 anyhow::bail!("equip config has empty {}", label);
@@ -697,39 +686,6 @@ pub fn dynamic_metadata(name: &str, description: Option<&str>) -> (String, Strin
         capitalise(name)
     };
     (display_name, launch_cmd)
-}
-
-#[derive(Debug, Deserialize, Serialize, Default)]
-struct MirrorScoreStore {
-    /// Exponentially-smoothed RTT samples per mirror key (ms).
-    /// Field name kept as `rtt_ms` — not Debian-related.
-    rtt_ms: HashMap<String, f64>,
-}
-
-fn mirror_score_path(cache_dir: &str) -> PathBuf {
-    PathBuf::from(cache_dir).join("mirror_scores.json")
-}
-
-fn load_mirror_scores(cache_dir: &str) -> MirrorScoreStore {
-    let path = mirror_score_path(cache_dir);
-    std::fs::read_to_string(path)
-        .ok()
-        .and_then(|s| serde_json::from_str::<MirrorScoreStore>(&s).ok())
-        .unwrap_or_default()
-}
-
-fn save_mirror_scores(cache_dir: &str, scores: &MirrorScoreStore) {
-    let path = mirror_score_path(cache_dir);
-    if let Ok(json) = serde_json::to_string_pretty(scores) {
-        let _ = std::fs::write(path, json);
-    }
-}
-
-fn update_rtt_score(scores: &mut MirrorScoreStore, mirror_key: &str, sample_ms: f64) {
-    let alpha = 0.30;
-    let prev = scores.rtt_ms.get(mirror_key).copied().unwrap_or(sample_ms);
-    let next = (1.0 - alpha) * prev + alpha * sample_ms;
-    scores.rtt_ms.insert(mirror_key.to_string(), next);
 }
 
 // ─── Syshub Core Manifest ───────────────────────────────────────────────────────

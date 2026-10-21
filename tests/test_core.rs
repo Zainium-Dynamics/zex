@@ -250,16 +250,6 @@ mod pinning {
     use super::*;
     use zex::pinning;
 
-    fn setup_pin_env() -> TempOverlayer {
-        let env = TempOverlayer::new();
-        env.add_installed_receipt("vim", "9.1.0", "tier1-zainium");
-        env.add_installed_receipt("gcc", "14.2.0", "tier1-zainium");
-        env.add_installed_receipt("curl", "8.11.0", "tier2-alpine");
-        // Override PINNED_PATH and INSTALLED_DIR by setting env vars
-        // (pinning.rs uses constants — these tests verify the TOML logic)
-        env
-    }
-
     #[test]
     fn pinned_file_roundtrip() {
         let tmp = tempfile::TempDir::new().unwrap();

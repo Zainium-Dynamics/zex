@@ -4,7 +4,7 @@
 // ──────────────────────────
 // Reads config from:
 //   1. ~/.config/zx/zai-remove.toml    (user config)
-//   2. /etc/zx/zai-remove.toml         (system config)
+//   2. /overlayer/syshub/etc/zx/zai-remove.toml  (system config)
 //
 // Schema:
 // [defaults]
@@ -104,9 +104,9 @@ impl Config {
         std::path::PathBuf::from(format!("{}/.config/zx/zai-remove.toml", home))
     }
 
-    /// Get system config path (/etc/zx/zai-remove.toml).
+    /// Get system config path (/overlayer/syshub/etc/zx/zai-remove.toml).
     fn system_config_path() -> std::path::PathBuf {
-        std::path::PathBuf::from("/etc/zx/zai-remove.toml")
+        std::path::PathBuf::from("/overlayer/syshub/etc/zx/zai-remove.toml")
     }
 }
 

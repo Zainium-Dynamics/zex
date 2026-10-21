@@ -11,7 +11,6 @@ use super::transaction;
 use super::ui;
 use super::ui::TxSummary;
 
-const TRANSACTIONS_DIR: &str = "/overlayer/zexlib/transactions";
 
 #[derive(Parser, Debug)]
 #[command(

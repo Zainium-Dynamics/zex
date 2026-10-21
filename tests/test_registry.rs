@@ -119,7 +119,6 @@ mod pinned_schema {
 // ══════════════════════════════════════════════════════════════════════════════
 
 mod receipt_schema {
-    use super::*;
     use serde::{Deserialize, Serialize};
 
     #[derive(Debug, Serialize, Deserialize, Default, PartialEq)]

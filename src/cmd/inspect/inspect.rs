@@ -8,10 +8,9 @@ use serde::Deserialize;
 use std::{
     collections::HashSet,
     fs,
-    path::{Path, PathBuf},
+    path::Path,
     process::Command,
 };
-use walkdir::WalkDir;
 
 const G: &str = "\x1b[92m";
 const P: &str = "\x1b[95m";
@@ -24,7 +23,6 @@ const RST: &str = "\x1b[0m";
 
 const INSTALLED_DIR: &str = "/overlayer/zexlib/registry/installed";
 const SYSHUB_MANIFEST: &str = "/overlayer/syshub/engine/services/syshub.toml";
-const UNION_PATH: &str = "/overlayer/zexlib/union";
 const SYSHUB_PATH: &str = "/overlayer/syshub";
 
 #[derive(Debug, Deserialize, Default)]

@@ -74,7 +74,7 @@ fn print_root_required() {
     );
 }
 
-pub async fn run(raw_args: Vec<String>) -> anyhow::Result<()> {
+pub async fn run(_raw_args: Vec<String>) -> anyhow::Result<()> {
     if !nix::unistd::geteuid().is_root() {
         print_root_required();
         std::process::exit(1);

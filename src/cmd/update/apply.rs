@@ -11,7 +11,6 @@ use std::{
 
 use super::diff::UpgradePkg;
 use super::ui;
-use super::vercmp;
 
 const UNION_PATH: &str = "/overlayer/zexlib/union";
 
