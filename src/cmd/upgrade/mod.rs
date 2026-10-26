@@ -2,6 +2,8 @@
 pub mod audit;
 pub mod benchmark;
 pub mod checksum;
+pub mod esp;
+pub mod kernel;
 pub mod main;
 pub mod swap;
 pub mod syscore;

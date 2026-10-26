@@ -65,6 +65,23 @@ pub fn begin() -> Result<PathBuf> {
     Ok(root)
 }
 
+/// Staging root for adding to the upgrade already waiting for reboot (the kernel's
+/// modules join it instead of replacing it), or a fresh one. Its READY and manifest stay
+/// until `commit` rewrites them, so a failure in between leaves the waiting upgrade as it was.
+pub fn begin_or_extend() -> Result<PathBuf> {
+    ensure_available()?;
+    if waiting().is_none() {
+        return begin();
+    }
+    lock(false);
+    Ok(Path::new(PENDING).join("root"))
+}
+
+/// Lock the pending area again after `begin_or_extend` when nothing was committed.
+pub fn relock() {
+    lock(true);
+}
+
 /// Write the manifest and READY, then lock everything until quantra-ramfs applies it.
 pub fn commit(label: &str) -> Result<String> {
     let pending = Path::new(PENDING);

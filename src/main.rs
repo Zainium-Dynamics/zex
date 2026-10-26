@@ -17,7 +17,6 @@ use zex::{cmd, extract, local_install, pinning};
 
 use std::{env, process::exit};
 
-
 #[cfg(unix)]
 unsafe extern "C" {
     fn geteuid() -> u32;
@@ -60,6 +59,9 @@ fn print_help() {
     println!("    {G}update{R}              Full system update (userland + syshub)");
     println!("    {G}uland --u{R}          Upgrade userland packages");
     println!("    {G}syshub --u{R}         Upgrade immutable core");
+    println!(
+        "    {G}kernel{R} {D}[--u|--rollback]{R} Boot kernel: status, upgrade, back to the fallback"
+    );
     println!("    {G}search{R}  {D}<query>{R}       Search repositories");
     println!("    {G}refresh{R}             Refresh indexes of all 4 tiers");
     println!("    {G}rollback{R} {D}<tx_id>{R}      Revert a transaction");
@@ -252,6 +254,7 @@ async fn main() {
         "update" => cmd::update::run(driver_args).await,
 
         // ── Upgrade: exactly two commands (syshub | uland) — no bare `upgrade` ─
+        "kernel" => cmd::upgrade::run(vec!["upgrade".into(), "kernel".into()]).await,
         "syshub" | "uland" => {
             let mut up_args = vec!["upgrade".to_string()];
             match command {

@@ -190,6 +190,90 @@ pub fn print_proceed_prompt() -> bool {
     trimmed.is_empty() || trimmed == "y" || trimmed == "yes"
 }
 
+pub fn ask_yes(question: &str) -> bool {
+    print!("{G}{question}{RST} {DIM}[Y/n]{RST} ");
+    use std::io::{self, Write};
+    io::stdout().flush().ok();
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).ok();
+    let trimmed = input.trim().to_ascii_lowercase();
+    trimmed.is_empty() || trimmed == "y" || trimmed == "yes"
+}
+
+pub fn print_cancelled() {
+    println!("\n {DIM}Upgrade cancelled.{RST}");
+}
+
+pub fn print_kernel_header() {
+    println!("\n {G}{BLD}Zainium Kernel Upgrade{RST}\n");
+}
+
+pub fn print_kernel_list(pkgs: &[(&str, &str, &str)]) {
+    println!("{G}Packages to be upgraded {DIM}(Kernel){RST}{G}:{RST}");
+    for (name, old, new) in pkgs {
+        let old = if *old == "0" { "installed" } else { old };
+        println!("  {DIM}•{RST} {P}{name:<22}{RST}  {B}{old}{RST} {DIM}→{RST} {G}{new}{RST}");
+    }
+    println!();
+}
+
+pub fn print_kernel_uptodate(kernel: Option<&str>) {
+    println!(
+        "   {G}The kernel and its ramfs are already at the latest version{RST} {DIM}({}){RST}\n",
+        kernel.unwrap_or("as installed")
+    );
+}
+
+pub fn print_kernel_without_modules(version: &str) {
+    println!(
+        "   {Y}⚠{RST}  Kernel {G}{version}{RST} will boot without its own modules (graphics, Wi-Fi, sound) until they are installed.\n"
+    );
+}
+
+pub fn print_kernel_done(kernel: Option<&str>, modules_txn: Option<&str>) {
+    println!(
+        "\n {G}✓ Kernel {}{RST} is on the EFI partition.",
+        kernel.unwrap_or("")
+    );
+    if let Some(txn) = modules_txn {
+        println!(
+            "   Its modules are staged ({DIM}{txn}{RST}) and go into the base at the next boot."
+        );
+    }
+    println!(
+        "   The previous kernel stays as {P}Fallback Kernel{RST} in the boot menu (hold a key at start)."
+    );
+    println!(" {Y}Reboot to start the new kernel.{RST}\n");
+}
+
+pub fn print_kernel_rolled_back(kernel: Option<&str>) {
+    println!(
+        "\n {G}✓ The fallback kernel{RST} {DIM}({}){RST} {G}boots by default now;{RST} the newer one is the fallback.",
+        kernel.unwrap_or("as installed")
+    );
+    println!(" {Y}Reboot to start it.{RST}\n");
+}
+
+pub fn print_kernel_status(
+    current: &std::collections::BTreeMap<String, String>,
+    fallback: &std::collections::BTreeMap<String, String>,
+    latest: &std::collections::BTreeMap<String, String>,
+) {
+    let show = |m: &std::collections::BTreeMap<String, String>, k: &str| {
+        m.get(k).cloned().unwrap_or_else(|| "as installed".into())
+    };
+    println!("\n {G}{BLD}Zainium Kernel{RST}\n");
+    for name in ["linux-evl", "quantra-ramfs"] {
+        let newest = latest.get(name).cloned().unwrap_or_else(|| "-".into());
+        println!(
+            "  {P}{name:<16}{RST} boots {G}{:<14}{RST} fallback {B}{:<14}{RST} latest {G}{newest}{RST}",
+            show(current, name),
+            show(fallback, name)
+        );
+    }
+    println!();
+}
+
 pub fn print_syshub_starting() {
     println!("\n {G}Starting Immutable Core Upgrade...{RST}\n");
     println!("{DIM}Downloading & Upgrading core components...{RST}\n");

@@ -411,7 +411,7 @@ fn diff_packages(
     out
 }
 
-fn val_str(v: &toml::Value) -> String {
+pub(super) fn val_str(v: &toml::Value) -> String {
     match v {
         toml::Value::String(s) => s.clone(),
         // Real syshub.toml entries are tables ([packages.zlib] with a
@@ -434,7 +434,7 @@ fn val_str(v: &toml::Value) -> String {
     }
 }
 
-async fn online() -> bool {
+pub(super) async fn online() -> bool {
     let Ok(client) = crate::http_client::build("zex-syshub/ping") else {
         return false;
     };
@@ -453,7 +453,7 @@ async fn online() -> bool {
         .unwrap_or(false)
 }
 
-async fn content_length(client: &reqwest::Client, url: &str) -> Option<u64> {
+pub(super) async fn content_length(client: &reqwest::Client, url: &str) -> Option<u64> {
     let r = client.head(url).send().await.ok()?;
     r.headers()
         .get(reqwest::header::CONTENT_LENGTH)?
@@ -471,7 +471,7 @@ async fn content_length(client: &reqwest::Client, url: &str) -> Option<u64> {
 /// entire syshub upgrade instead of just costing a short delay. `overall`'s
 /// position may briefly over-count by a failed attempt's partial bytes on
 /// a retry — an acceptable trade-off against aborting outright.
-async fn download_with_bar(
+pub(super) async fn download_with_bar(
     client: &reqwest::Client,
     url: &str,
     dest: &Path,
@@ -522,7 +522,7 @@ async fn download_once(
 
 /// Extract `payload/*` from a .zex (zexc / ZEX1) into `dest` root.
 /// Multiple packages extract into the SAME dest → their trees merge naturally.
-fn extract_zex_into(zex_path: &Path, dest: &Path) -> Result<()> {
+pub(super) fn extract_zex_into(zex_path: &Path, dest: &Path) -> Result<()> {
     #[cfg(unix)]
     use std::os::unix::fs::symlink;
 

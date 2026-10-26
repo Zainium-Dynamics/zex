@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 use std::sync::{Arc, Mutex};
 
+use super::kernel;
 use super::syscore;
 use super::userland;
 
@@ -51,6 +52,14 @@ enum Commands {
         /// Drop a downloaded upgrade that has not been applied yet
         #[arg(long)]
         cancel: bool,
+    },
+    /// The boot kernel and its quantra-ramfs on the EFI partition
+    Kernel {
+        #[arg(short = 'u', long = "upgrade", alias = "u", help = "Perform upgrade")]
+        u: bool,
+        /// Boot the fallback kernel by default again
+        #[arg(long)]
+        rollback: bool,
     },
     /// Upgrade Userland packages across all tiers
     Uland {
@@ -127,6 +136,24 @@ pub async fn run(_raw_args: Vec<String>) -> anyhow::Result<()> {
                 }
             } else {
                 println!("Missing --u flag for syshub upgrade.");
+            }
+        }
+        Commands::Kernel { rollback: true, .. } => {
+            if let Err(e) = kernel::rollback() {
+                eprintln!("✗ Kernel rollback failed: {:#}", e);
+                std::process::exit(1);
+            }
+        }
+        Commands::Kernel { u: true, .. } => {
+            if let Err(e) = kernel::upgrade().await {
+                eprintln!("✗ Kernel upgrade failed: {:#}", e);
+                std::process::exit(1);
+            }
+        }
+        Commands::Kernel { .. } => {
+            if let Err(e) = kernel::status().await {
+                eprintln!("✗ {:#}", e);
+                std::process::exit(1);
             }
         }
         Commands::Uland { u } => {
