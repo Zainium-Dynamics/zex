@@ -102,6 +102,11 @@ pub fn missing_libraries(staged: &[PathBuf]) -> Vec<String> {
         if let Ok(Some(soname)) = elf.soname() {
             provided.insert(soname);
         }
+        // glibc programs and libraries load from glibc's own directory, which
+        // its package fills; the musl libraries packages provide can't serve them
+        if super::elfpatch::is_glibc_elf(&elf) {
+            continue;
+        }
         if let Ok(libs) = elf.needed_libs() {
             needed.extend(libs);
         }

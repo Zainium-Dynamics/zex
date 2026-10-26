@@ -52,6 +52,22 @@ const ZEX_LIB_RPATH: &str = "/overlayer/zexlib/union/lib";
 /// to search.
 const SYSHUB_LIB_RPATH: &str = "/overlayer/syshub/lib";
 
+/// glibc's own directory (the `glibc` package): its loader, libc and the
+/// libraries built against it. Kept apart from musl's, never on musl's path.
+pub const GLIBC_LIB_DIR: &str = "/overlayer/zexlib/union/x86_64-zainium-linux-gnu/lib";
+
+/// glibc's loader and libc themselves, and every program or library linked
+/// against glibc: started by glibc's loader (`ld-linux`) or needing
+/// `libc.so.6`. These keep their loader and library path — musl's loader
+/// can't run them and the musl libraries in syshub/union can't load into
+/// them.
+pub fn is_glibc_elf(f: &ElfFile) -> bool {
+    let named_glibc = |n: &str| n == "libc.so.6" || n.starts_with("ld-linux");
+    f.interpreter().ok().flatten().is_some_and(|i| i.contains("/ld-linux"))
+        || f.soname().ok().flatten().is_some_and(|s| named_glibc(&s))
+        || f.needed_libs().is_ok_and(|libs| libs.iter().any(|l| named_glibc(l)))
+}
+
 fn is_elf(path: &Path) -> bool {
     let Ok(mut f) = std::fs::File::open(path) else {
         return false;
@@ -119,6 +135,9 @@ fn patch_one(path: &Path) -> anyhow::Result<()> {
     // RPATH-rewrite step below unaffected — confirmed separately against
     // real Alpine .so deps (libcurl.so, libbrotlicommon.so).
     if !has_interp && !has_needed {
+        return Ok(());
+    }
+    if is_glibc_elf(&f) {
         return Ok(());
     }
 
