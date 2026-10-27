@@ -23,7 +23,7 @@ pub struct ZexIndexEntry {
     pub maintainer: Option<String>,
     pub tags: Vec<String>,
     pub build_type: Option<String>,  // "static"|"dynamic"|"firmware"
-    pub libc_target: Option<String>, // "relibc"|"musl"|"freestanding"
+    pub libc_target: Option<String>, // "musl"|"gnu" (glibc)|"freestanding"
     pub edition: Option<String>,     // package edition (e.g. Rust "2021")
 }
 

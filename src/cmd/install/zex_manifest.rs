@@ -61,7 +61,7 @@ pub struct PackageMeta {
     /// "static" | "dynamic" | "firmware"
     #[serde(default)]
     pub build_type: Option<String>,
-    /// "relibc" | "musl" | "freestanding"
+    /// "musl" | "gnu" (glibc) | "freestanding"
     #[serde(default)]
     pub libc_target: Option<String>,
     /// Active edition for this build (e.g. "2021" for Rust)

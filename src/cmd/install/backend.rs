@@ -619,7 +619,7 @@ pub struct PackageInfo {
     /// Link type: "static" | "dynamic" | "firmware"
     #[serde(default)]
     pub build_type: Option<String>,
-    /// libc family: "relibc" | "musl" | "freestanding"
+    /// libc family: "musl" | "gnu" (glibc) | "freestanding"
     #[serde(default)]
     pub libc_target: Option<String>,
     /// Package edition (Rust-style) — None means latest/default

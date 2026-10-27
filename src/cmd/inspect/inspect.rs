@@ -5,12 +5,7 @@
 
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
-use std::{
-    collections::HashSet,
-    fs,
-    path::Path,
-    process::Command,
-};
+use std::{collections::HashSet, fs, path::Path, process::Command};
 
 const G: &str = "\x1b[92m";
 const P: &str = "\x1b[95m";
@@ -336,12 +331,10 @@ fn extract_needed(line: &str) -> Option<String> {
 }
 
 fn classify_lib(lib: &str) -> &'static str {
-    if lib.starts_with("ld-zainium") || lib == "libc.so.2" {
-        "relibc"
-    } else if lib == "ld-musl-x86_64.so.1" || lib == "libc.so" {
+    if lib == "ld-musl-x86_64.so.1" || lib == "libc.so" {
         "musl"
-    } else if lib == "libc.so.6" || lib.contains("glibc") {
-        "glibc (foreign!)"
+    } else if lib == "libc.so.6" || lib.starts_with("ld-linux") {
+        "glibc"
     } else if lib.starts_with("libstdc++") || lib.starts_with("libgcc") {
         "GCC runtime"
     } else if lib.starts_with("libpthread") || lib.starts_with("libdl") {

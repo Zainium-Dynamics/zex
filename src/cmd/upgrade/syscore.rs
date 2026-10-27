@@ -592,7 +592,8 @@ fn verify_libc_boundaries(staging: &Path) -> Result<()> {
             if n.as_ref() == *bad {
                 bail!(
                     "glibc artifact detected: {}\n\
-                     Zainium packages must link against musl or relibc only.",
+                     The base links against musl only; glibc is a userland package\n\
+                     in its own directory.",
                     e.path().display()
                 );
             }

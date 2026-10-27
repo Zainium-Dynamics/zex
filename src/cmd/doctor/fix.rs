@@ -116,10 +116,10 @@ pub fn run_fix(audit: &AuditResult) -> Result<FixReport> {
         rep.manual_items
             .push(format!("missing syshub dir (remount + restore): {f}"));
     }
-    for f in &audit.missing_relibc_files {
+    for f in &audit.missing_glibc_files {
         rep.remaining += 1;
         rep.manual_items
-            .push(format!("missing relibc file (reinstall relibc): {f}"));
+            .push(format!("missing glibc file (reinstall glibc): {f}"));
     }
     for f in &audit.missing_musl_files {
         rep.remaining += 1;
@@ -127,7 +127,6 @@ pub fn run_fix(audit: &AuditResult) -> Result<FixReport> {
             .push(format!("missing musl file (reinstall musl): {f}"));
     }
     if audit.missing_syshub_dirs.is_empty()
-        && audit.missing_relibc_files.is_empty()
         && audit.missing_musl_files.is_empty()
     {
         // Syshub is intact — count as fixed

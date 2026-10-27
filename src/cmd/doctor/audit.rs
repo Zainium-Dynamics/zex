@@ -31,7 +31,8 @@ pub struct AuditResult {
     pub unsatisfied_deps: Vec<(String, String)>, // (pkg, missing_dep)
     pub missing_syshub_dirs: Vec<String>,
     pub missing_musl_files: Vec<String>,
-    pub missing_relibc_files: Vec<String>,
+    /// Empty when glibc isn't installed.
+    pub missing_glibc_files: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -50,7 +51,7 @@ impl AuditResult {
             + self.unsatisfied_deps.len()
             + self.missing_syshub_dirs.len()
             + self.missing_musl_files.len()
-            + self.missing_relibc_files.len()
+            + self.missing_glibc_files.len()
     }
 
     pub fn registry_ok(&self) -> bool {
@@ -105,15 +106,13 @@ pub fn run_full_audit() -> Result<AuditResult> {
 
     // 7. Syshub structure integrity
     check_syshub_dirs(&mut r);
-    check_relibc_files(&mut r);
     check_musl_sysroot(&mut r);
+    check_glibc(&mut r);
 
     // 8. Syshub package count
     r.syshub_total = syshub_pkgs;
     r.syshub_clean = syshub_pkgs; // verified if no corrupted files found
-    r.syshub_ok = r.missing_syshub_dirs.is_empty()
-        && r.missing_relibc_files.is_empty()
-        && r.missing_musl_files.is_empty();
+    r.syshub_ok = r.missing_syshub_dirs.is_empty() && r.missing_musl_files.is_empty();
     // syshub total reflects known installed packages
     if r.syshub_ok {
         r.syshub_clean = r.syshub_total;
@@ -195,11 +194,30 @@ fn check_dangling_symlinks(base: &str, r: &mut AuditResult) {
     for entry in WalkDir::new(p).into_iter().filter_map(|e| e.ok()) {
         let path = entry.path();
         // a union link may point at a base file: resolve it through the merged view
-        if path.is_symlink() && !crate::archive_safety::live_path(path).exists() {
+        if path.is_symlink()
+            && !crate::archive_safety::live_path(path).exists()
+            && !is_unit_link(path)
+        {
             r.dangling_symlinks
                 .push(path.to_string_lossy().into_owned());
         }
     }
+}
+
+/// A systemd unit link (an alias like `display-manager.service`, a `.wants/`
+/// entry) whose target unit exists in a unit directory: systemd resolves it
+/// by the target's name, so it is not dangling even when the relative path is.
+fn is_unit_link(path: &Path) -> bool {
+    let Ok(target) = fs::read_link(path) else {
+        return false;
+    };
+    let Some(name) = target.file_name() else {
+        return false;
+    };
+    path.components().any(|c| c.as_os_str() == "systemd")
+        && SYSTEMD_UNIT_DIRS
+            .iter()
+            .any(|d| Path::new(d).join(name).exists())
 }
 
 fn check_deps(
@@ -223,7 +241,8 @@ fn check_deps(
 }
 
 /// Scan union/lib and union/lib64 for any glibc-versioned .so files.
-/// These should NOT exist — all userland must link against musl or relibc.
+/// These should NOT exist: glibc lives only in its own directory
+/// (union/x86_64-zainium-linux-gnu), never on musl's library path.
 fn check_libc_boundaries(r: &mut AuditResult) {
     for lib_dir in [UNION_LIB, UNION_LIB64] {
         let p = Path::new(lib_dir);
@@ -253,26 +272,6 @@ fn check_syshub_dirs(r: &mut AuditResult) {
             r.missing_syshub_dirs.push(dir.to_string());
         }
     }
-    // lib64 must be a symlink → lib, not a real dir
-    let lib64 = Path::new(RELIBC_LIB64_SYMLINK);
-    if !lib64.is_symlink() {
-        r.missing_syshub_dirs.push(format!(
-            "/overlayer/syshub/lib64 must be a symlink → lib (currently: {})",
-            if lib64.exists() {
-                "real dir (wrong)"
-            } else {
-                "missing"
-            }
-        ));
-    }
-}
-
-fn check_relibc_files(r: &mut AuditResult) {
-    for f in RELIBC_CRITICAL {
-        if !Path::new(f).exists() {
-            r.missing_relibc_files.push(f.to_string());
-        }
-    }
 }
 
 fn check_musl_sysroot(r: &mut AuditResult) {
@@ -294,6 +293,18 @@ fn check_musl_sysroot(r: &mut AuditResult) {
         // libgcc_s inside the musl sysroot is fine — it's the musl-linked one
         // Only flag if we see it floating loose in /overlayer/zexlib/union/lib
         // (that check happens in check_libc_boundaries)
+    }
+}
+
+/// glibc is optional; when its directory exists, its loader and libc must too.
+fn check_glibc(r: &mut AuditResult) {
+    if !Path::new(GLIBC_DIR).exists() {
+        return;
+    }
+    for f in GLIBC_CRITICAL {
+        if !Path::new(f).exists() {
+            r.missing_glibc_files.push(f.to_string());
+        }
     }
 }
 

@@ -1,22 +1,21 @@
 //! layout.rs — Zainium filesystem layout constants.
 //!
 //! This is the single source of truth for every path the doctor checks.
-//! Matches real on-disk layout from `ls /overlayer/syshub`:
-//!   bin  doc  drivers  engine  etc  include  lib  lib64  libexec  sbin  share  var
-//!   x86_64-linux-musl/   ← musl sysroot (bin, lib, include)
-//!
-//! relibc  → syshub/lib64/   (x86_64 dynamic linker, libc.so, ld-zainium-x86_64.so.2)
-//!           syshub/lib/    (aarch64)
-//!           syshub/bin/    (ldd symlink, zainium-relibc-gcc-* wrappers)
-//!           syshub/include/ (relibc headers)
+//! Matches the real on-disk layout of `/overlayer/syshub`:
+//!   bin  drivers  engine  etc  include  lib  libexec  sbin  share  var
+//!   x86_64-zainium-linux-musl/   ← musl (bin, lib, include)
+//! There is no lib64.
 //!
 //! musl    → syshub/x86_64-zainium-linux-musl/lib/    (libc.so, ld-musl-x86_64.so.1)
 //!           syshub/x86_64-zainium-linux-musl/include/
 //!           syshub/x86_64-zainium-linux-musl/bin/    (ldd only)
-//!           syshub/bin/x86_64-zainium-linux-musl-gcc   (cross-compiler, and
-//!             every other -gcc-*/binutils tool — all live directly under
-//!             the general syshub/bin/, not under the sysroot)
-//!           syshub/lib/libgcc_s.so.1  (also general syshub/lib/, not the sysroot)
+//!           syshub/bin/x86_64-zainium-linux-musl-gcc   (the compiler and every
+//!             other -gcc-*/binutils tool live directly under syshub/bin/)
+//!           syshub/lib/libgcc_s.so.1  (also general syshub/lib/)
+//!
+//! glibc   → union/x86_64-zainium-linux-gnu/          (the `glibc` package, when
+//!             installed: its loader, libraries, headers and tools in one directory,
+//!             never on musl's library path)
 
 // ── Base roots ────────────────────────────────────────────────────────────────
 pub const SYSHUB: &str = "/overlayer/syshub";
@@ -25,20 +24,6 @@ pub const INSTALLED_DIR: &str = "/overlayer/zexlib/registry/installed";
 pub const PACKAGES_TOML: &str = "/overlayer/zexlib/registry/packages.toml";
 pub const SYSHUB_MANIFEST: &str = "/overlayer/syshub/engine/services/syshub.toml";
 pub const ZAISYS_KERNEL: &str = "/overlayer/zaisys/kernel";
-
-// ── relibc install locations ──────────────────────────────────────────────────
-/// relibc dynamic linker + libc.so — real dir is lib/, lib64 is a symlink → lib/
-pub const RELIBC_LIB: &str = "/overlayer/syshub/lib";
-/// lib64 → lib symlink (checked as symlink, not a separate dir)
-pub const RELIBC_LIB64_SYMLINK: &str = "/overlayer/syshub/lib64";
-/// Critical relibc files — real location is lib/, lib64 is a symlink to lib/
-pub const RELIBC_CRITICAL: &[&str] = &[
-    "/overlayer/syshub/lib/libc.so",
-    "/overlayer/syshub/lib/libc.so.2",
-    "/overlayer/syshub/lib/ld-zainium-x86_64.so.2",
-];
-/// lib64 must exist as a symlink pointing to lib/
-pub const RELIBC_LIB64_SYMLINK_TARGET: &str = "lib";
 
 // ── musl install locations ────────────────────────────────────────────────────
 /// musl sysroot root — real name is x86_64-zainium-linux-musl (verified from ls).
@@ -95,8 +80,18 @@ pub const SYSHUB_REQUIRED_DIRS: &[&str] = &[
     "/overlayer/syshub/x86_64-zainium-linux-musl",
 ];
 
+// ── glibc ─────────────────────────────────────────────────────────────────────
+/// glibc's own directory (the `glibc` package).
+pub const GLIBC_DIR: &str = "/overlayer/zexlib/union/x86_64-zainium-linux-gnu";
+/// What a working glibc install has.
+pub const GLIBC_CRITICAL: &[&str] = &[
+    "/overlayer/zexlib/union/x86_64-zainium-linux-gnu/lib/ld-linux-x86-64.so.2",
+    "/overlayer/zexlib/union/x86_64-zainium-linux-gnu/lib/libc.so.6",
+];
+
 // ── libc boundary — forbidden glibc artifacts ─────────────────────────────────
-/// .so files whose presence indicates a glibc-linked binary crept into the system
+/// glibc's files outside its own directory: on musl's library path they would
+/// be found by musl programs and the musl toolchain
 pub const GLIBC_FORBIDDEN_SO: &[&str] = &[
     "libc.so.6",
     "libpthread.so.0",
@@ -104,10 +99,18 @@ pub const GLIBC_FORBIDDEN_SO: &[&str] = &[
     "librt.so.1",
     "ld-linux-x86-64.so.2",
     "ld-linux-aarch64.so.1",
-    "libgcc_s.so.1", // glibc's GCC runtime shim — forbidden
 ];
 
 // ── userland scan dirs ─────────────────────────────────────────────────────────
 pub const UNION_LIB: &str = "/overlayer/zexlib/union/lib";
 pub const UNION_LIB64: &str = "/overlayer/zexlib/union/lib64";
 pub const UNION_BIN: &str = "/overlayer/zexlib/union/bin";
+
+/// Where systemd looks units up by name; a unit link (an alias, a `.wants/`
+/// entry) is resolved by its target's name, not as a path.
+pub const SYSTEMD_UNIT_DIRS: &[&str] = &[
+    "/overlayer/syshub/etc/systemd/system",
+    "/overlayer/syshub/lib/systemd/system",
+    "/overlayer/syshub/etc/systemd/user",
+    "/overlayer/syshub/lib/systemd/user",
+];

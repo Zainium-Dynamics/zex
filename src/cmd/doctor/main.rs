@@ -88,30 +88,30 @@ fn run_audit_mode() {
             result.syshub_clean, result.syshub_total
         )
     } else {
-        let issues = result.missing_syshub_dirs.len()
-            + result.missing_relibc_files.len()
-            + result.missing_musl_files.len();
+        let issues = result.missing_syshub_dirs.len() + result.missing_musl_files.len();
         format!("{issues} missing components")
     };
     ui::print_audit_row("Syshub Integrity", result.syshub_ok, &syshub_detail);
 
-    // relibc files
-    let relibc_ok = result.missing_relibc_files.is_empty();
-    let relibc_detail = if relibc_ok {
-        "\u{2713} lib/libc.so + ld-zainium-x86_64.so.2  (lib64 \u{2192} lib)".to_string()
-    } else {
-        format!("{} files missing", result.missing_relibc_files.len())
-    };
-    ui::print_audit_row("relibc (Zainium native libc)", relibc_ok, &relibc_detail);
-
     // musl sysroot check (x86_64-zainium-linux-musl)
     let musl_ok = result.missing_musl_files.is_empty();
     let musl_det = if musl_ok {
-        format!("✓ libc.so + ld-musl-x86_64.so.1 + libgcc_s + specs")
+        format!("✓ libc.so + ld-musl-x86_64.so.1 + libgcc_s + gcc")
     } else {
         format!("{} file(s) missing", result.missing_musl_files.len())
     };
     ui::print_audit_row("musl (x86_64-zainium-linux-musl)", musl_ok, &musl_det);
+
+    // glibc, when installed (x86_64-zainium-linux-gnu)
+    let glibc_ok = result.missing_glibc_files.is_empty();
+    let glibc_det = if !std::path::Path::new(super::layout::GLIBC_DIR).exists() {
+        "not installed".to_string()
+    } else if glibc_ok {
+        "\u{2713} ld-linux-x86-64.so.2 + libc.so.6, in its own directory".to_string()
+    } else {
+        format!("{} file(s) missing", result.missing_glibc_files.len())
+    };
+    ui::print_audit_row("glibc (x86_64-zainium-linux-gnu)", glibc_ok, &glibc_det);
 
     // Orphaned packages
     let orp_ok = result.orphaned_packages.is_empty();
