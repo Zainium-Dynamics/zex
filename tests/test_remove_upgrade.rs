@@ -19,9 +19,8 @@ mod remove {
         assert_file_exists(&bin);
 
         // Read files from receipt and remove them
-        let receipt = fs::read_to_string(
-            env.p("overlayer/zexlib/registry/installed/ripgrep.toml"),
-        ).unwrap();
+        let receipt =
+            fs::read_to_string(env.p("overlayer/zexlib/registry/installed/ripgrep.toml")).unwrap();
         let val: toml::Value = toml::from_str(&receipt).unwrap();
         let files = val["remove"]["files"].as_array().unwrap();
         for file_val in files {
@@ -107,7 +106,7 @@ mod remove {
     fn remove_symlinks() {
         let env = TempOverlayer::new();
         let target = env.p("overlayer/zexlib/union/bin/python3.14");
-        let link   = env.p("overlayer/zexlib/union/bin/python3");
+        let link = env.p("overlayer/zexlib/union/bin/python3");
         fs::write(&target, b"binary").unwrap();
         #[cfg(unix)]
         {
@@ -183,8 +182,10 @@ mod remove {
     fn remove_pinned_package_blocked() {
         let env = TempOverlayer::new();
         env.add_installed_receipt("gcc", "14.2.0", "tier1-zainium");
-        env.set_pinned("[[pinned]]\nname = \"gcc\"\npinned_version = \"14.2.0\"\n\
-                        pinned_at = \"2026-06-27\"\npinned_by = \"alizain\"\n");
+        env.set_pinned(
+            "[[pinned]]\nname = \"gcc\"\npinned_version = \"14.2.0\"\n\
+                        pinned_at = \"2026-06-27\"\npinned_by = \"alizain\"\n",
+        );
 
         let pinned_path = env.p("overlayer/zexlib/registry/pinned.toml");
         let raw = fs::read_to_string(&pinned_path).unwrap();
@@ -197,14 +198,14 @@ mod remove {
     fn receipt_remove_map_files_absolute() {
         let env = TempOverlayer::new();
         env.add_installed_receipt("fd", "10.2.0", "tier1-zainium");
-        let raw = fs::read_to_string(
-            env.p("overlayer/zexlib/registry/installed/fd.toml"),
-        ).unwrap();
+        let raw = fs::read_to_string(env.p("overlayer/zexlib/registry/installed/fd.toml")).unwrap();
         let val: toml::Value = toml::from_str(&raw).unwrap();
         for f in val["remove"]["files"].as_array().unwrap() {
             let path = f.as_str().unwrap();
-            assert!(path.starts_with("/overlayer/"),
-                    "remove path not absolute overlayer: {path}");
+            assert!(
+                path.starts_with("/overlayer/"),
+                "remove path not absolute overlayer: {path}"
+            );
         }
     }
 
@@ -234,32 +235,30 @@ mod upgrade_logic {
     fn many_version_pairs() {
         // Pure structural compare (numeric then raw suffix lex) — no keyword policy.
         let should_upgrade = [
-            ("1.0",   "1.1"),
+            ("1.0", "1.1"),
             ("1.0.0", "1.0.1"),
-            ("0.9",   "1.0"),
+            ("0.9", "1.0"),
             ("1.0-alpha", "1.0-beta"), // suffix lex only
             ("9.1.0-r0", "9.1.0-r1"),
             ("3.14.0_1", "3.14.0_2"),
-            ("0",     "1"),
-            ("1.9",   "2.0"),
+            ("0", "1"),
+            ("1.9", "2.0"),
         ];
         for (old, new) in &should_upgrade {
-            assert!(is_upgrade(old, new),
-                    "{old} → {new} should be upgrade");
+            assert!(is_upgrade(old, new), "{old} → {new} should be upgrade");
         }
     }
 
     #[test]
     fn no_upgrade_pairs() {
         let no_upgrade = [
-            ("1.0",   "1.0"),
-            ("2.0",   "1.9"),
+            ("1.0", "1.0"),
+            ("2.0", "1.9"),
             ("1.0.1", "1.0.0"),
             ("1.0-rc1", "1.0-alpha"),
         ];
         for (old, new) in &no_upgrade {
-            assert!(!is_upgrade(old, new),
-                    "{old} → {new} should NOT be upgrade");
+            assert!(!is_upgrade(old, new), "{old} → {new} should NOT be upgrade");
         }
     }
 
@@ -270,7 +269,10 @@ mod upgrade_logic {
         let result = std::panic::catch_unwind(|| {
             let _ = is_upgrade("1:1.0", "1:1.1");
         });
-        assert!(result.is_ok(), "is_upgrade should not panic on epoch notation");
+        assert!(
+            result.is_ok(),
+            "is_upgrade should not panic on epoch notation"
+        );
     }
 
     #[test]
@@ -292,9 +294,10 @@ mod upgrade_logic {
     #[test]
     fn prerelease_ordering() {
         // alpha < beta < rc < release
-        assert!(is_upgrade("1.0-alpha", "1.0-beta")
-             || !is_upgrade("1.0-beta",  "1.0-alpha"),
-            "pre-release ordering must be consistent");
+        assert!(
+            is_upgrade("1.0-alpha", "1.0-beta") || !is_upgrade("1.0-beta", "1.0-alpha"),
+            "pre-release ordering must be consistent"
+        );
     }
 
     #[test]
@@ -317,12 +320,17 @@ mod rollback {
         let env = TempOverlayer::new();
         let timestamps = [1000u64, 3000, 2000, 5000, 4000];
         for (i, ts) in timestamps.iter().enumerate() {
-            env.add_transaction(&format!("tx-{ts}"), &format!("2026-06-{:02}T00:00:00Z", i + 1));
+            env.add_transaction(
+                &format!("tx-{ts}"),
+                &format!("2026-06-{:02}T00:00:00Z", i + 1),
+            );
         }
 
         let dir = env.p("overlayer/zexlib/transactions");
-        let mut entries: Vec<_> = fs::read_dir(&dir).unwrap()
-            .flatten().filter(|e| e.path().is_dir())
+        let mut entries: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| e.path().is_dir())
             .map(|e| e.file_name().to_string_lossy().to_string())
             .collect();
         entries.sort();
@@ -388,9 +396,9 @@ mod rollback {
     #[test]
     fn rollback_preserves_unrelated_packages() {
         let env = TempOverlayer::new();
-        env.add_installed_receipt("vim",   "9.1.0", "tier1-zainium");
-        env.add_installed_receipt("htop",  "3.4.0", "tier1-zainium");
-        env.add_installed_receipt("curl",  "8.11",  "tier2-alpine");
+        env.add_installed_receipt("vim", "9.1.0", "tier1-zainium");
+        env.add_installed_receipt("htop", "3.4.0", "tier1-zainium");
+        env.add_installed_receipt("curl", "8.11", "tier2-alpine");
 
         // Rollback only vim
         fs::remove_file(env.p("overlayer/zexlib/registry/installed/vim.toml")).unwrap();
@@ -404,9 +412,9 @@ mod rollback {
     fn transaction_state_readable() {
         let env = TempOverlayer::new();
         env.add_transaction("tx-readable", "2026-06-27T00:00:00Z");
-        let raw = fs::read_to_string(
-            env.p("overlayer/zexlib/transactions/tx-readable/manifest.toml"),
-        ).unwrap();
+        let raw =
+            fs::read_to_string(env.p("overlayer/zexlib/transactions/tx-readable/manifest.toml"))
+                .unwrap();
         assert!(raw.contains("tx-readable"));
     }
 
@@ -415,11 +423,16 @@ mod rollback {
         let env = TempOverlayer::new();
         // Add 15 transactions, keep 10
         for i in 0..15 {
-            env.add_transaction(&format!("tx-{i:03}"), &format!("2026-06-{:02}T00:00:00Z", (i % 28) + 1));
+            env.add_transaction(
+                &format!("tx-{i:03}"),
+                &format!("2026-06-{:02}T00:00:00Z", (i % 28) + 1),
+            );
         }
         let dir = env.p("overlayer/zexlib/transactions");
-        let mut entries: Vec<_> = fs::read_dir(&dir).unwrap()
-            .flatten().filter(|e| e.path().is_dir())
+        let mut entries: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| e.path().is_dir())
             .map(|e| e.file_name().to_string_lossy().to_string())
             .collect();
         entries.sort();

@@ -27,7 +27,10 @@ fn rejects_tampered_alpine_package() {
     // verifier actually checks it, rather than e.g. always passing.
     let mut data = std::fs::read("tests/fixtures/alpine-musl-1.2.6-r2.apk").unwrap();
     data[800] ^= 0xFF;
-    assert!(native_sig::verify_apk_v2(&data).is_err(), "tampered control member must fail verification");
+    assert!(
+        native_sig::verify_apk_v2(&data).is_err(),
+        "tampered control member must fail verification"
+    );
 }
 
 #[test]
@@ -41,7 +44,10 @@ fn rejects_tampered_chimera_package() {
     let mut data = std::fs::read("tests/fixtures/chimera-chimerautils-15.0.3-r0.apk").unwrap();
     let mid = data.len() / 2;
     data[mid] ^= 0xFF;
-    assert!(native_sig::verify_adb_v3(&data).is_err(), "tampered adb package must fail verification");
+    assert!(
+        native_sig::verify_adb_v3(&data).is_err(),
+        "tampered adb package must fail verification"
+    );
 }
 
 #[test]
@@ -69,5 +75,8 @@ fn rejects_tampered_void_package() {
     };
 
     pkg[1000] ^= 0xFF;
-    assert!(native_sig::verify_xbps(&pkg, &sig2, &pubkey_pem).is_err(), "tampered xbps package must fail verification");
+    assert!(
+        native_sig::verify_xbps(&pkg, &sig2, &pubkey_pem).is_err(),
+        "tampered xbps package must fail verification"
+    );
 }

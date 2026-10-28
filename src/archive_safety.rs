@@ -61,7 +61,16 @@ pub fn sanitize_link_target(owner_path: &Path, target: &Path) -> Result<PathBuf>
         bail!("empty link target");
     }
 
-    const REAL_ROOT: &[&str] = &["dev", "proc", "sys", "run", "tmp", "home", "root", "overlayer"];
+    const REAL_ROOT: &[&str] = &[
+        "dev",
+        "proc",
+        "sys",
+        "run",
+        "tmp",
+        "home",
+        "root",
+        "overlayer",
+    ];
 
     let mut stack: Vec<std::ffi::OsString> = Vec::new();
     if target.is_absolute() {
@@ -474,7 +483,10 @@ mod tests {
     fn link_target_keeps_real_root_and_overlayer_paths() {
         let owner = Path::new("lib/systemd/system/foo.service");
         for t in ["/dev/null", "/run/foo", "/overlayer/syshub/lib/libfoo.so"] {
-            assert_eq!(sanitize_link_target(owner, Path::new(t)).unwrap(), Path::new(t));
+            assert_eq!(
+                sanitize_link_target(owner, Path::new(t)).unwrap(),
+                Path::new(t)
+            );
         }
     }
 

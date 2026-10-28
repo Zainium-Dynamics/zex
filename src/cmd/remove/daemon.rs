@@ -209,7 +209,6 @@ fn validate_package_name(name: &str) -> Result<()> {
 /// Returns the amount of disk space freed in MB.
 async fn remove_headless(name: &str, opts: &super::common::RunOpts) -> Result<f64> {
     use super::backend;
-    
 
     let pkg_backend = backend::find_backend(name)
         .await

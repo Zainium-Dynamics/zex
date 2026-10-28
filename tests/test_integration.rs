@@ -128,9 +128,7 @@ mod registry {
     #[test]
     fn packages_toml_parseable() {
         let env = TempOverlayer::new();
-        let raw = fs::read_to_string(
-            env.p("overlayer/zexlib/registry/packages.toml"),
-        ).unwrap();
+        let raw = fs::read_to_string(env.p("overlayer/zexlib/registry/packages.toml")).unwrap();
         let val: toml::Value = toml::from_str(&raw).unwrap();
         assert!(val["packages"]["htop"]["version"].as_str().is_some());
     }
@@ -140,9 +138,8 @@ mod registry {
         let env = TempOverlayer::new();
         env.add_installed_receipt("gcc", "14.2.0", "tier1-zainium");
 
-        let raw = fs::read_to_string(
-            env.p("overlayer/zexlib/registry/installed/gcc.toml"),
-        ).unwrap();
+        let raw =
+            fs::read_to_string(env.p("overlayer/zexlib/registry/installed/gcc.toml")).unwrap();
         let val: toml::Value = toml::from_str(&raw).unwrap();
         assert_eq!(val["version"].as_str().unwrap(), "14.2.0");
     }
@@ -152,9 +149,8 @@ mod registry {
         let env = TempOverlayer::new();
         env.add_installed_receipt("test", "1.0", "tier1-zainium");
 
-        let raw = fs::read_to_string(
-            env.p("overlayer/zexlib/registry/installed/test.toml"),
-        ).unwrap();
+        let raw =
+            fs::read_to_string(env.p("overlayer/zexlib/registry/installed/test.toml")).unwrap();
         let val: toml::Value = toml::from_str(&raw).unwrap();
         assert!(val.get("name").is_some());
         assert!(val.get("version").is_some());
@@ -167,28 +163,26 @@ mod registry {
     #[test]
     fn pinned_toml_isolated() {
         let env = TempOverlayer::new();
-        env.set_pinned(r#"[[pinned]]
+        env.set_pinned(
+            r#"[[pinned]]
 name = "gcc"
 pinned_version = "14.2.0"
 pinned_at = "2026-06-27"
 pinned_by = "alizain"
-"#);
-        assert_file_contains(
-            &env.p("overlayer/zexlib/registry/pinned.toml"),
-            "gcc",
+"#,
         );
+        assert_file_contains(&env.p("overlayer/zexlib/registry/pinned.toml"), "gcc");
     }
 
     #[test]
     fn transaction_history() {
         let env = TempOverlayer::new();
         for i in 1..=5 {
-            env.add_transaction(
-                &format!("tx-{i:03}"),
-                &format!("2026-06-{i:02}T00:00:00Z"),
-            );
+            env.add_transaction(&format!("tx-{i:03}"), &format!("2026-06-{i:02}T00:00:00Z"));
         }
-        let count = fs::read_dir(env.p("overlayer/zexlib/transactions")).unwrap().count();
+        let count = fs::read_dir(env.p("overlayer/zexlib/transactions"))
+            .unwrap()
+            .count();
         assert_eq!(count, 5);
     }
 
@@ -217,9 +211,8 @@ pinned_by = "alizain"
     #[test]
     fn zex_services_mirror_urls() {
         let env = TempOverlayer::new();
-        let raw = fs::read_to_string(
-            env.p("overlayer/syshub/engine/services/zex_services.toml"),
-        ).unwrap();
+        let raw = fs::read_to_string(env.p("overlayer/syshub/engine/services/zex_services.toml"))
+            .unwrap();
         assert!(raw.contains("archive.zainiumdynamics.tech"));
         assert!(raw.contains("alpinelinux.org"));
         assert!(raw.contains("voidlinux.org"));
@@ -270,10 +263,7 @@ mod fs_safety {
     #[test]
     fn nonexistent_package_fails() {
         let tmp = tempfile::TempDir::new().unwrap();
-        let result = zex::extract::extract(
-            Path::new("/no/such/file.zex"),
-            &tmp.path().join("out"),
-        );
+        let result = zex::extract::extract(Path::new("/no/such/file.zex"), &tmp.path().join("out"));
         assert!(result.is_err());
     }
 
@@ -348,9 +338,9 @@ mod fs_safety {
 // ══════════════════════════════════════════════════════════════════════════════
 
 mod crypto {
-    use ed25519_dalek::{SigningKey, Signer};
-    use sha2::{Sha256, Digest};
+    use ed25519_dalek::{Signer, SigningKey};
     use rand_core::OsRng;
+    use sha2::{Digest, Sha256};
 
     #[test]
     fn sha256_of_package_deterministic() {
@@ -381,9 +371,11 @@ mod crypto {
         let sk = SigningKey::generate(&mut OsRng);
         let package_hash = blake3::hash(b"package payload").to_hex();
         let sig = sk.sign(package_hash.as_bytes());
-        assert!(sk.verifying_key()
-            .verify_strict(package_hash.as_bytes(), &sig)
-            .is_ok());
+        assert!(
+            sk.verifying_key()
+                .verify_strict(package_hash.as_bytes(), &sig)
+                .is_ok()
+        );
     }
 
     #[test]
@@ -393,9 +385,11 @@ mod crypto {
         let sig = sk.sign(real_hash.as_bytes());
 
         let fake_hash = blake3::hash(b"tampered payload").to_hex();
-        assert!(sk.verifying_key()
-            .verify_strict(fake_hash.as_bytes(), &sig)
-            .is_err());
+        assert!(
+            sk.verifying_key()
+                .verify_strict(fake_hash.as_bytes(), &sig)
+                .is_err()
+        );
     }
 
     #[test]
@@ -426,16 +420,11 @@ mod crypto {
     fn key_serialization_base64() {
         let sk = SigningKey::generate(&mut OsRng);
         let vk = sk.verifying_key();
-        let b64 = base64::Engine::encode(
-            &base64::engine::general_purpose::STANDARD,
-            vk.as_bytes(),
-        );
+        let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, vk.as_bytes());
         assert!(!b64.is_empty());
         // Decode back
-        let decoded = base64::Engine::decode(
-            &base64::engine::general_purpose::STANDARD,
-            &b64,
-        ).unwrap();
+        let decoded =
+            base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &b64).unwrap();
         assert_eq!(decoded.len(), 32);
     }
 

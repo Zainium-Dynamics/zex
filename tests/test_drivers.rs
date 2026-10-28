@@ -12,25 +12,68 @@ use std::fs;
 mod vercmp {
     use zex::cmd::upgrade::vercmp::is_upgrade;
 
-    #[test] fn newer_major()         { assert!(is_upgrade("1.0.0", "2.0.0")); }
-    #[test] fn newer_minor()         { assert!(is_upgrade("1.2.0", "1.3.0")); }
-    #[test] fn newer_patch()         { assert!(is_upgrade("1.2.5", "1.2.6")); }
-    #[test] fn same_not_upgrade()    { assert!(!is_upgrade("5.2", "5.2")); }
-    #[test] fn older_not_upgrade()   { assert!(!is_upgrade("2.0.0", "1.0.0")); }
-    // Suffix compare is pure lexicographic (no hardcoded alpha/beta/rc policy).
-    #[test] fn suffix_lex_order() {
-        assert!(is_upgrade("1.0-alpha", "1.0-beta")); // "-alpha" < "-beta"
-        assert!(is_upgrade("1.0-beta", "1.0-rc1"));   // "-beta"  < "-rc1"
+    #[test]
+    fn newer_major() {
+        assert!(is_upgrade("1.0.0", "2.0.0"));
     }
-    #[test] fn apk_revision()        { assert!(is_upgrade("9.1.0-r0", "9.1.0-r1")); }
-    #[test] fn xbps_underscore()     { assert!(is_upgrade("3.4.0_1", "3.4.0_2")); }
-    #[test] fn long_vs_short()       { assert!(is_upgrade("1.0", "1.0.1")); }
-    #[test] fn equal_long()          { assert!(!is_upgrade("1.0.0.0", "1.0.0.0")); }
-    #[test] fn single_digit()        { assert!(is_upgrade("8", "9")); }
-    #[test] fn double_digit()        { assert!(is_upgrade("9", "10")); }
-    #[test] fn zero_to_one()         { assert!(is_upgrade("0", "1")); }
-    #[test] fn empty_old()           { assert!(is_upgrade("", "1.0")); }
-    #[test] fn git_snapshot()        { assert!(is_upgrade("1.0", "1.0.g20260627")); }
+    #[test]
+    fn newer_minor() {
+        assert!(is_upgrade("1.2.0", "1.3.0"));
+    }
+    #[test]
+    fn newer_patch() {
+        assert!(is_upgrade("1.2.5", "1.2.6"));
+    }
+    #[test]
+    fn same_not_upgrade() {
+        assert!(!is_upgrade("5.2", "5.2"));
+    }
+    #[test]
+    fn older_not_upgrade() {
+        assert!(!is_upgrade("2.0.0", "1.0.0"));
+    }
+    // Suffix compare is pure lexicographic (no hardcoded alpha/beta/rc policy).
+    #[test]
+    fn suffix_lex_order() {
+        assert!(is_upgrade("1.0-alpha", "1.0-beta")); // "-alpha" < "-beta"
+        assert!(is_upgrade("1.0-beta", "1.0-rc1")); // "-beta"  < "-rc1"
+    }
+    #[test]
+    fn apk_revision() {
+        assert!(is_upgrade("9.1.0-r0", "9.1.0-r1"));
+    }
+    #[test]
+    fn xbps_underscore() {
+        assert!(is_upgrade("3.4.0_1", "3.4.0_2"));
+    }
+    #[test]
+    fn long_vs_short() {
+        assert!(is_upgrade("1.0", "1.0.1"));
+    }
+    #[test]
+    fn equal_long() {
+        assert!(!is_upgrade("1.0.0.0", "1.0.0.0"));
+    }
+    #[test]
+    fn single_digit() {
+        assert!(is_upgrade("8", "9"));
+    }
+    #[test]
+    fn double_digit() {
+        assert!(is_upgrade("9", "10"));
+    }
+    #[test]
+    fn zero_to_one() {
+        assert!(is_upgrade("0", "1"));
+    }
+    #[test]
+    fn empty_old() {
+        assert!(is_upgrade("", "1.0"));
+    }
+    #[test]
+    fn git_snapshot() {
+        assert!(is_upgrade("1.0", "1.0.g20260627"));
+    }
 
     #[test]
     fn downgrade_detected() {
@@ -103,7 +146,7 @@ mod checksum {
 // ══════════════════════════════════════════════════════════════════════════════
 
 mod signing {
-    use ed25519_dalek::{SigningKey, Signer};
+    use ed25519_dalek::{Signer, SigningKey};
     use rand_core::OsRng;
 
     #[test]
@@ -173,7 +216,8 @@ mod sweep {
         let env = TempOverlayer::new();
         env.fill_cache("tier1-zainium", 8192);
         let cache = env.p("overlayer/zexlib/registry/cache/tier1-zainium");
-        let size: u64 = fs::read_dir(&cache).unwrap()
+        let size: u64 = fs::read_dir(&cache)
+            .unwrap()
             .flatten()
             .filter_map(|e| e.metadata().ok())
             .map(|m| m.len())
@@ -253,7 +297,10 @@ mod sweep {
 
         for tier in ["tier1-zainium", "tier2-alpine", "tier3-void"] {
             let cache = env.p(&format!("overlayer/zexlib/registry/cache/{tier}"));
-            assert!(fs::read_dir(cache).unwrap().count() > 0, "tier {tier} empty");
+            assert!(
+                fs::read_dir(cache).unwrap().count() > 0,
+                "tier {tier} empty"
+            );
         }
     }
 
@@ -268,10 +315,15 @@ mod sweep {
     }
 
     fn format_bytes(b: u64) -> String {
-        if b >= 1_073_741_824 { format!("{:.2} GB", b as f64 / 1_073_741_824.0) }
-        else if b >= 1_048_576 { format!("{:.1} MB", b as f64 / 1_048_576.0) }
-        else if b >= 1024      { format!("{:.1} KB", b as f64 / 1024.0) }
-        else                   { format!("{b} B") }
+        if b >= 1_073_741_824 {
+            format!("{:.2} GB", b as f64 / 1_073_741_824.0)
+        } else if b >= 1_048_576 {
+            format!("{:.1} MB", b as f64 / 1_048_576.0)
+        } else if b >= 1024 {
+            format!("{:.1} KB", b as f64 / 1024.0)
+        } else {
+            format!("{b} B")
+        }
     }
 }
 
@@ -297,9 +349,8 @@ mod inspect {
     fn receipt_has_remove_section() {
         let env = TempOverlayer::new();
         env.add_installed_receipt("htop", "3.4.0", "tier1-zainium");
-        let raw = fs::read_to_string(
-            env.p("overlayer/zexlib/registry/installed/htop.toml")
-        ).unwrap();
+        let raw =
+            fs::read_to_string(env.p("overlayer/zexlib/registry/installed/htop.toml")).unwrap();
         let val: toml::Value = toml::from_str(&raw).unwrap();
         assert!(val.get("remove").is_some());
         assert!(val["remove"].get("files").is_some());
@@ -327,9 +378,8 @@ mod inspect {
     #[test]
     fn syshub_manifest_parseable() {
         let env = TempOverlayer::new();
-        let raw = fs::read_to_string(
-            env.p("overlayer/syshub/engine/services/syshub.toml")
-        ).unwrap();
+        let raw =
+            fs::read_to_string(env.p("overlayer/syshub/engine/services/syshub.toml")).unwrap();
         let val: toml::Value = toml::from_str(&raw).unwrap();
         assert!(val["packages"]["bash"]["version"].as_str().is_some());
     }
@@ -430,9 +480,7 @@ mod doctor_layout {
     #[test]
     fn zex_services_config() {
         let env = TempOverlayer::new();
-        assert_file_exists(
-            &env.p("overlayer/syshub/engine/services/zex_services.toml"),
-        );
+        assert_file_exists(&env.p("overlayer/syshub/engine/services/zex_services.toml"));
     }
 
     #[test]
@@ -465,12 +513,12 @@ mod search {
     #[test]
     fn search_result_display() {
         let r = SearchResult {
-            name:        "vim".into(),
-            version:     "9.1.0".into(),
+            name: "vim".into(),
+            version: "9.1.0".into(),
             description: "Vi IMproved".into(),
-            origin:      Origin::Zainium,
-            installed:   false,
-            tags:        vec!["editor".into()],
+            origin: Origin::Zainium,
+            installed: false,
+            tags: vec!["editor".into()],
         };
         assert_eq!(r.name, "vim");
         assert!(!r.installed);
@@ -479,9 +527,12 @@ mod search {
     #[test]
     fn search_result_clone() {
         let r = SearchResult {
-            name: "a".into(), version: "1".into(),
-            description: "test".into(), origin: Origin::Zainium,
-            installed: false, tags: vec![],
+            name: "a".into(),
+            version: "1".into(),
+            description: "test".into(),
+            origin: Origin::Zainium,
+            installed: false,
+            tags: vec![],
         };
         let c = r.clone();
         assert_eq!(c.name, r.name);
@@ -507,12 +558,30 @@ mod search {
 mod update_vercmp {
     use zex::cmd::update::vercmp::is_upgrade;
 
-    #[test] fn newer()          { assert!(is_upgrade("1.0", "1.1")); }
-    #[test] fn same()           { assert!(!is_upgrade("1.0", "1.0")); }
-    #[test] fn older()          { assert!(!is_upgrade("2.0", "1.0")); }
-    #[test] fn apk_rev()        { assert!(is_upgrade("1.0-r0", "1.0-r1")); }
-    #[test] fn major_jump()     { assert!(is_upgrade("1.99", "2.0")); }
-    #[test] fn empty_to_ver()   { assert!(is_upgrade("", "0.1")); }
+    #[test]
+    fn newer() {
+        assert!(is_upgrade("1.0", "1.1"));
+    }
+    #[test]
+    fn same() {
+        assert!(!is_upgrade("1.0", "1.0"));
+    }
+    #[test]
+    fn older() {
+        assert!(!is_upgrade("2.0", "1.0"));
+    }
+    #[test]
+    fn apk_rev() {
+        assert!(is_upgrade("1.0-r0", "1.0-r1"));
+    }
+    #[test]
+    fn major_jump() {
+        assert!(is_upgrade("1.99", "2.0"));
+    }
+    #[test]
+    fn empty_to_ver() {
+        assert!(is_upgrade("", "0.1"));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════════

@@ -94,12 +94,16 @@ mod aliases {
 
     #[test]
     fn all_routes_have_candidates() {
-        for cmd in ["install", "remove", "search", "doctor", "syshub", "uland",
-                     "sweep", "inspect", "rollback", "depends", "why", "update"] {
-            let r = aliases::resolve(cmd)
-                .unwrap_or_else(|| panic!("command '{cmd}' should resolve"));
-            assert!(!r.binary_candidates.is_empty(),
-                    "command '{cmd}' has no binary candidates");
+        for cmd in [
+            "install", "remove", "search", "doctor", "syshub", "uland", "sweep", "inspect",
+            "rollback", "depends", "why", "update",
+        ] {
+            let r =
+                aliases::resolve(cmd).unwrap_or_else(|| panic!("command '{cmd}' should resolve"));
+            assert!(
+                !r.binary_candidates.is_empty(),
+                "command '{cmd}' has no binary candidates"
+            );
         }
     }
 }
@@ -110,8 +114,8 @@ mod aliases {
 
 mod extract {
     use super::*;
-    use zex::extract;
     use std::path::Path;
+    use zex::extract;
 
     #[test]
     fn detect_zex_format() {
@@ -170,10 +174,7 @@ mod extract {
     #[test]
     fn extract_nonexistent_file_errors() {
         let tmp = tempfile::TempDir::new().unwrap();
-        let result = extract::extract(
-            Path::new("/nonexistent/file.zex"),
-            &tmp.path().join("out"),
-        );
+        let result = extract::extract(Path::new("/nonexistent/file.zex"), &tmp.path().join("out"));
         assert!(result.is_err());
     }
 
@@ -206,8 +207,11 @@ mod extract {
         let out = tmp.path().join("out");
         let result = extract::extract(&pkg, &out).unwrap();
         // manifest.toml + payload/bin/counter = at least 2 files
-        assert!(result.files_extracted >= 2,
-                "expected >= 2 files, got {}", result.files_extracted);
+        assert!(
+            result.files_extracted >= 2,
+            "expected >= 2 files, got {}",
+            result.files_extracted
+        );
     }
 
     #[test]
@@ -256,18 +260,22 @@ mod pinning {
         let path = tmp.path().join("pinned.toml");
 
         let pkg = pinning::PinnedPackage {
-            name:           "vim".into(),
+            name: "vim".into(),
             pinned_version: "9.1.0".into(),
-            pinned_at:      "2026-06-27T00:00:00Z".into(),
-            pinned_by:      "alizain".into(),
-            reason:         Some("kernel build".into()),
+            pinned_at: "2026-06-27T00:00:00Z".into(),
+            pinned_by: "alizain".into(),
+            reason: Some("kernel build".into()),
         };
 
         // Serialize
         #[derive(serde::Serialize, serde::Deserialize)]
-        struct PF { pinned: Vec<pinning::PinnedPackage> }
+        struct PF {
+            pinned: Vec<pinning::PinnedPackage>,
+        }
 
-        let pf = PF { pinned: vec![pkg.clone()] };
+        let pf = PF {
+            pinned: vec![pkg.clone()],
+        };
         let text = toml::to_string_pretty(&pf).unwrap();
         fs::write(&path, &text).unwrap();
 
@@ -283,11 +291,11 @@ mod pinning {
     #[test]
     fn pinned_package_serializes_all_fields() {
         let pkg = pinning::PinnedPackage {
-            name:           "test".into(),
+            name: "test".into(),
             pinned_version: "1.0".into(),
-            pinned_at:      "2026-01-01".into(),
-            pinned_by:      "user".into(),
-            reason:         None,
+            pinned_at: "2026-01-01".into(),
+            pinned_by: "user".into(),
+            reason: None,
         };
         let json = serde_json::to_string(&pkg).unwrap();
         assert!(json.contains("\"name\":\"test\""));
@@ -297,11 +305,11 @@ mod pinning {
     #[test]
     fn pinned_package_without_reason() {
         let pkg = pinning::PinnedPackage {
-            name:           "pkg".into(),
+            name: "pkg".into(),
             pinned_version: "2.0".into(),
-            pinned_at:      "now".into(),
-            pinned_by:      "root".into(),
-            reason:         None,
+            pinned_at: "now".into(),
+            pinned_by: "root".into(),
+            reason: None,
         };
         let text = toml::to_string(&pkg).unwrap();
         assert!(!text.contains("reason ="));
@@ -354,22 +362,32 @@ mod pinning {
     #[test]
     fn pinned_toml_multiple_entries() {
         #[derive(serde::Serialize, serde::Deserialize)]
-        struct PF { pinned: Vec<pinning::PinnedPackage> }
+        struct PF {
+            pinned: Vec<pinning::PinnedPackage>,
+        }
 
         let pf = PF {
             pinned: vec![
                 pinning::PinnedPackage {
-                    name: "a".into(), pinned_version: "1".into(),
-                    pinned_at: "t".into(), pinned_by: "u".into(), reason: None,
+                    name: "a".into(),
+                    pinned_version: "1".into(),
+                    pinned_at: "t".into(),
+                    pinned_by: "u".into(),
+                    reason: None,
                 },
                 pinning::PinnedPackage {
-                    name: "b".into(), pinned_version: "2".into(),
-                    pinned_at: "t".into(), pinned_by: "u".into(),
+                    name: "b".into(),
+                    pinned_version: "2".into(),
+                    pinned_at: "t".into(),
+                    pinned_by: "u".into(),
                     reason: Some("critical".into()),
                 },
                 pinning::PinnedPackage {
-                    name: "c".into(), pinned_version: "3".into(),
-                    pinned_at: "t".into(), pinned_by: "u".into(), reason: None,
+                    name: "c".into(),
+                    pinned_version: "3".into(),
+                    pinned_at: "t".into(),
+                    pinned_by: "u".into(),
+                    reason: None,
                 },
             ],
         };

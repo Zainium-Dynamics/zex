@@ -69,7 +69,8 @@ version = "9.6"
 build_type = "static"
 libc_target = "relibc"
 "#,
-        ).unwrap();
+        )
+        .unwrap();
 
         // Write zex_services.toml
         fs::write(
@@ -90,7 +91,8 @@ url = "https://repo-default.voidlinux.org/current/musl"
 format = "xbps"
 tier = 3
 "#,
-        ).unwrap();
+        )
+        .unwrap();
 
         // Write packages.toml (installed registry)
         fs::write(
@@ -104,7 +106,8 @@ origin = "tier1-zainium"
 version = "14.1.1"
 origin = "tier1-zainium"
 "#,
-        ).unwrap();
+        )
+        .unwrap();
 
         TempOverlayer { root }
     }
@@ -140,7 +143,8 @@ dirs = []
         fs::write(
             self.p(&format!("overlayer/zexlib/registry/installed/{name}.toml")),
             receipt,
-        ).unwrap();
+        )
+        .unwrap();
 
         // Also create the fake binary
         let bin_path = self.p(&format!("overlayer/zexlib/union/bin/{name}"));
@@ -152,7 +156,8 @@ dirs = []
         fs::write(
             self.p("overlayer/zexlib/registry/pinned.toml"),
             toml_content,
-        ).unwrap();
+        )
+        .unwrap();
     }
 
     /// Create a transaction directory with manifest
@@ -168,7 +173,8 @@ operation = "install"
 packages = ["test-pkg"]
 "#
             ),
-        ).unwrap();
+        )
+        .unwrap();
     }
 
     /// Add cache files to simulate download cache
@@ -195,11 +201,19 @@ pub fn assert_file_exists(path: &Path) {
 }
 
 pub fn assert_file_not_exists(path: &Path) {
-    assert!(!path.exists(), "expected file NOT to exist: {}", path.display());
+    assert!(
+        !path.exists(),
+        "expected file NOT to exist: {}",
+        path.display()
+    );
 }
 
 pub fn assert_dir_exists(path: &Path) {
-    assert!(path.is_dir(), "expected directory to exist: {}", path.display());
+    assert!(
+        path.is_dir(),
+        "expected directory to exist: {}",
+        path.display()
+    );
 }
 
 pub fn assert_file_contains(path: &Path, needle: &str) {
@@ -219,7 +233,8 @@ pub fn assert_toml_has_key(path: &Path, key: &str) {
         .unwrap_or_else(|e| panic!("invalid TOML in {}: {e}", path.display()));
     let mut current = &val;
     for part in key.split('.') {
-        current = current.get(part)
+        current = current
+            .get(part)
             .unwrap_or_else(|| panic!("key '{key}' not found in {}", path.display()));
     }
 }
@@ -229,11 +244,7 @@ pub fn assert_toml_has_key(path: &Path, key: &str) {
 /// Build a minimal canonical `.zex` package (tar + zexc / ZEX1) in a tmpdir.
 /// Includes `manifest.toml`, `signature.b3`, and `payload/` matching packer layout.
 /// Returns the path to the created `.zex` file.
-pub fn create_test_zex_package(
-    name: &str,
-    version: &str,
-    tmpdir: &Path,
-) -> PathBuf {
+pub fn create_test_zex_package(name: &str, version: &str, tmpdir: &Path) -> PathBuf {
     let payload_rel = format!("payload/bin/{name}");
     let payload_bytes = format!("#!/bin/sh\necho '{name} v{version}'\n").into_bytes();
 

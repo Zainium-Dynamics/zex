@@ -36,7 +36,7 @@ mod atomic_writes {
     fn tmp_file_cleaned_after_rename() {
         let env = TempOverlayer::new();
         let path = env.p("overlayer/zexlib/registry/installed/clean.toml");
-        let tmp  = path.with_extension("toml.tmp");
+        let tmp = path.with_extension("toml.tmp");
 
         atomic_write(&path, b"name = \"clean\"").unwrap();
         assert!(!tmp.exists(), ".tmp file should not persist after rename");
@@ -58,7 +58,7 @@ mod atomic_writes {
     fn abandoned_tmp_does_not_corrupt() {
         let env = TempOverlayer::new();
         let path = env.p("overlayer/zexlib/registry/installed/real.toml");
-        let tmp  = path.with_extension("toml.tmp");
+        let tmp = path.with_extension("toml.tmp");
 
         // Write a good version
         atomic_write(&path, b"version = \"1.0\"").unwrap();
@@ -78,7 +78,7 @@ mod atomic_writes {
     fn abandoned_tmp_cleaned_on_next_write() {
         let env = TempOverlayer::new();
         let path = env.p("overlayer/zexlib/registry/installed/stale.toml");
-        let tmp  = path.with_extension("toml.tmp");
+        let tmp = path.with_extension("toml.tmp");
 
         // Plant a stale .tmp
         fs::write(&tmp, b"stale data").unwrap();
@@ -97,8 +97,10 @@ mod atomic_writes {
         for i in 0..10 {
             atomic_write(&path, format!("version = \"{i}\"").as_bytes()).unwrap();
             let content = fs::read_to_string(&path).unwrap();
-            assert!(content.contains(&i.to_string()),
-                    "iteration {i}: content is {content:?}");
+            assert!(
+                content.contains(&i.to_string()),
+                "iteration {i}: content is {content:?}"
+            );
         }
     }
 
@@ -198,8 +200,7 @@ mod atomic_writes {
                     [remove]\nfiles = []\nsymlinks = []\ndirs = []\n";
         atomic_write(&path, data.as_bytes()).unwrap();
         let raw = fs::read_to_string(&path).unwrap();
-        let _: toml::Value = toml::from_str(&raw)
-            .expect("written file must be valid TOML");
+        let _: toml::Value = toml::from_str(&raw).expect("written file must be valid TOML");
     }
 }
 
@@ -286,7 +287,12 @@ mod dir_ops {
     #[test]
     fn cache_dir_per_tier() {
         let env = TempOverlayer::new();
-        for tier in ["tier1-zainium", "tier2-alpine", "tier3-void", "tier4-chimera"] {
+        for tier in [
+            "tier1-zainium",
+            "tier2-alpine",
+            "tier3-void",
+            "tier4-chimera",
+        ] {
             let d = env.p(&format!("overlayer/zexlib/registry/cache/{tier}"));
             assert_dir_exists(&d);
         }
@@ -304,7 +310,7 @@ mod dir_ops {
     fn symlink_create_remove() {
         let env = TempOverlayer::new();
         let target = env.p("overlayer/zexlib/union/bin/myapp");
-        let link   = env.p("overlayer/zexlib/union/bin/myapp-1.0");
+        let link = env.p("overlayer/zexlib/union/bin/myapp-1.0");
         fs::write(&target, b"binary").unwrap();
 
         #[cfg(unix)]
@@ -534,9 +540,9 @@ mod upgrade_swap {
     #[test]
     fn syshub_swap_pattern() {
         let env = TempOverlayer::new();
-        let live    = env.p("overlayer/syshub");
+        let live = env.p("overlayer/syshub");
         let staging = env.p("overlayer/syshub.new");
-        let backup  = env.p("overlayer/syshub.old");
+        let backup = env.p("overlayer/syshub.old");
 
         // Simulate: staging built, now perform swap
         fs::create_dir_all(staging.join("bin")).unwrap();
@@ -629,7 +635,10 @@ mod upgrade_swap {
         // If staging exists on boot = interrupted upgrade
         fs::create_dir_all(&staging).unwrap();
         let interrupted = staging.exists();
-        assert!(interrupted, "staging presence should signal interrupted upgrade");
+        assert!(
+            interrupted,
+            "staging presence should signal interrupted upgrade"
+        );
     }
 
     #[test]

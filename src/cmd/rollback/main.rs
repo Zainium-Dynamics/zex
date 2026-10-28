@@ -11,7 +11,6 @@ use super::transaction;
 use super::ui;
 use super::ui::TxSummary;
 
-
 #[derive(Parser, Debug)]
 #[command(
     name = "rollback",

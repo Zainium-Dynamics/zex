@@ -1,12 +1,12 @@
 //! tests/test_pubgrub.rs — PubGrub dependency solver stress tests.
 //! Verifies constraint resolution, conflict detection, and large graph perf.
 
-use std::collections::HashMap;
 use pubgrub::{
+    range::Range,
     solver::{Dependencies, DependencyProvider, resolve},
     version::SemanticVersion,
-    range::Range,
 };
+use std::collections::HashMap;
 
 // ── Minimal dependency provider for testing ───────────────────────────────────
 
@@ -17,7 +17,9 @@ struct FakeRegistry {
 
 impl FakeRegistry {
     fn new() -> Self {
-        FakeRegistry { packages: HashMap::new() }
+        FakeRegistry {
+            packages: HashMap::new(),
+        }
     }
 
     fn add_version(
@@ -27,10 +29,8 @@ impl FakeRegistry {
         deps: Vec<(&str, Range<SemanticVersion>)>,
     ) {
         let ver: SemanticVersion = version.parse().unwrap();
-        let dep_map: HashMap<String, Range<SemanticVersion>> = deps
-            .into_iter()
-            .map(|(n, r)| (n.to_string(), r))
-            .collect();
+        let dep_map: HashMap<String, Range<SemanticVersion>> =
+            deps.into_iter().map(|(n, r)| (n.to_string(), r)).collect();
         self.packages
             .entry(name.to_string())
             .or_default()
@@ -131,9 +131,9 @@ mod basic {
     #[test]
     fn package_with_transitive_deps() {
         let mut reg = FakeRegistry::new();
-        reg.add_version("base",  "1.0.0", vec![]);
-        reg.add_version("mid",   "2.0.0", vec![("base", gte("1.0.0"))]);
-        reg.add_version("top",   "3.0.0", vec![("mid", gte("2.0.0"))]);
+        reg.add_version("base", "1.0.0", vec![]);
+        reg.add_version("mid", "2.0.0", vec![("base", gte("1.0.0"))]);
+        reg.add_version("top", "3.0.0", vec![("mid", gte("2.0.0"))]);
 
         let sol = resolve(&reg, "top".to_string(), v("3.0.0")).unwrap();
         assert!(sol.contains_key("top"));
@@ -175,10 +175,11 @@ mod basic {
         reg.add_version("libc", "2.0.0", vec![]);
         reg.add_version("liba", "1.0.0", vec![("libc", gte("1.0.0"))]);
         reg.add_version("libb", "1.0.0", vec![("libc", gte("1.0.0"))]);
-        reg.add_version("app",  "1.0.0", vec![
-            ("liba", gte("1.0.0")),
-            ("libb", gte("1.0.0")),
-        ]);
+        reg.add_version(
+            "app",
+            "1.0.0",
+            vec![("liba", gte("1.0.0")), ("libb", gte("1.0.0"))],
+        );
 
         let sol = resolve(&reg, "app".to_string(), v("1.0.0")).unwrap();
         assert!(sol.contains_key("libc"));
@@ -201,14 +202,15 @@ mod basic {
     fn conflicting_diamond_detected() {
         // app → liba (needs lib <2.0), libb (needs lib >=2.0) — conflict
         let mut reg = FakeRegistry::new();
-        reg.add_version("lib",  "1.5.0", vec![]);
-        reg.add_version("lib",  "2.0.0", vec![]);
+        reg.add_version("lib", "1.5.0", vec![]);
+        reg.add_version("lib", "2.0.0", vec![]);
         reg.add_version("liba", "1.0.0", vec![("lib", between("1.0.0", "2.0.0"))]);
         reg.add_version("libb", "1.0.0", vec![("lib", gte("2.0.0"))]);
-        reg.add_version("app",  "1.0.0", vec![
-            ("liba", gte("1.0.0")),
-            ("libb", gte("1.0.0")),
-        ]);
+        reg.add_version(
+            "app",
+            "1.0.0",
+            vec![("liba", gte("1.0.0")), ("libb", gte("1.0.0"))],
+        );
 
         let result = resolve(&reg, "app".to_string(), v("1.0.0"));
         assert!(result.is_err()); // Conflict: liba needs <2.0, libb needs >=2.0
@@ -244,7 +246,10 @@ mod stress {
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap().len(), 100);
-        assert!(elapsed.as_secs() < 5, "resolution took too long: {elapsed:?}");
+        assert!(
+            elapsed.as_secs() < 5,
+            "resolution took too long: {elapsed:?}"
+        );
     }
 
     #[test]
@@ -269,7 +274,10 @@ mod stress {
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap().len(), 101);
-        assert!(elapsed.as_secs() < 5, "wide resolution too slow: {elapsed:?}");
+        assert!(
+            elapsed.as_secs() < 5,
+            "wide resolution too slow: {elapsed:?}"
+        );
     }
 
     #[test]
@@ -339,10 +347,11 @@ mod stress {
         }
         reg.add_version("mid1", "1.0.0", vec![("lib", gte("2.0.0"))]);
         reg.add_version("mid2", "1.0.0", vec![("lib", between("1.0.0", "3.0.0"))]);
-        reg.add_version("app",  "1.0.0", vec![
-            ("mid1", gte("1.0.0")),
-            ("mid2", gte("1.0.0")),
-        ]);
+        reg.add_version(
+            "app",
+            "1.0.0",
+            vec![("mid1", gte("1.0.0")), ("mid2", gte("1.0.0"))],
+        );
 
         let sol = resolve(&reg, "app".to_string(), v("1.0.0")).unwrap();
         let lib_ver = sol.get("lib").unwrap();
@@ -382,9 +391,7 @@ mod edge_cases {
         reg.add_version("lib", "1.0.0", vec![]);
         reg.add_version("lib", "2.0.0", vec![]);
         // Exact version via between 1.0.0..1.0.1
-        reg.add_version("app", "1.0.0", vec![
-            ("lib", between("1.0.0", "1.0.1")),
-        ]);
+        reg.add_version("app", "1.0.0", vec![("lib", between("1.0.0", "1.0.1"))]);
         let sol = resolve(&reg, "app".to_string(), v("1.0.0")).unwrap();
         assert_eq!(sol.get("lib"), Some(&v("1.0.0")));
     }

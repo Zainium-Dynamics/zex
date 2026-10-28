@@ -5,7 +5,7 @@
 
 mod harness;
 use harness::*;
-use std::{fs, collections::HashSet};
+use std::{collections::HashSet, fs};
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  REGISTRY — register / lookup / unregister (25 tests)
@@ -31,9 +31,7 @@ mod registry {
             provides: vec![],
             conflicts: vec![],
             requires_syshub: None,
-            installed_files: vec![
-                format!("/overlayer/zexlib/union/bin/{name}"),
-            ],
+            installed_files: vec![format!("/overlayer/zexlib/union/bin/{name}")],
         }
     }
 
@@ -99,7 +97,7 @@ mod registry {
 
     #[test]
     fn from_install_constructs_record() {
-        use zex::cmd::install::backend::{PackageInfo, PackageFormat};
+        use zex::cmd::install::backend::{PackageFormat, PackageInfo};
         let info = PackageInfo {
             name: "zsh".into(),
             display_name: "Z Shell".into(),
@@ -119,10 +117,12 @@ mod registry {
 
     #[test]
     fn from_install_apk_format() {
-        use zex::cmd::install::backend::{PackageInfo, PackageFormat};
+        use zex::cmd::install::backend::{PackageFormat, PackageInfo};
         let info = PackageInfo {
-            name: "musl".into(), version: "1.2.5".into(),
-            format: PackageFormat::Apk, ..Default::default()
+            name: "musl".into(),
+            version: "1.2.5".into(),
+            format: PackageFormat::Apk,
+            ..Default::default()
         };
         let r = PkgRecord::from_install(&info, vec![]);
         assert_eq!(r.format, "apk");
@@ -130,10 +130,12 @@ mod registry {
 
     #[test]
     fn from_install_xbps_format() {
-        use zex::cmd::install::backend::{PackageInfo, PackageFormat};
+        use zex::cmd::install::backend::{PackageFormat, PackageInfo};
         let info = PackageInfo {
-            name: "fish".into(), version: "3.7.0".into(),
-            format: PackageFormat::Xbps, ..Default::default()
+            name: "fish".into(),
+            version: "3.7.0".into(),
+            format: PackageFormat::Xbps,
+            ..Default::default()
         };
         let r = PkgRecord::from_install(&info, vec![]);
         assert_eq!(r.format, "xbps");
@@ -217,13 +219,9 @@ mod registry {
         let env = TempOverlayer::new();
         let r = rec("bat", "0.25.0");
         let text = toml::to_string_pretty(&r).unwrap();
-        fs::write(
-            env.p("overlayer/zexlib/registry/installed/bat.toml"),
-            text,
-        ).unwrap();
-        let raw = fs::read_to_string(
-            env.p("overlayer/zexlib/registry/installed/bat.toml"),
-        ).unwrap();
+        fs::write(env.p("overlayer/zexlib/registry/installed/bat.toml"), text).unwrap();
+        let raw =
+            fs::read_to_string(env.p("overlayer/zexlib/registry/installed/bat.toml")).unwrap();
         let parsed: PkgRecord = toml::from_str(&raw).unwrap();
         assert_eq!(parsed.name, "bat");
         assert_eq!(parsed.version, "0.25.0");
@@ -233,7 +231,7 @@ mod registry {
     fn atomic_write_pattern() {
         let env = TempOverlayer::new();
         let path = env.p("overlayer/zexlib/registry/installed/atomic.toml");
-        let tmp  = env.p("overlayer/zexlib/registry/installed/atomic.toml.tmp");
+        let tmp = env.p("overlayer/zexlib/registry/installed/atomic.toml.tmp");
 
         // Simulate atomic write: write to .tmp then rename
         fs::write(&tmp, b"name = \"atomic\"\nversion = \"1.0\"").unwrap();
@@ -254,7 +252,8 @@ mod registry {
             fs::write(
                 env.p(&format!("overlayer/zexlib/registry/installed/{name}.toml")),
                 text,
-            ).unwrap();
+            )
+            .unwrap();
         }
 
         let dir = env.p("overlayer/zexlib/registry/installed");
@@ -277,11 +276,13 @@ mod registry {
     fn get_installed_set_empty() {
         let env = TempOverlayer::new();
         let dir = env.p("overlayer/zexlib/registry/installed");
-        let set: HashSet<String> = fs::read_dir(&dir).unwrap()
+        let set: HashSet<String> = fs::read_dir(&dir)
+            .unwrap()
             .flatten()
             .filter_map(|e| {
                 let name = e.file_name().to_string_lossy().to_string();
-                name.ends_with(".toml").then(|| name.trim_end_matches(".toml").to_string())
+                name.ends_with(".toml")
+                    .then(|| name.trim_end_matches(".toml").to_string())
             })
             .collect();
         assert!(set.is_empty());
@@ -294,11 +295,13 @@ mod registry {
             env.add_installed_receipt(name, "1.0", "tier1-zainium");
         }
         let dir = env.p("overlayer/zexlib/registry/installed");
-        let set: HashSet<String> = fs::read_dir(&dir).unwrap()
+        let set: HashSet<String> = fs::read_dir(&dir)
+            .unwrap()
             .flatten()
             .filter_map(|e| {
                 let name = e.file_name().to_string_lossy().to_string();
-                name.ends_with(".toml").then(|| name.trim_end_matches(".toml").to_string())
+                name.ends_with(".toml")
+                    .then(|| name.trim_end_matches(".toml").to_string())
             })
             .collect();
         assert_eq!(set.len(), 3);
@@ -312,26 +315,37 @@ mod registry {
 // ══════════════════════════════════════════════════════════════════════════════
 
 mod backend {
-    use zex::cmd::install::backend::{
-        capitalise, dynamic_metadata, PackageFormat, PackageInfo,
-    };
+    use zex::cmd::install::backend::{PackageFormat, PackageInfo, capitalise, dynamic_metadata};
 
     #[test]
-    fn capitalise_lowercase() { assert_eq!(capitalise("vim"), "Vim"); }
+    fn capitalise_lowercase() {
+        assert_eq!(capitalise("vim"), "Vim");
+    }
     #[test]
-    fn capitalise_already_upper() { assert_eq!(capitalise("Vim"), "Vim"); }
+    fn capitalise_already_upper() {
+        assert_eq!(capitalise("Vim"), "Vim");
+    }
     #[test]
-    fn capitalise_empty()        { assert_eq!(capitalise(""), ""); }
+    fn capitalise_empty() {
+        assert_eq!(capitalise(""), "");
+    }
     #[test]
-    fn capitalise_single_char()  { assert_eq!(capitalise("a"), "A"); }
+    fn capitalise_single_char() {
+        assert_eq!(capitalise("a"), "A");
+    }
     #[test]
-    fn capitalise_all_upper()    { assert_eq!(capitalise("GCC"), "GCC"); }
+    fn capitalise_all_upper() {
+        assert_eq!(capitalise("GCC"), "GCC");
+    }
     #[test]
-    fn capitalise_unicode()      { assert_eq!(capitalise("über"), "Über"); }
+    fn capitalise_unicode() {
+        assert_eq!(capitalise("über"), "Über");
+    }
 
     #[test]
     fn dynamic_metadata_with_desc() {
-        let (display, launch) = dynamic_metadata("vim", Some("Vi IMproved, a programmer's text editor"));
+        let (display, launch) =
+            dynamic_metadata("vim", Some("Vi IMproved, a programmer's text editor"));
         assert!(!display.is_empty());
         assert_eq!(launch, "vim");
     }
@@ -436,7 +450,8 @@ mod backend {
     #[test]
     fn package_info_requires_syshub_optional() {
         let p = PackageInfo {
-            name: "drv".into(), version: "1".into(),
+            name: "drv".into(),
+            version: "1".into(),
             requires_syshub: Some(">= 6.0".into()),
             ..Default::default()
         };
@@ -475,9 +490,8 @@ mod transaction {
     fn state_toml_parseable() {
         let env = TempOverlayer::new();
         write_tx(&env, "tx-abc", 9999, "install", "curl");
-        let raw = fs::read_to_string(
-            env.p("overlayer/zexlib/transactions/tx-abc/state.toml"),
-        ).unwrap();
+        let raw =
+            fs::read_to_string(env.p("overlayer/zexlib/transactions/tx-abc/state.toml")).unwrap();
         let val: toml::Value = toml::from_str(&raw).unwrap();
         assert_eq!(val["transaction_id"].as_str().unwrap(), "tx-abc");
         assert_eq!(val["operation"].as_str().unwrap(), "install");
@@ -491,7 +505,8 @@ mod transaction {
             write_tx(&env, &format!("tx-{i:03}"), i as u64, "install", "pkg");
         }
         let count = fs::read_dir(env.p("overlayer/zexlib/transactions"))
-            .unwrap().count();
+            .unwrap()
+            .count();
         assert_eq!(count, 5);
     }
 
@@ -499,17 +514,28 @@ mod transaction {
     fn prune_keeps_newest_n() {
         let env = TempOverlayer::new();
         for i in 0..10 {
-            write_tx(&env, &format!("tx-{i:03}"), i as u64 * 1000, "install", "pkg");
+            write_tx(
+                &env,
+                &format!("tx-{i:03}"),
+                i as u64 * 1000,
+                "install",
+                "pkg",
+            );
         }
         let dir = env.p("overlayer/zexlib/transactions");
         assert_eq!(fs::read_dir(&dir).unwrap().count(), 10);
 
         // Simulate pruning: keep newest 5
         let keep = 5;
-        let mut entries: Vec<_> = fs::read_dir(&dir).unwrap()
-            .flatten().filter(|e| e.path().is_dir()).collect();
+        let mut entries: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| e.path().is_dir())
+            .collect();
         entries.sort_by_key(|e| {
-            e.metadata().and_then(|m| m.modified()).unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+            e.metadata()
+                .and_then(|m| m.modified())
+                .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
         });
         for entry in entries.iter().rev().skip(keep) {
             fs::remove_dir_all(entry.path()).unwrap();
@@ -536,9 +562,8 @@ mod transaction {
     fn remove_op_transaction() {
         let env = TempOverlayer::new();
         write_tx(&env, "tx-del", 5000, "remove", "vim");
-        let raw = fs::read_to_string(
-            env.p("overlayer/zexlib/transactions/tx-del/state.toml"),
-        ).unwrap();
+        let raw =
+            fs::read_to_string(env.p("overlayer/zexlib/transactions/tx-del/state.toml")).unwrap();
         assert!(raw.contains("operation = \"remove\""));
     }
 
@@ -546,9 +571,8 @@ mod transaction {
     fn upgrade_op_transaction() {
         let env = TempOverlayer::new();
         write_tx(&env, "tx-upg", 6000, "upgrade", "htop");
-        let raw = fs::read_to_string(
-            env.p("overlayer/zexlib/transactions/tx-upg/state.toml"),
-        ).unwrap();
+        let raw =
+            fs::read_to_string(env.p("overlayer/zexlib/transactions/tx-upg/state.toml")).unwrap();
         assert!(raw.contains("operation = \"upgrade\""));
         assert!(raw.contains("target_package = \"htop\""));
     }
@@ -557,9 +581,8 @@ mod transaction {
     fn transaction_id_in_state() {
         let env = TempOverlayer::new();
         write_tx(&env, "tx-99999", 99999, "install", "zsh");
-        let raw = fs::read_to_string(
-            env.p("overlayer/zexlib/transactions/tx-99999/state.toml"),
-        ).unwrap();
+        let raw =
+            fs::read_to_string(env.p("overlayer/zexlib/transactions/tx-99999/state.toml")).unwrap();
         assert!(raw.contains("tx-99999"));
     }
 
@@ -567,9 +590,8 @@ mod transaction {
     fn rollback_op_valid() {
         let env = TempOverlayer::new();
         write_tx(&env, "tx-rb", 7000, "rollback", "gcc");
-        let raw = fs::read_to_string(
-            env.p("overlayer/zexlib/transactions/tx-rb/state.toml"),
-        ).unwrap();
+        let raw =
+            fs::read_to_string(env.p("overlayer/zexlib/transactions/tx-rb/state.toml")).unwrap();
         assert!(raw.contains("rollback"));
     }
 
@@ -584,20 +606,17 @@ mod transaction {
     fn state_toml_is_valid_toml() {
         let env = TempOverlayer::new();
         write_tx(&env, "tx-valid", 12345, "install", "pkg");
-        let raw = fs::read_to_string(
-            env.p("overlayer/zexlib/transactions/tx-valid/state.toml"),
-        ).unwrap();
-        let _: toml::Value = toml::from_str(&raw)
-            .expect("state.toml must be valid TOML");
+        let raw =
+            fs::read_to_string(env.p("overlayer/zexlib/transactions/tx-valid/state.toml")).unwrap();
+        let _: toml::Value = toml::from_str(&raw).expect("state.toml must be valid TOML");
     }
 
     #[test]
     fn timestamp_field_numeric() {
         let env = TempOverlayer::new();
         write_tx(&env, "tx-ts", 1719446400000, "install", "pkg");
-        let raw = fs::read_to_string(
-            env.p("overlayer/zexlib/transactions/tx-ts/state.toml"),
-        ).unwrap();
+        let raw =
+            fs::read_to_string(env.p("overlayer/zexlib/transactions/tx-ts/state.toml")).unwrap();
         let val: toml::Value = toml::from_str(&raw).unwrap();
         let ts = val["timestamp"].as_str().unwrap();
         assert!(!ts.is_empty());
@@ -622,8 +641,11 @@ mod transaction {
             write_tx(&env, &format!("tx-{i}"), *ts, "install", "pkg");
         }
         let dir = env.p("overlayer/zexlib/transactions");
-        let mut entries: Vec<_> = fs::read_dir(&dir).unwrap()
-            .flatten().filter(|e| e.path().is_dir()).collect();
+        let mut entries: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| e.path().is_dir())
+            .collect();
         entries.sort_by_key(|e| e.file_name().to_string_lossy().to_string());
         // tx-0 through tx-4 all present
         assert_eq!(entries.len(), 5);
@@ -633,14 +655,10 @@ mod transaction {
     fn packages_array_empty_by_default() {
         let env = TempOverlayer::new();
         write_tx(&env, "tx-pkgs", 1000, "install", "solo");
-        let raw = fs::read_to_string(
-            env.p("overlayer/zexlib/transactions/tx-pkgs/state.toml"),
-        ).unwrap();
+        let raw =
+            fs::read_to_string(env.p("overlayer/zexlib/transactions/tx-pkgs/state.toml")).unwrap();
         let val: toml::Value = toml::from_str(&raw).unwrap();
-        assert_eq!(
-            val["packages"].as_array().map(|a| a.len()).unwrap_or(0),
-            0
-        );
+        assert_eq!(val["packages"].as_array().map(|a| a.len()).unwrap_or(0), 0);
     }
 }
 
@@ -651,7 +669,7 @@ mod transaction {
 mod zex_manifest {
     use super::*;
     use zex::cmd::install::zex_manifest::{
-        ZexManifest, InstallMap, RemoveMap, PackageMeta, HookMap,
+        HookMap, InstallMap, PackageMeta, RemoveMap, ZexManifest,
     };
 
     fn minimal_manifest(name: &str, version: &str) -> ZexManifest {
@@ -682,9 +700,9 @@ mod zex_manifest {
                 _syshub: false,
             },
             remove: RemoveMap {
-                files:    vec![format!("/overlayer/zexlib/union/bin/{name}")],
+                files: vec![format!("/overlayer/zexlib/union/bin/{name}")],
                 symlinks: vec![],
-                dirs:     vec![],
+                dirs: vec![],
             },
             editions: None,
             hooks: HookMap {
@@ -731,7 +749,10 @@ mod zex_manifest {
         paths.insert("share".into(), "/overlayer/zexlib/union/share".into());
         paths.insert("etc".into(), "/overlayer/zexlib/union/etc".into());
         let m = ZexManifest {
-            install: InstallMap { paths, _syshub: false },
+            install: InstallMap {
+                paths,
+                _syshub: false,
+            },
             ..minimal_manifest("full", "1.0")
         };
         assert!(m.install.paths.contains_key("bin"));
@@ -887,9 +908,8 @@ mod zex_manifest {
     fn read_receipt_remove_map() {
         let env = TempOverlayer::new();
         env.add_installed_receipt("check", "1.0", "tier1-zainium");
-        let raw = fs::read_to_string(
-            env.p("overlayer/zexlib/registry/installed/check.toml"),
-        ).unwrap();
+        let raw =
+            fs::read_to_string(env.p("overlayer/zexlib/registry/installed/check.toml")).unwrap();
         let val: toml::Value = toml::from_str(&raw).unwrap();
         let files = val["remove"]["files"].as_array().unwrap();
         assert!(!files.is_empty());
@@ -916,9 +936,11 @@ mod conflicts {
         let files = vec!["/overlayer/zexlib/union/bin/myapp".to_string()];
         // We simulate the logic directly since check_file_conflicts reads live DB
         let db: Vec<(String, Vec<String>)> = vec![];
-        let conflicts: Vec<_> = db.iter()
+        let conflicts: Vec<_> = db
+            .iter()
             .flat_map(|(pkg, pkg_files)| {
-                pkg_files.iter()
+                pkg_files
+                    .iter()
                     .filter(|f| files.contains(f))
                     .map(|f| (pkg.clone(), f.clone()))
                     .collect::<Vec<_>>()
@@ -930,13 +952,16 @@ mod conflicts {
     #[test]
     fn conflict_same_file_different_pkg() {
         let incoming = vec!["/overlayer/zexlib/union/bin/python3".to_string()];
-        let db = vec![
-            ("python3-legacy".to_string(), vec!["/overlayer/zexlib/union/bin/python3".to_string()]),
-        ];
-        let conflicts: Vec<_> = db.iter()
+        let db = vec![(
+            "python3-legacy".to_string(),
+            vec!["/overlayer/zexlib/union/bin/python3".to_string()],
+        )];
+        let conflicts: Vec<_> = db
+            .iter()
             .filter(|(name, _)| !name.eq_ignore_ascii_case("newpkg"))
             .flat_map(|(pkg, pkg_files)| {
-                pkg_files.iter()
+                pkg_files
+                    .iter()
                     .filter(|f| incoming.contains(f))
                     .map(|f| (pkg.clone(), f.clone()))
                     .collect::<Vec<_>>()
@@ -949,12 +974,15 @@ mod conflicts {
     #[test]
     fn no_conflict_different_file() {
         let incoming = vec!["/overlayer/zexlib/union/bin/newtool".to_string()];
-        let db = vec![
-            ("other".to_string(), vec!["/overlayer/zexlib/union/bin/oldtool".to_string()]),
-        ];
-        let conflicts: Vec<_> = db.iter()
+        let db = vec![(
+            "other".to_string(),
+            vec!["/overlayer/zexlib/union/bin/oldtool".to_string()],
+        )];
+        let conflicts: Vec<_> = db
+            .iter()
             .flat_map(|(pkg, pkg_files)| {
-                pkg_files.iter()
+                pkg_files
+                    .iter()
                     .filter(|f| incoming.contains(f))
                     .map(|f| (pkg.clone(), f.clone()))
                     .collect::<Vec<_>>()
@@ -968,14 +996,22 @@ mod conflicts {
         let pkg_name = "vim";
         let incoming = vec!["/overlayer/zexlib/union/bin/vim".to_string()];
         let db = vec![
-            ("vim".to_string(), vec!["/overlayer/zexlib/union/bin/vim".to_string()]),
-            ("neovim".to_string(), vec!["/overlayer/zexlib/union/bin/nvim".to_string()]),
+            (
+                "vim".to_string(),
+                vec!["/overlayer/zexlib/union/bin/vim".to_string()],
+            ),
+            (
+                "neovim".to_string(),
+                vec!["/overlayer/zexlib/union/bin/nvim".to_string()],
+            ),
         ];
         // Skip the package itself
-        let conflicts: Vec<_> = db.iter()
+        let conflicts: Vec<_> = db
+            .iter()
             .filter(|(name, _)| !name.eq_ignore_ascii_case(pkg_name))
             .flat_map(|(pkg, pkg_files)| {
-                pkg_files.iter()
+                pkg_files
+                    .iter()
                     .filter(|f| incoming.contains(f))
                     .map(|f| (pkg.clone(), f.clone()))
                     .collect::<Vec<_>>()
@@ -990,15 +1026,18 @@ mod conflicts {
             "/overlayer/zexlib/union/bin/tool".to_string(),
             "/overlayer/zexlib/union/lib/libtool.so".to_string(),
         ];
-        let db = vec![
-            ("other-tool".to_string(), vec![
+        let db = vec![(
+            "other-tool".to_string(),
+            vec![
                 "/overlayer/zexlib/union/bin/tool".to_string(),
                 "/overlayer/zexlib/union/lib/libtool.so".to_string(),
-            ]),
-        ];
-        let conflicts: Vec<_> = db.iter()
+            ],
+        )];
+        let conflicts: Vec<_> = db
+            .iter()
             .flat_map(|(pkg, pkg_files)| {
-                pkg_files.iter()
+                pkg_files
+                    .iter()
                     .filter(|f| incoming.contains(f))
                     .map(|f| (pkg.clone(), f.clone()))
                     .collect::<Vec<_>>()
@@ -1032,21 +1071,25 @@ mod conflicts {
             "/overlayer/zexlib/union/lib/libtest.so",
         ];
         for path in &paths {
-            assert!(path.starts_with("/overlayer/"),
-                    "conflict path not under /overlayer: {path}");
+            assert!(
+                path.starts_with("/overlayer/"),
+                "conflict path not under /overlayer: {path}"
+            );
         }
     }
 
     #[test]
     fn lib_path_conflict() {
         let incoming = vec!["/overlayer/zexlib/union/lib/libssl.so.3".to_string()];
-        let db = vec![
-            ("openssl-legacy".to_string(),
-             vec!["/overlayer/zexlib/union/lib/libssl.so.3".to_string()]),
-        ];
-        let conflicts: Vec<_> = db.iter()
+        let db = vec![(
+            "openssl-legacy".to_string(),
+            vec!["/overlayer/zexlib/union/lib/libssl.so.3".to_string()],
+        )];
+        let conflicts: Vec<_> = db
+            .iter()
             .flat_map(|(pkg, files)| {
-                files.iter()
+                files
+                    .iter()
                     .filter(|f| incoming.contains(f))
                     .map(|f| (pkg.clone(), f.clone()))
                     .collect::<Vec<_>>()
@@ -1058,13 +1101,15 @@ mod conflicts {
     #[test]
     fn share_path_conflict() {
         let incoming = vec!["/overlayer/zexlib/union/share/man/man1/gcc.1".to_string()];
-        let db = vec![
-            ("gcc-old".to_string(),
-             vec!["/overlayer/zexlib/union/share/man/man1/gcc.1".to_string()]),
-        ];
-        let conflicts: Vec<_> = db.iter()
+        let db = vec![(
+            "gcc-old".to_string(),
+            vec!["/overlayer/zexlib/union/share/man/man1/gcc.1".to_string()],
+        )];
+        let conflicts: Vec<_> = db
+            .iter()
             .flat_map(|(pkg, files)| {
-                files.iter()
+                files
+                    .iter()
                     .filter(|f| incoming.contains(f))
                     .map(|f| (pkg.clone(), f.clone()))
                     .collect::<Vec<_>>()
