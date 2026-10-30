@@ -125,7 +125,7 @@ pub fn copy_synced(src: &Path, path: &Path) -> Result<()> {
 }
 
 fn is_ours(dir: &Path, root_uuid: Option<&str>) -> bool {
-    if !dir.join(KERNEL_DIR).join("linux-evl").is_file() {
+    if !dir.join(KERNEL_DIR).join("linux-zainium").is_file() {
         return false;
     }
     let Ok(conf) = fs::read_to_string(dir.join("limine.conf")) else {
@@ -221,7 +221,7 @@ mod tests {
     fn fallback_entries_get_their_ramfs() {
         let dir = std::env::temp_dir().join(format!("zex-esp-test-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
-        let conf = "timeout: 1\n\n/Zainium OS\n    path: boot():/overlayer/zaisys/kernel/linux-evl\n    module_path: boot():/overlayer/zaisys/kernel/quantra-ramfs.img\n\n/Zainium OS (Fallback Kernel)\n    path: boot():/overlayer/zaisys/kernel/linux-panic\n    module_path: boot():/overlayer/zaisys/kernel/quantra-ramfs.img\n";
+        let conf = "timeout: 1\n\n/Zainium OS\n    path: boot():/overlayer/zaisys/kernel/linux-zainium\n    module_path: boot():/overlayer/zaisys/kernel/quantra-ramfs.img\n\n/Zainium OS (Fallback Kernel)\n    path: boot():/overlayer/zaisys/kernel/linux-panic\n    module_path: boot():/overlayer/zaisys/kernel/quantra-ramfs.img\n";
         fs::write(dir.join("limine.conf"), conf).unwrap();
         let esp = Esp {
             root: dir.clone(),
@@ -232,7 +232,7 @@ mod tests {
         let out = fs::read_to_string(dir.join("limine.conf")).unwrap();
         fs::remove_dir_all(&dir).ok();
         assert!(out.contains(
-            "linux-evl\n    module_path: boot():/overlayer/zaisys/kernel/quantra-ramfs.img\n"
+            "linux-zainium\n    module_path: boot():/overlayer/zaisys/kernel/quantra-ramfs.img\n"
         ));
         assert!(out.contains(
             "linux-panic\n    module_path: boot():/overlayer/zaisys/kernel/quantra-ramfs-panic.img\n"

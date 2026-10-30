@@ -7,7 +7,7 @@
 //! by the kernel entry's `modules` field) and go into the base like a syshub upgrade,
 //! after asking.
 //!
-//! On the ESP, `linux-evl` + `quantra-ramfs.img` boot by default. An upgrade first
+//! On the ESP, `linux-zainium` + `quantra-ramfs.img` boot by default. An upgrade first
 //! moves that pair to `linux-panic` + `quantra-ramfs-panic.img`, which the "Fallback
 //! Kernel" menu entries boot, so the last working pair stays one menu choice away.
 //! `kernel.toml` beside them records both pairs.
@@ -37,13 +37,13 @@ const DEFAULT_INDEX: &str = "https://archive.zainiumdynamics.tech/kernel/x86_64/
 const DEFAULT_BASE: &str = "https://archive.zainiumdynamics.tech/kernel/x86_64/packages";
 const LEDGER: &str = "kernel.toml";
 
-const KERNEL: &str = "linux-evl";
+const KERNEL: &str = "linux-kernel";
 const RAMFS: &str = "quantra-ramfs";
 
 /// Each package's file on the ESP: (package, file that boots, fallback file).
 /// The package's .zex carries the file at `payload/kernel/<file that boots>`.
 const SLOTS: [(&str, &str, &str); 2] = [
-    (KERNEL, "linux-evl", "linux-panic"),
+    (KERNEL, "linux-zainium", "linux-panic"),
     (RAMFS, "quantra-ramfs.img", "quantra-ramfs-panic.img"),
 ];
 

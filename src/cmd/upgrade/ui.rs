@@ -263,7 +263,7 @@ pub fn print_kernel_status(
         m.get(k).cloned().unwrap_or_else(|| "as installed".into())
     };
     println!("\n {G}{BLD}Zainium Kernel{RST}\n");
-    for name in ["linux-evl", "quantra-ramfs"] {
+    for name in ["linux-kernel", "quantra-ramfs"] {
         let newest = latest.get(name).cloned().unwrap_or_else(|| "-".into());
         println!(
             "  {P}{name:<16}{RST} boots {G}{:<14}{RST} fallback {B}{:<14}{RST} latest {G}{newest}{RST}",
