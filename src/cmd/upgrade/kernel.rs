@@ -7,9 +7,12 @@
 //! by the kernel entry's `modules` field) and go into the base like a syshub upgrade,
 //! after asking.
 //!
-//! On the ESP, `linux-zainium` + `quantra-ramfs.img` boot by default. An upgrade first
-//! moves that pair to `linux-panic` + `quantra-ramfs-panic.img`, which the "Fallback
-//! Kernel" menu entries boot, so the last working pair stays one menu choice away.
+//! On the ESP, the kernel named in limine.conf's default entries and `quantra-ramfs.img`
+//! boot by default. The kernel's file name is never fixed here: it is whatever limine.conf
+//! boots, and a new kernel package brings its own (the file in its `payload/kernel/` that
+//! is not `linux-panic`); when that name changes, the default entries follow it. An upgrade
+//! first moves the running pair to `linux-panic` + `quantra-ramfs-panic.img`, which the
+//! "Fallback Kernel" menu entries boot, so the last working pair stays one menu choice away.
 //! `kernel.toml` beside them records both pairs.
 //!
 //!   elevate zex kernel              what boots now, and what the archive has
@@ -40,12 +43,11 @@ const LEDGER: &str = "kernel.toml";
 const KERNEL: &str = "linux-kernel";
 const RAMFS: &str = "quantra-ramfs";
 
-/// Each package's file on the ESP: (package, file that boots, fallback file).
-/// The package's .zex carries the file at `payload/kernel/<file that boots>`.
-const SLOTS: [(&str, &str, &str); 2] = [
-    (KERNEL, "linux-zainium", "linux-panic"),
-    (RAMFS, "quantra-ramfs.img", "quantra-ramfs-panic.img"),
-];
+const RAMFS_FILE: &str = "quantra-ramfs.img";
+
+/// Each package and its fallback file on the ESP. The file that boots comes from
+/// limine.conf (kernel) or is `quantra-ramfs.img` (ramfs); see `booted_file`.
+const SLOTS: [(&str, &str); 2] = [(KERNEL, "linux-panic"), (RAMFS, "quantra-ramfs-panic.img")];
 
 #[derive(Deserialize)]
 struct Index {
@@ -113,7 +115,7 @@ pub async fn status() -> Result<()> {
         let (index_url, _) = kernel_source(&services);
         let client = crate::http_client::build("zex-kernel")?;
         if let Ok(index) = fetch_index(&client, &index_url).await {
-            for (name, _, _) in SLOTS {
+            for (name, _) in SLOTS {
                 if let Some(e) = index.packages.get(name) {
                     latest.insert(name.to_string(), syscore::val_str(e));
                 }
@@ -140,7 +142,7 @@ pub async fn upgrade() -> Result<()> {
     let mut ledger = read_ledger(&esp);
 
     let mut picks = Vec::new();
-    for (name, _, _) in SLOTS {
+    for (name, _) in SLOTS {
         let Some(entry) = index.packages.get(name) else {
             continue;
         };
@@ -222,12 +224,11 @@ pub async fn upgrade() -> Result<()> {
     }
     overall.finish_and_clear();
 
-    let mut boot_files: HashMap<String, PathBuf> = HashMap::new();
+    // each package's file that boots, under the name the package gives it
+    let mut boot_files: HashMap<String, (String, PathBuf)> = HashMap::new();
     for p in &picks {
-        let (_, booted, _) = slot(&p.name);
-        let out = dl.join(booted);
-        extract_boot_file(&zexes[&p.name], booted, &out)?;
-        boot_files.insert(p.name.clone(), out);
+        let boot = extract_boot_file(&zexes[&p.name], fallback_of(&p.name), &dl)?;
+        boot_files.insert(p.name.clone(), boot);
     }
 
     // ── modules into the base (applied at the next boot, before the GPU loads) ─
@@ -240,19 +241,26 @@ pub async fn upgrade() -> Result<()> {
     // ── the ESP: running pair becomes the fallback, then the new files go in ──
     ui::start_phase("Installing on the EFI partition");
     let dir = esp.kernel_dir();
-    for (_, booted, fallback) in SLOTS {
-        let cur = dir.join(booted);
-        if cur.is_file() {
-            esp::copy_synced(&cur, &dir.join(fallback))?;
+    for (name, fallback) in SLOTS {
+        if let Some(cur) = booted_file(&esp, name)
+            && dir.join(&cur).is_file()
+        {
+            esp::copy_synced(&dir.join(cur), &dir.join(fallback))?;
         }
     }
     ledger.fallback = ledger.current.clone();
     for p in &picks {
-        let (_, booted, _) = slot(&p.name);
-        esp::copy_synced(&boot_files[&p.name], &dir.join(booted))?;
+        let (file, path) = &boot_files[&p.name];
+        let before = booted_file(&esp, &p.name);
+        esp::copy_synced(path, &dir.join(file))?;
+        // a kernel with another name: the default entries boot the new file, the old one goes
+        if let Some(old) = before.filter(|old| old != file) {
+            esp.default_entries_use(&old, file)?;
+            fs::remove_file(dir.join(&old)).ok();
+        }
         ledger.current.insert(p.name.clone(), p.new.clone());
     }
-    esp.fallback_entries_use(SLOTS[0].2, SLOTS[1].2)?;
+    esp.fallback_entries_use(SLOTS[0].1, SLOTS[1].1)?;
     write_ledger(&esp, &ledger)?;
     drop(esp);
     fs::remove_dir_all(dl).ok();
@@ -268,17 +276,21 @@ pub fn rollback() -> Result<()> {
     crate::syshub_pending::ensure_available()?;
     let esp = Esp::mount()?;
     let dir = esp.kernel_dir();
-    for (_, _, fallback) in SLOTS {
+    let mut pairs = Vec::new();
+    for (name, fallback) in SLOTS {
         if !dir.join(fallback).is_file() {
             bail!("no fallback kernel on the EFI partition to go back to ({fallback} is missing)");
         }
+        let booted = booted_file(&esp, name)
+            .with_context(|| format!("limine.conf names no {name} to boot"))?;
+        pairs.push((booted, fallback));
     }
-    for (_, booted, fallback) in SLOTS {
+    for (booted, fallback) in pairs {
         swap(&dir.join(booted), &dir.join(fallback))?;
     }
     let mut ledger = read_ledger(&esp);
     std::mem::swap(&mut ledger.current, &mut ledger.fallback);
-    esp.fallback_entries_use(SLOTS[0].2, SLOTS[1].2)?;
+    esp.fallback_entries_use(SLOTS[0].1, SLOTS[1].1)?;
     write_ledger(&esp, &ledger)?;
     drop(esp);
     ui::print_kernel_rolled_back(ledger.current.get(KERNEL).map(String::as_str));
@@ -287,11 +299,21 @@ pub fn rollback() -> Result<()> {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-fn slot(name: &str) -> (&'static str, &'static str, &'static str) {
+fn fallback_of(name: &str) -> &'static str {
     SLOTS
         .into_iter()
-        .find(|(n, _, _)| *n == name)
+        .find(|(n, _)| *n == name)
+        .map(|(_, f)| f)
         .expect("picks only come from SLOTS")
+}
+
+/// The file on the ESP that boots for this package: the kernel limine.conf names, or the ramfs.
+fn booted_file(esp: &Esp, name: &str) -> Option<String> {
+    if name == KERNEL {
+        esp.booted_kernel(fallback_of(KERNEL))
+    } else {
+        Some(RAMFS_FILE.to_string())
+    }
 }
 
 fn field(v: &toml::Value, key: &str) -> Option<String> {
@@ -359,9 +381,9 @@ async fn find_modules(
     })
 }
 
-/// Pulls `payload/kernel/<booted>` out of a kernel-tier .zex.
-fn extract_boot_file(zex: &Path, booted: &str, out: &Path) -> Result<()> {
-    let want = format!("payload/kernel/{booted}");
+/// Pulls the file that boots out of a kernel-tier .zex into `dir`: the one in
+/// `payload/kernel/` that is not the fallback copy. Returns its name and where it went.
+fn extract_boot_file(zex: &Path, fallback: &str, dir: &Path) -> Result<(String, PathBuf)> {
     let dec = crate::zex_codec::open_decoder(zex)?;
     let mut archive = tar::Archive::new(dec);
     for entry in archive.entries()? {
@@ -371,15 +393,24 @@ fn extract_boot_file(zex: &Path, booted: &str, out: &Path) -> Result<()> {
             .to_string_lossy()
             .trim_start_matches("./")
             .to_string();
-        if path == want && entry.header().entry_type().is_file() {
-            let mut f =
-                fs::File::create(out).with_context(|| format!("write {}", out.display()))?;
-            std::io::copy(&mut entry, &mut f)?;
-            f.sync_all()?;
-            return Ok(());
+        let Some(name) = path.strip_prefix("payload/kernel/") else {
+            continue;
+        };
+        if name.is_empty()
+            || name.contains('/')
+            || name == fallback
+            || !entry.header().entry_type().is_file()
+        {
+            continue;
         }
+        let name = name.to_string();
+        let out = dir.join(&name);
+        let mut f = fs::File::create(&out).with_context(|| format!("write {}", out.display()))?;
+        std::io::copy(&mut entry, &mut f)?;
+        f.sync_all()?;
+        return Ok((name, out));
     }
-    bail!("{} has no {want}", zex.display())
+    bail!("{} has no file to boot in payload/kernel/", zex.display())
 }
 
 /// Adds the modules to the staged base upgrade (joining one already waiting) and

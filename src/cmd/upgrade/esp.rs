@@ -51,6 +51,33 @@ impl Esp {
         self.root.join(KERNEL_DIR)
     }
 
+    /// The kernel file limine.conf boots by default: the first entry's `path:` under the
+    /// kernel directory that is not the fallback kernel.
+    pub fn booted_kernel(&self, fallback_kernel: &str) -> Option<String> {
+        let text = fs::read_to_string(self.root.join("limine.conf")).ok()?;
+        booted_kernel_in(&text, fallback_kernel)
+    }
+
+    /// Point the default menu entries that boot `old` at `new` (a kernel with another name).
+    pub fn default_entries_use(&self, old: &str, new: &str) -> Result<()> {
+        let conf = self.root.join("limine.conf");
+        let text = fs::read_to_string(&conf).with_context(|| format!("read {}", conf.display()))?;
+        let from = format!("boot():/{KERNEL_DIR}/{old}");
+        let to = format!("boot():/{KERNEL_DIR}/{new}");
+        let mut out = String::with_capacity(text.len());
+        for line in text.lines() {
+            let t = line.trim_start();
+            if t.strip_prefix("path:").is_some_and(|p| p.trim() == from) {
+                out.push_str(&line[..line.len() - t.len()]);
+                out.push_str(&format!("path: {to}"));
+            } else {
+                out.push_str(line);
+            }
+            out.push('\n');
+        }
+        write_synced(&conf, out.as_bytes())
+    }
+
     /// Point the menu entries that boot `fallback_kernel` at `ramfs`, so the fallback
     /// kernel always starts with the ramfs that was packed for it.
     pub fn fallback_entries_use(&self, fallback_kernel: &str, ramfs: &str) -> Result<()> {
@@ -124,8 +151,18 @@ pub fn copy_synced(src: &Path, path: &Path) -> Result<()> {
     fs::rename(&tmp, path).with_context(|| format!("rename into {}", path.display()))
 }
 
+fn booted_kernel_in(conf: &str, fallback_kernel: &str) -> Option<String> {
+    let prefix = format!("boot():/{KERNEL_DIR}/");
+    conf.lines()
+        .filter_map(|l| l.trim_start().strip_prefix("path:"))
+        .filter_map(|p| p.trim().strip_prefix(prefix.as_str()))
+        .find(|name| *name != fallback_kernel && !name.contains('/'))
+        .map(str::to_string)
+}
+
 fn is_ours(dir: &Path, root_uuid: Option<&str>) -> bool {
-    if !dir.join(KERNEL_DIR).join("linux-zainium").is_file() {
+    // Zainium's ESP: the kernel directory with quantra-ramfs (the kernel's name may change)
+    if !dir.join(KERNEL_DIR).join("quantra-ramfs.img").is_file() {
         return false;
     }
     let Ok(conf) = fs::read_to_string(dir.join("limine.conf")) else {
@@ -237,5 +274,31 @@ mod tests {
         assert!(out.contains(
             "linux-panic\n    module_path: boot():/overlayer/zaisys/kernel/quantra-ramfs-panic.img\n"
         ));
+    }
+
+    #[test]
+    fn the_booted_kernel_comes_from_limine_conf_and_follows_a_rename() {
+        let dir = std::env::temp_dir().join(format!("zex-esp-rename-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let conf = "timeout: 1\n\n/Zainium OS\n    path: boot():/overlayer/zaisys/kernel/linux-evl\n    module_path: boot():/overlayer/zaisys/kernel/quantra-ramfs.img\n\n/Zainium OS (Fallback Kernel)\n    path: boot():/overlayer/zaisys/kernel/linux-panic\n    module_path: boot():/overlayer/zaisys/kernel/quantra-ramfs.img\n";
+        fs::write(dir.join("limine.conf"), conf).unwrap();
+        let esp = Esp {
+            root: dir.clone(),
+            mounted_here: false,
+        };
+        assert_eq!(
+            esp.booted_kernel("linux-panic").as_deref(),
+            Some("linux-evl")
+        );
+        esp.default_entries_use("linux-evl", "linux-zainium")
+            .unwrap();
+        assert_eq!(
+            esp.booted_kernel("linux-panic").as_deref(),
+            Some("linux-zainium")
+        );
+        let out = fs::read_to_string(dir.join("limine.conf")).unwrap();
+        fs::remove_dir_all(&dir).ok();
+        assert!(out.contains("path: boot():/overlayer/zaisys/kernel/linux-panic\n"));
+        assert!(!out.contains("linux-evl"));
     }
 }
