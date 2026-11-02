@@ -1,6 +1,6 @@
 [package]
 name        = "zex"
-version     = "6.0.0"
+version     = "6.0.1"
 license     = "GPL-3.0-only"
 description = "The Universal Executor & Package Manager for Zainium OS"
 edition     = "2024"
