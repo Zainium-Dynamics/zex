@@ -127,6 +127,16 @@ pub async fn status() -> Result<()> {
 }
 
 pub async fn upgrade() -> Result<()> {
+    upgrade_with(false).await
+}
+
+/// After `zex syshub --u`: a newer kernel is offered with its modules in one question,
+/// and declining it leaves both the kernel and the modules as they are.
+pub async fn upgrade_with_syshub() -> Result<()> {
+    upgrade_with(true).await
+}
+
+async fn upgrade_with(with_syshub: bool) -> Result<()> {
     ui::print_kernel_header();
     crate::syshub_pending::ensure_available()?;
     if !syscore::online().await {
@@ -172,7 +182,12 @@ pub async fn upgrade() -> Result<()> {
         .map(|p| (p.name.as_str(), p.old.as_str(), p.new.as_str()))
         .collect();
     ui::print_kernel_list(&rows);
-    if !ui::ask_yes("Proceed with the kernel upgrade?") {
+    let question = if with_syshub {
+        "A newer kernel is available: upgrade the kernel and its modules too?"
+    } else {
+        "Proceed with the kernel upgrade?"
+    };
+    if !ui::ask_yes(question) {
         ui::print_cancelled();
         return Ok(());
     }
@@ -182,10 +197,13 @@ pub async fn upgrade() -> Result<()> {
     if let Some(kernel) = picks.iter().find(|p| p.name == KERNEL)
         && let Some(name) = index.packages.get(KERNEL).and_then(|e| field(e, "modules"))
     {
-        if ui::ask_yes(&format!(
-            "Update the kernel modules ({name} {}) in the System Hub with this kernel?",
-            kernel.new
-        )) {
+        // with syshub the one answer above already covers the modules
+        if with_syshub
+            || ui::ask_yes(&format!(
+                "Update the kernel modules ({name} {}) in the System Hub with this kernel?",
+                kernel.new
+            ))
+        {
             modules = Some(find_modules(&client, &services, &name, &kernel.new).await?);
         } else {
             ui::print_kernel_without_modules(&kernel.new);
