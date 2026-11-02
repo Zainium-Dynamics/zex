@@ -383,7 +383,8 @@ fn diff_packages(
 ) -> Vec<UpgradePkg> {
     let mut out = Vec::new();
     for (name, rv) in &remote.packages {
-        if name == "provides" {
+        // the kernel step offers the modules with their kernel; declining it keeps both
+        if name == "provides" || super::kernel::is_modules_package(name) {
             continue;
         }
         let rv_s = val_str(rv);

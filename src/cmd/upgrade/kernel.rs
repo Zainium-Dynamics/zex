@@ -334,6 +334,11 @@ fn booted_file(esp: &Esp, name: &str) -> Option<String> {
     }
 }
 
+/// A kernel's modules package: it moves only together with its kernel, never on its own.
+pub fn is_modules_package(name: &str) -> bool {
+    name.starts_with(KERNEL) && name.ends_with("-modules")
+}
+
 fn field(v: &toml::Value, key: &str) -> Option<String> {
     v.get(key)?.as_str().map(str::to_string)
 }
