@@ -126,9 +126,7 @@ pub fn run_fix(audit: &AuditResult) -> Result<FixReport> {
         rep.manual_items
             .push(format!("missing musl file (reinstall musl): {f}"));
     }
-    if audit.missing_syshub_dirs.is_empty()
-        && audit.missing_musl_files.is_empty()
-    {
+    if audit.missing_syshub_dirs.is_empty() && audit.missing_musl_files.is_empty() {
         // Syshub is intact — count as fixed
         rep.fixed += 1;
     }
