@@ -134,6 +134,10 @@ pub async fn run(_raw_args: Vec<String>) -> anyhow::Result<()> {
                     eprintln!("✗ Syshub upgrade failed: {:#}", e);
                     std::process::exit(1);
                 }
+                if let Err(e) = kernel::upgrade_with_syshub().await {
+                    eprintln!("✗ Kernel upgrade failed: {:#}", e);
+                    std::process::exit(1);
+                }
             } else {
                 println!("Missing --u flag for syshub upgrade.");
             }

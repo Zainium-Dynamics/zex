@@ -96,6 +96,7 @@ pub struct PackageMeta {
 ///
 /// Special keys:
 ///   _syshub = true   → install into /overlayer/syshub/ (requires elevate)
+///   _kernel = true   → a boot kernel, installed on the EFI partition by `zex kernel`
 ///
 /// Example:
 ///   [install]
@@ -111,6 +112,9 @@ pub struct InstallMap {
     /// If true, install into syshub (immutable base). Requires root + remount.
     #[serde(default)]
     pub _syshub: bool,
+    /// The kernel package: its payload goes to the EFI partition, not into a tree.
+    #[serde(default)]
+    pub _kernel: bool,
 }
 
 /// [remove] — exact file/dir list written by the installer at install time.

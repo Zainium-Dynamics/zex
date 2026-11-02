@@ -63,9 +63,13 @@ pub const GLIBC_LIB_DIR: &str = "/overlayer/zexlib/union/x86_64-zainium-linux-gn
 /// them.
 pub fn is_glibc_elf(f: &ElfFile) -> bool {
     let named_glibc = |n: &str| n == "libc.so.6" || n.starts_with("ld-linux");
-    f.interpreter().ok().flatten().is_some_and(|i| i.contains("/ld-linux"))
+    f.interpreter()
+        .ok()
+        .flatten()
+        .is_some_and(|i| i.contains("/ld-linux"))
         || f.soname().ok().flatten().is_some_and(|s| named_glibc(&s))
-        || f.needed_libs().is_ok_and(|libs| libs.iter().any(|l| named_glibc(l)))
+        || f.needed_libs()
+            .is_ok_and(|libs| libs.iter().any(|l| named_glibc(l)))
 }
 
 fn is_elf(path: &Path) -> bool {
