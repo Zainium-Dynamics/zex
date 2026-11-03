@@ -61,13 +61,14 @@ fn make_pkg_bar_inner(mp: &MultiProgress, total: u64, lbl: &str) -> ProgressBar 
     }
 }
 
-/// A finished download becomes one line above the bars still running, so many
-/// packages never push the running bars past the bottom of the terminal.
+/// A finished download, drawn like a running one at 100%, as lines above the bars still
+/// running, so many packages never push the running bars past the bottom of the terminal.
 pub fn finish_pkg_bar(pb: &ProgressBar) {
+    let bar = "\u{2588}".repeat(BAR_W);
+    let size = format!("{}", indicatif::HumanBytes(pb.position()));
     pb.println(format!(
-        "  {G}✓{RST} {P}{:<36}{RST} {DIM}{}{RST}",
-        pb.prefix(),
-        indicatif::HumanBytes(pb.position())
+        "  {DIM}•{RST} {P}{:<36}{RST}\n  {size:<12} {G}[{bar}]{RST} {G}100%{RST}",
+        pb.prefix()
     ));
     pb.finish_and_clear();
 }
