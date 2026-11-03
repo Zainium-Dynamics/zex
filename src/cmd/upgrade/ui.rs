@@ -82,6 +82,13 @@ pub fn make_pkg_bar(
     // template's own fields have no give, so the name-column just never
     // rendered at all rather than truncating gracefully).
     let label = format!("  {P}{:<38}{RST}", pkg_label);
+    let pb = make_pkg_bar_inner(mp, total_b, &label);
+    // finish_pkg_bar turns the bar into one line with this label
+    pb.set_prefix(pkg_label.to_string());
+    pb
+}
+
+fn make_pkg_bar_inner(mp: &MultiProgress, total_b: u64, label: &str) -> ProgressBar {
     if total_b == 0 {
         let pb = mp.add(ProgressBar::new_spinner());
         pb.set_style(
@@ -105,6 +112,19 @@ pub fn make_pkg_bar(
         pb.enable_steady_tick(Duration::from_millis(120));
         pb
     }
+}
+
+/// A finished download: its two-line bar becomes one line above the bars still
+/// running. Finished bars that stay on screen pile up past the terminal's height
+/// with many packages, and indicatif then stops drawing the rest (a syshub upgrade
+/// of 30 packages showed nothing after the 14th).
+pub fn finish_pkg_bar(pb: &ProgressBar) {
+    pb.println(format!(
+        "  {G}✓{RST} {P}{:<38}{RST} {DIM}{}{RST}",
+        pb.prefix(),
+        indicatif::HumanBytes(pb.position())
+    ));
+    pb.finish_and_clear();
 }
 
 /// Build the "Overall Progress" bar shown below the per-package rows.
@@ -227,6 +247,16 @@ pub fn print_kernel_uptodate(kernel: Option<&str>) {
 pub fn print_kernel_without_modules(version: &str) {
     println!(
         "   {Y}⚠{RST}  Kernel {G}{version}{RST} will boot without its own modules (graphics, Wi-Fi, sound) until they are installed.\n"
+    );
+}
+
+pub fn print_boot_loader_done(version: &str) {
+    println!("\n {G}✓{RST} Limine {BLD}{version}{RST} is on the EFI partition; it starts at the next boot.\n");
+}
+
+pub fn print_boot_loader_bios_later(version: &str) {
+    println!(
+        "\n {Y}!{RST} Limine {BLD}{version}{RST} is installed for UEFI. Its BIOS part waits until the base has limine {version} (after the System Hub upgrade's reboot): run {G}elevate zex kernel --u{RST} again then.\n"
     );
 }
 

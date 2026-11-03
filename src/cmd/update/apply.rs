@@ -1,6 +1,6 @@
 //! apply.rs — Download and apply upgrades for userland and syshub.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use futures_util::{StreamExt, stream};
 use indicatif::MultiProgress;
 use std::{
@@ -172,7 +172,7 @@ async fn download_with_bar(
         }
         match download_once(client, url, dest, bar, overall).await {
             Ok(tot) => {
-                bar.finish();
+                ui::finish_pkg_bar(bar);
                 return Ok(tot);
             }
             Err(e) => last_err = Some(e),
@@ -219,6 +219,17 @@ async fn download_once(
 /// `cmd::upgrade::userland`'s equivalents, so a package upgraded through
 /// `zex update` (as opposed to freshly installed via `zex install`) kept
 /// its host-FHS `PT_INTERP`/RPATH and unpatched `.pc` `prefix=` intact.
+
+/// A new file in place of the old one. Installed files are sealed with fs-verity
+/// at boot, and a sealed file cannot be opened for writing (EPERM), so the old one
+/// is unlinked first, as a reinstall does.
+fn replace_file(dst: &Path) -> Result<fs::File> {
+    if fs::symlink_metadata(dst).is_ok_and(|m| !m.is_dir()) {
+        fs::remove_file(dst).with_context(|| format!("removing old {}", dst.display()))?;
+    }
+    fs::File::create(dst).with_context(|| format!("writing {}", dst.display()))
+}
+
 fn extract_into(zex_path: &Path, dest: &Path) -> Result<Vec<PathBuf>> {
     let dec = crate::zex_codec::open_decoder(zex_path)?;
     let mut archive = tar::Archive::new(dec);
@@ -251,7 +262,7 @@ fn extract_into(zex_path: &Path, dest: &Path) -> Result<Vec<PathBuf>> {
             fs::create_dir_all(p)?;
         }
         if typ.is_file() {
-            let mut out = fs::File::create(&dst)?;
+            let mut out = replace_file(&dst)?;
             std::io::copy(&mut entry, &mut out)?;
             #[cfg(unix)]
             {

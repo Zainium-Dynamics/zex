@@ -62,6 +62,7 @@ fn print_help() {
     println!(
         "    {G}kernel{R} {D}[--u|--rollback]{R} Boot kernel: status, upgrade, back to the fallback"
     );
+    println!("    {G}verity{R} {D}[--union on|off]{R} fs-verity for the userland (the base is always sealed)");
     println!("    {G}search{R}  {D}<query>{R}       Search repositories");
     println!("    {G}refresh{R}             Refresh indexes of all 4 tiers");
     println!("    {G}rollback{R} {D}<tx_id>{R}      Revert a transaction");
@@ -255,6 +256,7 @@ async fn main() {
 
         // ── Upgrade: exactly two commands (syshub | uland) — no bare `upgrade` ─
         "kernel" => cmd::upgrade::run(vec!["upgrade".into(), "kernel".into()]).await,
+        "verity" => cmd::verity::run(cmd_args.to_vec()),
         "syshub" | "uland" => {
             let mut up_args = vec!["upgrade".to_string()];
             match command {
