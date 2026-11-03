@@ -276,6 +276,9 @@ async fn upgrade_with(with_syshub: bool) -> Result<()> {
         boot_files.insert(p.name.clone(), boot);
     }
 
+    // each phase below ends as done, or as failed when an error leaves early
+    let steps = crate::steps::Guard::new();
+
     // ── modules into the base (applied at the next boot, before the GPU loads) ─
     let mut modules_txn = None;
     if let Some(m) = &modules {
@@ -322,6 +325,7 @@ async fn upgrade_with(with_syshub: bool) -> Result<()> {
         }
     }
     write_ledger(&esp, &ledger)?;
+    steps.ok();
     drop(esp);
     fs::remove_dir_all(dl).ok();
 

@@ -119,14 +119,19 @@ impl Esp {
         for dest in &targets {
             copy_synced(&bios, dest)?;
         }
-        let status = std::process::Command::new(LIMINE_TOOL)
+        // its report goes to the screen only when it fails
+        let out = std::process::Command::new(LIMINE_TOOL)
             .arg("bios-install")
             .arg(&disk)
-            .stdout(std::process::Stdio::null())
-            .status()
+            .output()
             .context("running limine bios-install")?;
-        if !status.success() {
-            bail!("limine bios-install {} failed", disk.display());
+        if !out.status.success() {
+            bail!(
+                "limine bios-install {} failed:\n{}{}",
+                disk.display(),
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            );
         }
         Ok(true)
     }
