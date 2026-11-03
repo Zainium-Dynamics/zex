@@ -1,0 +1,1929 @@
+[core_info]
+os_name = "ZainiumOS"
+architecture = "x86_64"
+build_version = "2026v26.9"
+updated_date = "2026-11-02"
+
+[packages.acl]
+version = "2.3.2"
+file = "acl-2.3.2.zex"
+size_bytes = 153306
+depends = ["attr"]
+provides = [
+    "acl",
+    "libacl",
+    "getfacl",
+    "setfacl",
+    "chacl",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.alsa-lib]
+version = "1.2.16.1"
+file = "alsa-lib-1.2.16.1.zex"
+size_bytes = 2103206
+provides = ["alsa-lib"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.apparmor]
+version = "5.0.1-r4"
+file = "apparmor-5.0.1-r4.zex"
+size_bytes = 6309507
+depends = [
+    "musl",
+    "python",
+]
+provides = [
+    "apparmor_parser",
+    "aa-exec",
+    "aa-enabled",
+    "aa-status",
+    "aa-load",
+    "aa-features-abi",
+    "aa-easyprof",
+    "aa-genprof",
+    "aa-logprof",
+    "aa-cleanprof",
+    "aa-mergeprof",
+    "aa-autodep",
+    "aa-audit",
+    "aa-complain",
+    "aa-enforce",
+    "aa-disable",
+    "aa-notify",
+    "aa-unconfined",
+    "aa-show-usage",
+    "aa-decode",
+    "aa-remove-unknown",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.at-spi2-core]
+version = "2.62.1"
+file = "at-spi2-core-2.62.1.zex"
+size_bytes = 1421364
+depends = [
+    "musl",
+    "glib",
+    "dbus",
+    "libxml2",
+    "systemd",
+    "gsettings-desktop-schemas",
+]
+provides = [
+    "at-spi2-core",
+    "atk",
+    "at-spi2-atk",
+    "libatspi",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.attr]
+version = "2.5.2"
+file = "attr-2.5.2.zex"
+size_bytes = 80535
+provides = [
+    "attr",
+    "libattr",
+    "getfattr",
+    "setfattr",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.bash]
+version = "5.3"
+file = "bash-5.3.zex"
+size_bytes = 1126377
+depends = [
+    "musl",
+    "readline",
+    "ncurses",
+]
+provides = [
+    "bash",
+    "sh",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.binutils]
+version = "2.47-r1"
+file = "binutils-2.47-r1.zex"
+size_bytes = 6205137
+depends = [
+    "musl",
+    "gcc",
+]
+provides = [
+    "as",
+    "ld",
+    "ar",
+    "nm",
+    "objcopy",
+    "objdump",
+    "ranlib",
+    "readelf",
+    "strip",
+    "binutils",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.bluez]
+version = "5.87"
+file = "bluez-5.87.zex"
+size_bytes = 6673750
+depends = [
+    "musl",
+    "glib",
+    "dbus",
+    "readline",
+    "systemd",
+]
+provides = [
+    "bluez",
+    "bluetoothd",
+    "bluetoothctl",
+    "btmon",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.brotli]
+version = "1.2.0"
+file = "brotli-1.2.0.zex"
+size_bytes = 543436
+depends = ["musl"]
+provides = ["brotli"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.bzip2]
+version = "1.0.8"
+file = "bzip2-1.0.8.zex"
+size_bytes = 267639
+depends = ["musl"]
+provides = ["bzip2"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.cairo]
+version = "1.18.4"
+file = "cairo-1.18.4.zex"
+size_bytes = 1734475
+depends = [
+    "pixman",
+    "fontconfig",
+    "freetype",
+    "glib",
+]
+provides = ["cairo"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.cmake]
+version = "4.4.2"
+file = "cmake-4.4.2.zex"
+size_bytes = 33527831
+depends = [
+    "curl",
+    "libarchive",
+    "zlib",
+    "xz",
+]
+provides = ["cmake"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.cosmic-applets]
+version = "1.11.0"
+file = "cosmic-applets-1.11.0.zex"
+size_bytes = 34585068
+provides = ["cosmic-applets"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.cosmic-files]
+version = "1.11.0"
+file = "cosmic-files-1.11.0.zex"
+size_bytes = 42458870
+depends = [
+    "cosmic-icons",
+    "xdg-utils",
+    "shared-mime-info",
+]
+provides = ["cosmic-files"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.cosmic-greeter]
+version = "1.10.0"
+file = "cosmic-greeter-1.10.0.zex"
+size_bytes = 22630522
+depends = [
+    "cosmic-comp",
+    "elevate-pam",
+    "greetd",
+]
+provides = ["cosmic-greeter"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.cosmic-osd]
+version = "1.11.0"
+file = "cosmic-osd-1.11.0.zex"
+size_bytes = 11933017
+provides = ["cosmic-osd"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.cosmic-settings]
+version = "1.11.0"
+file = "cosmic-settings-1.11.0.zex"
+size_bytes = 26015322
+provides = ["cosmic-settings"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.cosmic-settings-daemon]
+version = "1.11.0"
+file = "cosmic-settings-daemon-1.11.0.zex"
+size_bytes = 4426376
+provides = ["cosmic-settings-daemon"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.cryptsetup]
+version = "2.8.8"
+file = "cryptsetup-2.8.8.zex"
+size_bytes = 1795254
+depends = [
+    "lvm2",
+    "json-c",
+    "util-linux",
+    "openssl",
+]
+provides = ["cryptsetup"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.curl]
+version = "8.22.0-r1"
+file = "curl-8.22.0-r1.zex"
+size_bytes = 904773
+depends = [
+    "nghttp2",
+    "openssl",
+    "zlib",
+    "zstd",
+]
+provides = [
+    "curl",
+    "libcurl",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.dav1d]
+version = "1.5.4"
+file = "dav1d-1.5.4.zex"
+size_bytes = 1121913
+provides = ["dav1d"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.dbus]
+version = "1.16.0"
+file = "dbus-1.16.0.zex"
+size_bytes = 1051689
+depends = [
+    "musl",
+    "expat",
+]
+provides = [
+    "dbus",
+    "dbus-daemon",
+    "dbus-send",
+    "dbus-monitor",
+    "libdbus-1",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.dhcpcd]
+version = "10.3.2"
+file = "dhcpcd-10.3.2.zex"
+size_bytes = 262259
+provides = ["dhcpcd"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.dnsmasq]
+version = "2.93"
+file = "dnsmasq-2.93.zex"
+size_bytes = 254234
+depends = ["musl"]
+provides = ["dnsmasq"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.duktape]
+version = "2.7.0"
+file = "duktape-2.7.0.zex"
+size_bytes = 186492
+provides = ["duktape"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.e2fsprogs]
+version = "1.47.4"
+file = "e2fsprogs-1.47.4.zex"
+size_bytes = 7651237
+depends = ["util-linux"]
+provides = ["e2fsprogs"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.elevate]
+version = "1.0.1"
+file = "elevate-1.0.1.zex"
+size_bytes = 1419012
+depends = [
+    "musl",
+    "elevate-pam",
+]
+provides = [
+    "elevate",
+    "elev",
+    "vielev",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.elevate-pam]
+version = "1.0.1"
+file = "elevate-pam-1.0.1.zex"
+size_bytes = 1740538
+depends = ["musl"]
+provides = [
+    "libelevate_pam",
+    "libpam",
+    "libpam_misc",
+    "unix_chkpwd",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.elfutils]
+version = "0.195"
+file = "elfutils-0.195.zex"
+size_bytes = 1738760
+depends = [
+    "musl-fts",
+    "musl-obstack",
+]
+provides = ["elfutils"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.ell]
+version = "0.83"
+file = "ell-0.83.zex"
+size_bytes = 299356
+depends = ["musl"]
+provides = ["ell"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.eudev]
+version = "4.0.0"
+file = "eudev-4.0.0.zex"
+size_bytes = 1492455
+depends = ["kmod"]
+provides = [
+    "eudev",
+    "libudev",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.expat]
+version = "2.8.2"
+file = "expat-2.8.2.zex"
+size_bytes = 91507
+depends = ["musl"]
+provides = ["libexpat"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.ffmpeg]
+version = "9.0.2"
+file = "ffmpeg-9.0.2.zex"
+size_bytes = 14549613
+depends = [
+    "musl",
+    "zlib",
+    "dav1d",
+]
+provides = [
+    "ffmpeg",
+    "ffprobe",
+    "libavcodec",
+    "libavformat",
+    "libavutil",
+    "libswscale",
+    "libswresample",
+    "libavfilter",
+    "libavdevice",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.font-ibm-plex-mono]
+version = "2.5.0"
+file = "font-ibm-plex-mono-2.5.0.zex"
+size_bytes = 312050
+provides = ["font-ibm-plex-mono"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.font-noto]
+version = "2026.10.01"
+file = "font-noto-2026.10.01.zex"
+size_bytes = 3651056
+provides = ["font-noto"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.font-noto-arabic]
+version = "2026.10.01"
+file = "font-noto-arabic-2026.10.01.zex"
+size_bytes = 748133
+provides = ["font-noto-arabic"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.font-noto-emoji]
+version = "2026.10.01"
+file = "font-noto-emoji-2026.10.01.zex"
+size_bytes = 9912034
+provides = ["font-noto-emoji"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.font-noto-symbols]
+version = "2026.10.01"
+file = "font-noto-symbols-2026.10.01.zex"
+size_bytes = 350065
+provides = ["font-noto-symbols"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.font-open-sans]
+version = "3.003"
+file = "font-open-sans-3.003.zex"
+size_bytes = 848075
+provides = ["font-open-sans"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.fontconfig]
+version = "2.18.3"
+file = "fontconfig-2.18.3.zex"
+size_bytes = 882072
+depends = ["freetype"]
+provides = ["fontconfig"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.freetype]
+version = "2.14.3"
+file = "freetype-2.14.3.zex"
+size_bytes = 1851737
+provides = ["freetype"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.fribidi]
+version = "1.0.17"
+file = "fribidi-1.0.17.zex"
+size_bytes = 59791
+depends = ["musl"]
+provides = [
+    "fribidi",
+    "libfribidi",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.fuse3]
+version = "3.18.3"
+file = "fuse3-3.18.3.zex"
+size_bytes = 516816
+depends = ["musl"]
+provides = ["fuse3"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.gcc-musl]
+version = "16.2.0-r1"
+file = "gcc-musl-16.2.0-r1.zex"
+size_bytes = 115617680
+depends = [
+    "musl",
+    "binutils",
+    "zlib",
+    "zstd",
+]
+provides = [
+    "gcc",
+    "cc",
+    "g++",
+    "libstdc++",
+    "libgcc",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.gdk-pixbuf]
+version = "2.44.8"
+file = "gdk-pixbuf-2.44.8.zex"
+size_bytes = 409352
+depends = [
+    "musl",
+    "glib",
+    "libpng",
+    "libjpeg-turbo",
+]
+provides = ["gdk-pixbuf"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.gettext]
+version = "1.0"
+file = "gettext-1.0.zex"
+size_bytes = 192217
+depends = ["musl"]
+provides = [
+    "gettext",
+    "libintl",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.glib]
+version = "2.89.3"
+file = "glib-2.89.3.zex"
+size_bytes = 9126600
+depends = [
+    "gettext",
+    "libffi",
+    "pcre2",
+    "zlib",
+]
+provides = ["glib"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.gmp]
+version = "6.3.0"
+file = "gmp-6.3.0.zex"
+size_bytes = 421580
+depends = ["musl"]
+provides = ["gmp"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.gnutls]
+version = "3.8.13"
+file = "gnutls-3.8.13.zex"
+size_bytes = 1433112
+depends = [
+    "musl",
+    "nettle",
+    "gmp",
+    "libtasn1",
+    "zlib",
+]
+provides = ["gnutls"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.greetd]
+version = "0.10.4"
+file = "greetd-0.10.4.zex"
+size_bytes = 816148
+depends = ["musl"]
+provides = [
+    "greetd",
+    "agreety",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.gsettings-desktop-schemas]
+version = "51.0"
+file = "gsettings-desktop-schemas-51.0.zex"
+size_bytes = 1791809
+depends = ["glib"]
+provides = ["gsettings-desktop-schemas"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.gstreamer]
+version = "1.28.8-r3"
+file = "gstreamer-1.28.8-r3.zex"
+size_bytes = 52418850
+depends = [
+    "musl",
+    "glib",
+    "alsa-lib",
+    "libpng",
+    "libjpeg-turbo",
+    "zlib",
+    "libdrm",
+    "mesa",
+    "wayland",
+    "vulkan-loader",
+    "ffmpeg",
+]
+provides = [
+    "gstreamer",
+    "gst-plugins-base",
+    "gst-plugins-good",
+    "gst-plugins-bad",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.gvfs]
+version = "1.62.0"
+file = "gvfs-1.62.0.zex"
+size_bytes = 3332704
+depends = [
+    "glib",
+    "udisks2",
+    "libgudev",
+    "fuse3",
+    "systemd",
+    "gsettings-desktop-schemas",
+]
+provides = ["gvfs"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.gzip]
+version = "1.14"
+file = "gzip-1.14.zex"
+size_bytes = 116473
+depends = ["musl"]
+provides = [
+    "gzip",
+    "gunzip",
+    "zcat",
+    "zgrep",
+    "zdiff",
+    "zless",
+    "zmore",
+    "znew",
+    "zforce",
+    "gzexe",
+    "uncompress",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.harfbuzz]
+version = "14.3.1"
+file = "harfbuzz-14.3.1.zex"
+size_bytes = 44615250
+depends = [
+    "glib",
+    "freetype",
+]
+provides = ["harfbuzz"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.hicolor-icon-theme]
+version = "0.18"
+file = "hicolor-icon-theme-0.18.zex"
+size_bytes = 6971
+provides = ["hicolor-icon-theme"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.iproute2]
+version = "7.2.0"
+file = "iproute2-7.2.0.zex"
+size_bytes = 1389362
+depends = ["musl"]
+provides = [
+    "iproute2",
+    "ip",
+    "tc",
+    "ss",
+    "bridge",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.iwd]
+version = "3.12"
+file = "iwd-3.12.zex"
+size_bytes = 1413249
+depends = [
+    "musl",
+    "dbus",
+]
+provides = [
+    "iwd",
+    "iwctl",
+    "iwmon",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.json-c]
+version = "0.18"
+file = "json-c-0.18.zex"
+size_bytes = 44014
+provides = ["json-c"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.json-glib]
+version = "1.10.8"
+file = "json-glib-1.10.8.zex"
+size_bytes = 423301
+depends = [
+    "musl",
+    "glib",
+]
+provides = ["json-glib"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.keyutils]
+version = "1.6.3"
+file = "keyutils-1.6.3.zex"
+size_bytes = 93134
+provides = ["keyutils"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.kmod]
+version = "34.2"
+file = "kmod-34.2.zex"
+size_bytes = 148875
+depends = [
+    "musl",
+    "zstd",
+    "xz",
+    "zlib",
+]
+provides = [
+    "kmod",
+    "modprobe",
+    "depmod",
+    "insmod",
+    "rmmod",
+    "lsmod",
+    "modinfo",
+    "libkmod.so.2",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.libarchive]
+version = "3.8.9"
+file = "libarchive-3.8.9.zex"
+size_bytes = 6092531
+depends = [
+    "zlib",
+    "openssl",
+]
+provides = ["libarchive"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.libblockdev]
+version = "3.5.0"
+file = "libblockdev-3.5.0.zex"
+size_bytes = 252951
+depends = [
+    "glib",
+    "eudev",
+    "kmod",
+    "cryptsetup",
+    "keyutils",
+    "util-linux",
+    "e2fsprogs",
+    "libbytesize",
+    "libnvme",
+]
+provides = ["libblockdev"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.libbytesize]
+version = "2.12"
+file = "libbytesize-2.12.zex"
+size_bytes = 21132
+depends = [
+    "gmp",
+    "mpfr",
+    "pcre2",
+]
+provides = ["libbytesize"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.libcap]
+version = "2.78"
+file = "libcap-2.78.zex"
+size_bytes = 53695
+provides = ["libcap"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.libdisplay-info]
+version = "0.3.0"
+file = "libdisplay-info-0.3.0.zex"
+size_bytes = 230826
+provides = [
+    "libdisplay-info",
+    "di-edid-decode",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.libdrm]
+version = "2.4.134"
+file = "libdrm-2.4.134.zex"
+size_bytes = 593334
+provides = ["libdrm"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.libevdev]
+version = "1.13.7"
+file = "libevdev-1.13.7.zex"
+size_bytes = 99234
+provides = [
+    "libevdev",
+    "touchpad-edge-detector",
+    "mouse-dpi-tool",
+    "libevdev-tweak-device",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.libffi]
+version = "3.7.1"
+file = "libffi-3.7.1.zex"
+size_bytes = 37392
+provides = ["libffi.so.8"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.libgudev]
+version = "238"
+file = "libgudev-238.zex"
+size_bytes = 60188
+depends = [
+    "musl",
+    "glib",
+    "systemd",
+]
+provides = [
+    "libgudev",
+    "libgudev-1.0",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.libinput]
+version = "1.31.3"
+file = "libinput-1.31.3.zex"
+size_bytes = 1430031
+depends = ["mtdev"]
+provides = ["libinput"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.libjpeg-turbo]
+version = "3.2.0"
+file = "libjpeg-turbo-3.2.0.zex"
+size_bytes = 1291440
+provides = [
+    "libjpeg-turbo",
+    "libjpeg",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.libndp]
+version = "1.9"
+file = "libndp-1.9.zex"
+size_bytes = 24142
+depends = ["musl"]
+provides = ["libndp"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.libnl3]
+version = "3.12.0"
+file = "libnl3-3.12.0.zex"
+size_bytes = 575707
+depends = ["musl"]
+provides = ["libnl3"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.libnvme]
+version = "1.16.2"
+file = "libnvme-1.16.2.zex"
+size_bytes = 430207
+depends = [
+    "json-c",
+    "keyutils",
+]
+provides = ["libnvme"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.libpciaccess]
+version = "0.19"
+file = "libpciaccess-0.19.zex"
+size_bytes = 19783
+depends = ["musl"]
+provides = ["libpciaccess"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.libpng]
+version = "1.6.58"
+file = "libpng-1.6.58.zex"
+size_bytes = 619881
+depends = ["zlib"]
+provides = ["libpng"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.libpsl]
+version = "0.23.3"
+file = "libpsl-0.23.3.zex"
+size_bytes = 91797
+depends = ["musl"]
+provides = ["libpsl"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.libseccomp]
+version = "2.6.1"
+file = "libseccomp-2.6.1.zex"
+size_bytes = 184715
+provides = ["libseccomp"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.libtasn1]
+version = "4.21.0"
+file = "libtasn1-4.21.0.zex"
+size_bytes = 65044
+depends = ["musl"]
+provides = ["libtasn1"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.libucontext]
+version = "1.5.2"
+file = "libucontext-1.5.2.zex"
+size_bytes = 18085
+depends = ["musl"]
+provides = ["libucontext"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.libunistring]
+version = "1.4.2"
+file = "libunistring-1.4.2.zex"
+size_bytes = 859346
+depends = ["musl"]
+provides = ["libunistring"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.libwebp]
+version = "1.6.0"
+file = "libwebp-1.6.0.zex"
+size_bytes = 2050404
+depends = [
+    "libpng",
+    "libjpeg-turbo",
+]
+provides = ["libwebp"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.libxkbcommon]
+version = "1.13.2"
+file = "libxkbcommon-1.13.2.zex"
+size_bytes = 406941
+depends = ["wayland"]
+provides = ["libxkbcommon"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.libxml2]
+version = "2.15.3"
+file = "libxml2-2.15.3.zex"
+size_bytes = 1308257
+depends = ["zlib"]
+provides = ["libxml2"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.linux-kernel-modules]
+version = "7.3.1-r1"
+file = "linux-kernel-modules-7.3.1-r1.zex"
+size_bytes = 158174487
+provides = ["linux-kernel-modules"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.llvm]
+version = "22.1.8"
+file = "llvm-22.1.8.zex"
+size_bytes = 127277329
+depends = [
+    "libffi",
+    "zlib",
+    "zstd",
+]
+provides = ["llvm"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.lz4]
+version = "1.10.0"
+file = "lz4-1.10.0.zex"
+size_bytes = 318172
+depends = ["musl"]
+provides = ["lz4"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.mesa]
+version = "26.2.1"
+file = "mesa-26.2.1.zex"
+size_bytes = 44560707
+depends = [
+    "llvm",
+    "libdrm",
+    "wayland",
+    "zlib",
+    "zstd",
+    "elfutils",
+]
+provides = ["mesa"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.mpfr]
+version = "4.2.2"
+file = "mpfr-4.2.2.zex"
+size_bytes = 356313
+depends = ["gmp"]
+provides = ["mpfr"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.mtdev]
+version = "1.1.7"
+file = "mtdev-1.1.7.zex"
+size_bytes = 44831
+provides = ["mtdev"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.musl]
+version = "1.2.6"
+file = "musl-1.2.6.zex"
+size_bytes = 1245292
+provides = [
+    "libc-musl",
+    "ld-musl-x86_64.so.1",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.musl-fts]
+version = "1.2.7"
+file = "musl-fts-1.2.7.zex"
+size_bytes = 24583
+depends = ["musl"]
+provides = [
+    "musl-fts",
+    "libfts",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.musl-obstack]
+version = "1.2.3"
+file = "musl-obstack-1.2.3.zex"
+size_bytes = 12961
+depends = ["musl"]
+provides = [
+    "musl-obstack",
+    "libobstack",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.ncurses]
+version = "6.6"
+file = "ncurses-6.6.zex"
+size_bytes = 271766
+provides = ["libncursesw.so.6"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.nettle]
+version = "4.0"
+file = "nettle-4.0.zex"
+size_bytes = 584489
+depends = [
+    "musl",
+    "gmp",
+]
+provides = ["nettle"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.networkmanager]
+version = "1.58.1"
+file = "networkmanager-1.58.1.zex"
+size_bytes = 25023715
+depends = [
+    "musl",
+    "glib",
+    "dbus",
+    "systemd",
+]
+provides = [
+    "networkmanager",
+    "nmcli",
+    "nmtui",
+    "NetworkManager",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.nghttp2]
+version = "1.70.0-r1"
+file = "nghttp2-1.70.0-r1.zex"
+size_bytes = 103331
+depends = ["musl"]
+provides = ["libnghttp2"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.openssl]
+version = "4.0.1"
+file = "openssl-4.0.1.zex"
+size_bytes = 6460663
+provides = [
+    "openssl",
+    "libssl",
+    "libcrypto",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.oxidized-environment]
+version = "1.0.1"
+file = "oxidized-environment-1.0.1.zex"
+size_bytes = 587385
+depends = ["musl"]
+provides = ["oxidized-environment"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.p11-kit]
+version = "0.26.5"
+file = "p11-kit-0.26.5.zex"
+size_bytes = 1279348
+depends = [
+    "musl",
+    "libtasn1",
+]
+provides = ["p11-kit"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.pango]
+version = "1.58.2"
+file = "pango-1.58.2.zex"
+size_bytes = 1305528
+depends = [
+    "glib",
+    "cairo",
+    "freetype",
+    "fontconfig",
+    "harfbuzz",
+    "fribidi",
+]
+provides = ["pango"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.pcre2]
+version = "10.47"
+file = "pcre2-10.47.zex"
+size_bytes = 928617
+provides = ["pcre2"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.pipewire]
+version = "1.6.8"
+file = "pipewire-1.6.8.zex"
+size_bytes = 18030988
+provides = ["pipewire"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.pixman]
+version = "0.46.4"
+file = "pixman-0.46.4.zex"
+size_bytes = 2329583
+provides = ["pixman"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.pkgconf]
+version = "3.0.5"
+file = "pkgconf-3.0.5.zex"
+size_bytes = 160786
+provides = [
+    "pkgconf",
+    "pkg-config",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.polkit]
+version = "127"
+file = "polkit-127.zex"
+size_bytes = 656358
+depends = [
+    "glib",
+    "expat",
+    "duktape",
+    "systemd",
+    "dbus",
+]
+provides = [
+    "polkit",
+    "polkitd",
+    "pkexec",
+    "pkaction",
+    "pkcheck",
+    "pkttyagent",
+    "libpolkit-gobject-1",
+    "libpolkit-agent-1",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.power-profiles-daemon]
+version = "0.30"
+file = "power-profiles-daemon-0.30.zex"
+size_bytes = 199735
+depends = [
+    "musl",
+    "glib",
+    "libgudev",
+    "upower",
+    "polkit",
+    "systemd",
+    "dbus",
+]
+provides = ["power-profiles-daemon"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.python]
+version = "3.14.8"
+file = "python-3.14.8.zex"
+size_bytes = 48859548
+depends = [
+    "musl",
+    "libffi",
+    "expat",
+    "openssl",
+    "zlib",
+    "bzip2",
+    "xz",
+    "readline",
+    "ncurses",
+    "util-linux",
+    "sqlite",
+    "gettext",
+]
+provides = ["python"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.readline]
+version = "8.3"
+file = "readline-8.3.zex"
+size_bytes = 227462
+depends = ["ncurses"]
+provides = [
+    "libreadline.so.8",
+    "libhistory.so.8",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.rtkit]
+version = "0.14"
+file = "rtkit-0.14.zex"
+size_bytes = 58969
+depends = [
+    "musl",
+    "dbus",
+    "libcap",
+    "systemd",
+]
+provides = [
+    "rtkit",
+    "rtkit-daemon",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.seatd]
+version = "0.9.3"
+file = "seatd-0.9.3.zex"
+size_bytes = 109528
+provides = [
+    "seatd",
+    "seatd-launch",
+    "libseat",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.shared-mime-info]
+version = "2.5.1"
+file = "shared-mime-info-2.5.1.zex"
+size_bytes = 2087796
+depends = [
+    "musl",
+    "glib",
+    "libxml2",
+]
+provides = [
+    "shared-mime-info",
+    "update-mime-database",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.spirv-tools]
+version = "2026.3"
+file = "spirv-tools-2026.3.zex"
+size_bytes = 14322188
+depends = ["musl"]
+provides = [
+    "SPIRV-Tools",
+    "spirv-val",
+    "spirv-opt",
+    "spirv-dis",
+    "spirv-as",
+    "spirv-link",
+    "spirv-cfg",
+    "spirv-reduce",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.sqlite]
+version = "3.54.0"
+file = "sqlite-3.54.0.zex"
+size_bytes = 9254433
+depends = [
+    "musl",
+    "readline",
+]
+provides = [
+    "sqlite",
+    "sqlite3",
+    "libsqlite3",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.sys_resolver]
+version = "0.3.0-r2"
+file = "sys_resolver-0.3.0-r2.zex"
+size_bytes = 648817
+depends = ["musl"]
+provides = [
+    "libsys_resolver.so",
+    "sys-resolver",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.systemd]
+version = "261.2-r4"
+file = "systemd-261.2-r4.zex"
+size_bytes = 31306567
+depends = [
+    "musl",
+    "libcap",
+    "libseccomp",
+    "kmod",
+    "pcre2",
+    "xz",
+    "zstd",
+    "zlib",
+    "elfutils",
+    "libarchive",
+    "util-linux",
+    "libxkbcommon",
+    "curl",
+    "openssl",
+    "libapparmor",
+]
+provides = [
+    "systemd",
+    "systemctl",
+    "systemd-udevd",
+    "udevadm",
+    "journalctl",
+    "systemd-journald",
+    "systemd-logind",
+    "loginctl",
+    "systemd-networkd",
+    "networkctl",
+    "systemd-resolved",
+    "resolvectl",
+    "systemd-timesyncd",
+    "timedatectl",
+    "hostnamectl",
+    "localectl",
+    "busctl",
+    "coredumpctl",
+    "systemd-analyze",
+    "systemd-nspawn",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.tzcode]
+version = "2026c"
+file = "tzcode-2026c.zex"
+size_bytes = 52688
+depends = ["musl"]
+provides = [
+    "zic",
+    "zdump",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.tzdata]
+version = "2026c"
+file = "tzdata-2026c.zex"
+size_bytes = 178855
+provides = ["tzdata"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.upower]
+version = "1.91.5"
+file = "upower-1.91.5.zex"
+size_bytes = 616844
+depends = [
+    "musl",
+    "glib",
+    "libgudev",
+    "polkit",
+    "systemd",
+    "dbus",
+]
+provides = [
+    "upower",
+    "upowerd",
+    "libupower-glib",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.userutiles]
+version = "1.3.0"
+file = "userutiles-1.3.0.zex"
+size_bytes = 35520986
+depends = ["musl"]
+provides = [
+    "arch",
+    "addpart",
+    "agetty",
+    "b2sum",
+    "base32",
+    "base64",
+    "basename",
+    "basenc",
+    "blkid",
+    "blockdev",
+    "blueprint",
+    "cal",
+    "cat",
+    "chattr",
+    "chcpu",
+    "chgrp",
+    "chmod",
+    "chown",
+    "chroot",
+    "cksum",
+    "clear",
+    "cmp",
+    "comm",
+    "cp",
+    "csplit",
+    "ctrlaltdel",
+    "cut",
+    "date",
+    "dd",
+    "delpart",
+    "df",
+    "diff",
+    "diffutils",
+    "dir",
+    "dircolors",
+    "dirname",
+    "dmesg",
+    "drive",
+    "du",
+    "echo",
+    "env",
+    "expand",
+    "expr",
+    "factor",
+    "false",
+    "fdisk",
+    "find",
+    "findfs",
+    "findmnt",
+    "fmt",
+    "fold",
+    "free",
+    "fsck",
+    "fsfreeze",
+    "grep",
+    "groups",
+    "head",
+    "hexdump",
+    "hostid",
+    "hostname",
+    "id",
+    "install",
+    "join",
+    "kill",
+    "last",
+    "link",
+    "ln",
+    "locate",
+    "login",
+    "logname",
+    "losetup",
+    "ls",
+    "lsblk",
+    "lsattr",
+    "lscpu",
+    "lsipc",
+    "lslocks",
+    "lsmem",
+    "lsns",
+    "mcookie",
+    "md5sum",
+    "mesg",
+    "mkdir",
+    "mkfifo",
+    "mknod",
+    "mktemp",
+    "mkswap",
+    "more",
+    "mount",
+    "mountpoint",
+    "mv",
+    "nice",
+    "nl",
+    "nohup",
+    "nologin",
+    "nproc",
+    "numfmt",
+    "od",
+    "partx",
+    "paste",
+    "pathchk",
+    "pgrep",
+    "pinky",
+    "pivot_root",
+    "pkill",
+    "pr",
+    "printenv",
+    "printf",
+    "prio",
+    "ps",
+    "ptx",
+    "pwd",
+    "readlink",
+    "realpath",
+    "renice",
+    "resizepart",
+    "rev",
+    "rm",
+    "rmdir",
+    "sed",
+    "seq",
+    "setpgid",
+    "setsid",
+    "sfdisk",
+    "sha1sum",
+    "sha224sum",
+    "sha256sum",
+    "sha384sum",
+    "sha512sum",
+    "shred",
+    "shuf",
+    "sleep",
+    "sort",
+    "split",
+    "stat",
+    "stdbuf",
+    "struct",
+    "stty",
+    "sum",
+    "swapoff",
+    "swapon",
+    "switch_root",
+    "sync",
+    "sys",
+    "tac",
+    "tail",
+    "tar",
+    "tee",
+    "test",
+    "timeout",
+    "touch",
+    "tr",
+    "trace",
+    "tree",
+    "trigger",
+    "true",
+    "truncate",
+    "tsort",
+    "tty",
+    "umount",
+    "uname",
+    "unexpand",
+    "uniq",
+    "unlink",
+    "updatedb",
+    "uptime",
+    "users",
+    "uuidgen",
+    "vdir",
+    "wc",
+    "which",
+    "who",
+    "whoami",
+    "xargs",
+    "yes",
+    "user-seccomp",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.util-linux]
+version = "2.42-rc2"
+file = "util-linux-2.42-rc2.zex"
+size_bytes = 1941927
+depends = [
+    "musl",
+    "ncurses",
+]
+provides = [
+    "cfdisk",
+    "blkdiscard",
+    "blkzone",
+    "blkpr",
+    "fallocate",
+    "fincore",
+    "isosize",
+    "wipefs",
+    "mkfs",
+    "swaplabel",
+    "fstrim",
+    "zramctl",
+    "nsenter",
+    "unshare",
+    "namei",
+    "exch",
+    "hwclock",
+    "eject",
+    "rfkill",
+    "rtcwake",
+    "wdctl",
+    "chmem",
+    "setterm",
+    "setarch",
+    "setpriv",
+    "chrt",
+    "taskset",
+    "ionice",
+    "uclampset",
+    "choom",
+    "prlimit",
+    "flock",
+    "ipcmk",
+    "ipcrm",
+    "ipcs",
+    "lsfd",
+    "lsirq",
+    "su",
+    "newgrp",
+    "lslogins",
+    "utmpdump",
+    "wall",
+    "write",
+    "logger",
+    "runuser",
+    "uuidd",
+    "uuidparse",
+    "column",
+    "col",
+    "colcrt",
+    "colrm",
+    "look",
+    "ul",
+    "pg",
+    "hardlink",
+    "rename",
+    "getopt",
+    "whereis",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.vulkan-loader]
+version = "1.4.363.0"
+file = "vulkan-loader-1.4.363.0.zex"
+size_bytes = 254017
+provides = [
+    "vulkan-loader",
+    "libvulkan",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.wayland]
+version = "1.26.0"
+file = "wayland-1.26.0.zex"
+size_bytes = 361035
+provides = ["wayland"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.wayland-protocols]
+version = "1.49"
+file = "wayland-protocols-1.49.zex"
+size_bytes = 173885
+provides = ["wayland-protocols"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.wireplumber]
+version = "0.5.15"
+file = "wireplumber-0.5.15.zex"
+size_bytes = 2857713
+depends = [
+    "pipewire",
+    "glib",
+]
+provides = ["wireplumber"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.xdg-portal]
+version = "1.22.1"
+file = "xdg-portal-1.22.1.zex"
+size_bytes = 2017922
+depends = [
+    "musl",
+    "glib",
+    "json-glib",
+    "fuse3",
+    "gdk-pixbuf",
+    "pipewire",
+    "gstreamer",
+    "systemd",
+]
+provides = [
+    "xdg-portal",
+    "xdg-desktop-portal",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.xdg-user-dirs]
+version = "0.20"
+file = "xdg-user-dirs-0.20.zex"
+size_bytes = 54307
+depends = [
+    "musl",
+    "gettext",
+]
+provides = ["xdg-user-dirs"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.xdg-utils]
+version = "1.3.0_rc1"
+file = "xdg-utils-1.3.0_rc1.zex"
+size_bytes = 58856
+depends = ["shared-mime-info"]
+provides = [
+    "xdg-utils",
+    "xdg-open",
+    "xdg-mime",
+]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.xkeyboard-config]
+version = "2.48"
+file = "xkeyboard-config-2.48.zex"
+size_bytes = 549629
+provides = ["xkeyboard-config"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.xz]
+version = "5.8.3"
+file = "xz-5.8.3.zex"
+size_bytes = 194021
+provides = ["liblzma.so.5"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.zex]
+version = "6.0.2"
+file = "zex-6.0.2.zex"
+size_bytes = 4601871
+provides = ["zex"]
+build_type = "static"
+libc_target = "musl"
+
+[packages.zlib]
+version = "1.3.2"
+file = "zlib-1.3.2.zex"
+size_bytes = 66951
+provides = ["libz.so.1"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.zram-swap]
+version = "1.0"
+file = "zram-swap-1.0.zex"
+size_bytes = 2079
+depends = [
+    "util-linux",
+    "userutiles",
+    "kmod",
+    "systemd",
+]
+provides = ["zram-swap"]
+build_type = "dynamic"
+libc_target = "musl"
+
+[packages.zstd]
+version = "1.5.7"
+file = "zstd-1.5.7.zex"
+size_bytes = 932398
+provides = ["libzstd.so.1"]
+build_type = "dynamic"
+libc_target = "musl"
