@@ -788,6 +788,16 @@ async fn fetch_adb_upgrades(
 
 // ── Extractors ─────────────────────────────────────────────────────────────────
 
+/// A new file in place of the old one. Installed files are sealed with fs-verity
+/// at boot, and a sealed file cannot be opened for writing (EPERM), so the old one
+/// is unlinked first, as a reinstall does.
+fn replace_file(dst: &Path) -> Result<fs::File> {
+    if fs::symlink_metadata(dst).is_ok_and(|m| !m.is_dir()) {
+        fs::remove_file(dst).with_context(|| format!("removing old {}", dst.display()))?;
+    }
+    fs::File::create(dst).with_context(|| format!("writing {}", dst.display()))
+}
+
 fn extract_zex_into(src: &Path, dest: &Path) -> Result<()> {
     #[cfg(unix)]
     use std::os::unix::fs::symlink;
@@ -818,7 +828,7 @@ fn extract_zex_into(src: &Path, dest: &Path) -> Result<()> {
             fs::create_dir_all(p)?;
         }
         if typ.is_file() {
-            let mut out = fs::File::create(&dst)?;
+            let mut out = replace_file(&dst)?;
             std::io::copy(&mut entry, &mut out)?;
             set_exec_if_needed(&entry.header(), &dst);
             written.push(dst);
@@ -868,7 +878,7 @@ fn extract_apk_into(src: &Path, dest: &Path) -> Result<()> {
             fs::create_dir_all(p)?;
         }
         if typ.is_file() {
-            let mut out = fs::File::create(&dst)?;
+            let mut out = replace_file(&dst)?;
             std::io::copy(&mut entry, &mut out)?;
             set_exec_if_needed(&entry.header(), &dst);
             written.push(dst);
@@ -924,7 +934,7 @@ fn extract_xbps_into(src: &Path, dest: &Path) -> Result<()> {
             fs::create_dir_all(p)?;
         }
         if typ.is_file() {
-            let mut out = fs::File::create(&dst)?;
+            let mut out = replace_file(&dst)?;
             std::io::copy(&mut entry, &mut out)?;
             set_exec_if_needed(&entry.header(), &dst);
             written.push(dst);
@@ -1004,7 +1014,10 @@ fn extract_adb_into(src: &Path, dest: &Path) -> Result<()> {
                 }
             }
             _ => {
-                fs::write(&dst, entry.content.unwrap_or_default())?;
+                {
+                    use std::io::Write;
+                    replace_file(&dst)?.write_all(&entry.content.unwrap_or_default())?;
+                }
                 // ADB stores the real POSIX mode per-entry (already used
                 // above for S_IFDIR/S_IFLNK) but this regular-file branch
                 // never applied it — the same bug already found and fixed
