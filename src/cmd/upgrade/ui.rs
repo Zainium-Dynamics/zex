@@ -114,15 +114,20 @@ fn make_pkg_bar_inner(mp: &MultiProgress, total_b: u64, label: &str) -> Progress
     }
 }
 
-/// A finished download: its two-line bar becomes one line above the bars still
-/// running. Finished bars that stay on screen pile up past the terminal's height
-/// with many packages, and indicatif then stops drawing the rest (a syshub upgrade
-/// of 30 packages showed nothing after the 14th).
+/// A finished download, drawn exactly like a running one at 100%, but as lines above the
+/// bars still running. Finished bars that stay live pile up past the terminal's height
+/// with many packages, and indicatif then stops drawing the rest (a syshub upgrade of 30
+/// packages showed nothing after the 14th); printed like this, every package stays on
+/// screen and only the running ones and the overall bar move.
 pub fn finish_pkg_bar(pb: &ProgressBar) {
+    let done = pb.position();
+    let secs = pb.elapsed().as_secs_f64().max(0.001);
+    let bar: String = std::iter::repeat_n(FILLED, BAR_W).collect();
+    let size = format!("{}", indicatif::HumanBytes(done));
+    let speed = format!("{}/s", indicatif::BinaryBytes((done as f64 / secs) as u64));
     pb.println(format!(
-        "  {G}✓{RST} {P}{:<38}{RST} {DIM}{}{RST}",
-        pb.prefix(),
-        indicatif::HumanBytes(pb.position())
+        "  {P}{:<38}{RST}\n  {size:>10}/{size:<10} {G}[{bar}]{RST} {G}100%{RST}   {B}{speed:<12}{RST} {DIM}0s{RST}",
+        pb.prefix()
     ));
     pb.finish_and_clear();
 }
