@@ -231,7 +231,8 @@ pub fn print_kernel_header() {
 pub fn print_kernel_list(pkgs: &[(&str, &str, &str)]) {
     println!("{G}Packages to be upgraded {DIM}(Kernel){RST}{G}:{RST}");
     for (name, old, new) in pkgs {
-        let old = if *old == "0" { "installed" } else { old };
+        // "0": on the EFI partition, but no zex kernel run recorded its version yet
+        let old = if *old == "0" { "installed, version unknown" } else { old };
         println!("  {DIM}•{RST} {P}{name:<22}{RST}  {B}{old}{RST} {DIM}→{RST} {G}{new}{RST}");
     }
     println!();
