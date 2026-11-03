@@ -44,6 +44,8 @@ const KERNEL: &str = "linux-kernel";
 const RAMFS: &str = "quantra-ramfs";
 
 const RAMFS_FILE: &str = "quantra-ramfs.img";
+/// Limine's files for the ESP (kernel-recipes' limine, its `limine-boot` subpackage).
+const BOOT_LOADER: &str = "limine-boot";
 
 /// Each package and its fallback file on the ESP. The file that boots comes from
 /// limine.conf (kernel) or is `quantra-ramfs.img` (ramfs); see `booted_file`.
@@ -85,6 +87,9 @@ struct Ledger {
     current: BTreeMap<String, String>,
     #[serde(default)]
     fallback: BTreeMap<String, String>,
+    /// The Limine release on the ESP (one copy, no fallback: firmware starts only one).
+    #[serde(default)]
+    boot_loader: Option<String>,
 }
 
 struct Pick {
@@ -173,16 +178,35 @@ async fn upgrade_with(with_syshub: bool) -> Result<()> {
             });
         }
     }
-    if picks.is_empty() {
+    // the boot loader comes from the same archive
+    let mut boot_loader = None;
+    if let Some(entry) = index.packages.get(BOOT_LOADER) {
+        let new = syscore::val_str(entry);
+        let old = ledger.boot_loader.clone().unwrap_or_else(|| "0".into());
+        if is_upgrade(&old, &new) {
+            let file = file_of(BOOT_LOADER, entry);
+            boot_loader = Some(Pick {
+                name: BOOT_LOADER.to_string(),
+                url: format!("{}/{}", base_url.trim_end_matches('/'), file),
+                file,
+                old,
+                new,
+            });
+        }
+    }
+    if picks.is_empty() && boot_loader.is_none() {
         ui::print_kernel_uptodate(ledger.current.get(KERNEL).map(String::as_str));
         return Ok(());
     }
     let rows: Vec<(&str, &str, &str)> = picks
         .iter()
+        .chain(boot_loader.iter())
         .map(|p| (p.name.as_str(), p.old.as_str(), p.new.as_str()))
         .collect();
     ui::print_kernel_list(&rows);
-    let question = if with_syshub {
+    let question = if picks.is_empty() {
+        "Proceed with the boot loader upgrade?"
+    } else if with_syshub {
         "A newer kernel is available: upgrade the kernel and its modules too?"
     } else {
         "Proceed with the kernel upgrade?"
@@ -223,6 +247,9 @@ async fn upgrade_with(with_syshub: bool) -> Result<()> {
     if let Some(m) = &modules {
         jobs.push((m.name.clone(), m.url.clone(), m.file.clone()));
     }
+    if let Some(b) = &boot_loader {
+        jobs.push((b.name.clone(), b.url.clone(), b.file.clone()));
+    }
     let mut sizes = Vec::new();
     for (_, url, _) in &jobs {
         sizes.push(syscore::content_length(&client, url).await.unwrap_or(0));
@@ -257,36 +284,58 @@ async fn upgrade_with(with_syshub: bool) -> Result<()> {
     }
 
     // ── the ESP: running pair becomes the fallback, then the new files go in ──
-    ui::start_phase("Installing on the EFI partition");
-    let dir = esp.kernel_dir();
-    for (name, fallback) in SLOTS {
-        if let Some(cur) = booted_file(&esp, name)
-            && dir.join(&cur).is_file()
-        {
-            esp::copy_synced(&dir.join(cur), &dir.join(fallback))?;
+    if !picks.is_empty() {
+        ui::start_phase("Installing on the EFI partition");
+        let dir = esp.kernel_dir();
+        for (name, fallback) in SLOTS {
+            if let Some(cur) = booted_file(&esp, name)
+                && dir.join(&cur).is_file()
+            {
+                esp::copy_synced(&dir.join(cur), &dir.join(fallback))?;
+            }
+        }
+        ledger.fallback = ledger.current.clone();
+        for p in &picks {
+            let (file, path) = &boot_files[&p.name];
+            let before = booted_file(&esp, &p.name);
+            esp::copy_synced(path, &dir.join(file))?;
+            // a kernel with another name: the default entries boot the new file, the old one goes
+            if let Some(old) = before.filter(|old| old != file) {
+                esp.default_entries_use(&old, file)?;
+                fs::remove_file(dir.join(&old)).ok();
+            }
+            ledger.current.insert(p.name.clone(), p.new.clone());
+        }
+        esp.fallback_entries_use(SLOTS[0].1, SLOTS[1].1)?;
+    }
+    if let Some(b) = &boot_loader {
+        ui::start_phase("Installing the boot loader");
+        let files = dl.join(BOOT_LOADER);
+        extract_dir(&zexes[&b.name], "payload/limine/", &files)
+            .with_context(|| format!("extracting {}", b.name))?;
+        if esp.install_limine(&files, &b.new)? {
+            ledger.boot_loader = Some(b.new.clone());
+        } else {
+            // UEFI got the new release; the BIOS part follows once the base has the
+            // same limine tool, so the next `zex kernel --u` offers it again
+            ui::print_boot_loader_bios_later(&b.new);
         }
     }
-    ledger.fallback = ledger.current.clone();
-    for p in &picks {
-        let (file, path) = &boot_files[&p.name];
-        let before = booted_file(&esp, &p.name);
-        esp::copy_synced(path, &dir.join(file))?;
-        // a kernel with another name: the default entries boot the new file, the old one goes
-        if let Some(old) = before.filter(|old| old != file) {
-            esp.default_entries_use(&old, file)?;
-            fs::remove_file(dir.join(&old)).ok();
-        }
-        ledger.current.insert(p.name.clone(), p.new.clone());
-    }
-    esp.fallback_entries_use(SLOTS[0].1, SLOTS[1].1)?;
     write_ledger(&esp, &ledger)?;
     drop(esp);
     fs::remove_dir_all(dl).ok();
 
-    ui::print_kernel_done(
-        ledger.current.get(KERNEL).map(String::as_str),
-        modules_txn.as_deref(),
-    );
+    if !picks.is_empty() {
+        ui::print_kernel_done(
+            ledger.current.get(KERNEL).map(String::as_str),
+            modules_txn.as_deref(),
+        );
+    }
+    if let Some(b) = &boot_loader
+        && ledger.boot_loader.as_deref() == Some(b.new.as_str())
+    {
+        ui::print_boot_loader_done(&b.new);
+    }
     Ok(())
 }
 
@@ -434,6 +483,40 @@ fn extract_boot_file(zex: &Path, fallback: &str, dir: &Path) -> Result<(String, 
         return Ok((name, out));
     }
     bail!("{} has no file to boot in payload/kernel/", zex.display())
+}
+
+/// Unpacks the files under `prefix` (e.g. `payload/limine/`) of a .zex into `dir`.
+fn extract_dir(zex: &Path, prefix: &str, dir: &Path) -> Result<()> {
+    fs::create_dir_all(dir)?;
+    let dec = crate::zex_codec::open_decoder(zex)?;
+    let mut archive = tar::Archive::new(dec);
+    let mut any = false;
+    for entry in archive.entries()? {
+        let mut entry = entry?;
+        let path = entry
+            .path()?
+            .to_string_lossy()
+            .trim_start_matches("./")
+            .to_string();
+        let Some(rel) = path.strip_prefix(prefix) else {
+            continue;
+        };
+        if rel.is_empty()
+            || rel.contains('/')
+            || rel.starts_with('.')
+            || !entry.header().entry_type().is_file()
+        {
+            continue;
+        }
+        entry
+            .unpack(dir.join(rel))
+            .with_context(|| format!("unpack {rel}"))?;
+        any = true;
+    }
+    if !any {
+        bail!("{} has nothing in {prefix}", zex.display());
+    }
+    Ok(())
 }
 
 /// Adds the modules to the staged base upgrade (joining one already waiting) and

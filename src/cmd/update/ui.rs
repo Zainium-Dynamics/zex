@@ -31,6 +31,13 @@ pub fn make_pkg_bar(mp: &MultiProgress, total: u64, label: &str) -> ProgressBar 
     // cmd::upgrade::ui::make_pkg_bar (crammed onto the bar's own line, the
     // name was the first thing squeezed out on a normal-width terminal).
     let lbl = format!("  {DIM}•{RST} {P}{label:<36}{RST}");
+    let pb = make_pkg_bar_inner(mp, total, &lbl);
+    // finish_pkg_bar turns the bar into one line with this label
+    pb.set_prefix(label.to_string());
+    pb
+}
+
+fn make_pkg_bar_inner(mp: &MultiProgress, total: u64, lbl: &str) -> ProgressBar {
     if total == 0 {
         let pb = mp.add(ProgressBar::new_spinner());
         pb.set_style(
@@ -52,6 +59,17 @@ pub fn make_pkg_bar(mp: &MultiProgress, total: u64, label: &str) -> ProgressBar 
         pb.enable_steady_tick(Duration::from_millis(120));
         pb
     }
+}
+
+/// A finished download becomes one line above the bars still running, so many
+/// packages never push the running bars past the bottom of the terminal.
+pub fn finish_pkg_bar(pb: &ProgressBar) {
+    pb.println(format!(
+        "  {G}✓{RST} {P}{:<36}{RST} {DIM}{}{RST}",
+        pb.prefix(),
+        indicatif::HumanBytes(pb.position())
+    ));
+    pb.finish_and_clear();
 }
 
 /// `total_bytes` — driven by cumulative bytes downloaded across every

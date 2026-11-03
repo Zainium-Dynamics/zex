@@ -487,7 +487,7 @@ pub(super) async fn download_with_bar(
         }
         match download_once(client, url, dest, bar, overall).await {
             Ok(tot) => {
-                bar.finish();
+                ui::finish_pkg_bar(bar);
                 return Ok(tot);
             }
             Err(e) => last_err = Some(e),

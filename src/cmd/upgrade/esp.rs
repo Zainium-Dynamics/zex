@@ -13,20 +13,32 @@ use std::path::{Path, PathBuf};
 
 /// Where the booted kernel files live on the ESP.
 pub const KERNEL_DIR: &str = "overlayer/zaisys/kernel";
+/// The base's limine tool (the `limine` package), which writes the BIOS boot code.
+const LIMINE_TOOL: &str = "/overlayer/syshub/bin/limine";
+/// Where Limine's BIOS stage looks for limine-bios.sys (common/entry.s2.c).
+const BIOS_STAGE3: [&str; 4] = [
+    "boot/limine/limine-bios.sys",
+    "boot/limine-bios.sys",
+    "limine/limine-bios.sys",
+    "limine-bios.sys",
+];
 const MOUNT_AT: &str = "/run/zex-esp";
 
 pub struct Esp {
     pub root: PathBuf,
+    /// The partition, for finding the disk the BIOS boot code goes on.
+    dev: Option<PathBuf>,
     mounted_here: bool,
 }
 
 impl Esp {
     pub fn mount() -> Result<Self> {
         let root_uuid = root_uuid();
-        for (dir, fstype) in mounts() {
+        for (dev, dir, fstype) in mounts() {
             if fstype == "vfat" && is_ours(Path::new(&dir), root_uuid.as_deref()) {
                 return Ok(Esp {
                     root: dir.into(),
+                    dev: Some(dev.into()),
                     mounted_here: false,
                 });
             }
@@ -39,6 +51,7 @@ impl Esp {
             if is_ours(Path::new(MOUNT_AT), root_uuid.as_deref()) {
                 return Ok(Esp {
                     root: MOUNT_AT.into(),
+                    dev: Some(dev),
                     mounted_here: true,
                 });
             }
@@ -49,6 +62,73 @@ impl Esp {
 
     pub fn kernel_dir(&self) -> PathBuf {
         self.root.join(KERNEL_DIR)
+    }
+
+    /// The whole disk the ESP is a partition of (`/dev/nvme0n1` for `/dev/nvme0n1p1`).
+    pub fn disk(&self) -> Option<PathBuf> {
+        let dev = fs::canonicalize(self.dev.as_ref()?).ok()?;
+        let name = dev.file_name()?;
+        let sys = Path::new("/sys/class/block").join(name);
+        if !sys.join("partition").exists() {
+            return None;
+        }
+        let parent = fs::canonicalize(&sys).ok()?.parent()?.file_name()?.to_owned();
+        Some(Path::new("/dev").join(parent))
+    }
+
+    /// Puts a Limine release (the files of `limine-boot`'s `payload/limine/`) on the ESP:
+    /// `BOOTX64.EFI` where UEFI firmware starts it, and `limine-bios.sys` wherever this
+    /// ESP already has it, with the boot code written to the disk by the base's
+    /// `limine` tool. BIOS boot breaks when that boot code and limine-bios.sys are from
+    /// different releases, so limine-bios.sys is only replaced when the base's tool is
+    /// the same release. Returns false when the BIOS part had to wait for that.
+    pub fn install_limine(&self, files: &Path, version: &str) -> Result<bool> {
+        let efi = files.join("BOOTX64.EFI");
+        if efi.is_file() {
+            let dir = self.root.join("EFI/BOOT");
+            fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
+            copy_synced(&efi, &dir.join("BOOTX64.EFI"))?;
+        }
+        let bios = files.join("limine-bios.sys");
+        let targets: Vec<PathBuf> = BIOS_STAGE3
+            .iter()
+            .map(|rel| self.root.join(rel))
+            .filter(|p| p.is_file())
+            .collect();
+        if !bios.is_file() || targets.is_empty() {
+            return Ok(true);
+        }
+        let release = version.split("-r").next().unwrap_or(version);
+        let tool_release = std::process::Command::new(LIMINE_TOOL)
+            .arg("--version")
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .and_then(|out| {
+                out.lines()
+                    .next()?
+                    .strip_prefix("Limine ")
+                    .map(|v| v.trim().to_string())
+            });
+        if tool_release.as_deref() != Some(release) {
+            return Ok(false);
+        }
+        let disk = self
+            .disk()
+            .context("the disk of the EFI partition, for Limine's BIOS boot code")?;
+        for dest in &targets {
+            copy_synced(&bios, dest)?;
+        }
+        let status = std::process::Command::new(LIMINE_TOOL)
+            .arg("bios-install")
+            .arg(&disk)
+            .stdout(std::process::Stdio::null())
+            .status()
+            .context("running limine bios-install")?;
+        if !status.success() {
+            bail!("limine bios-install {} failed", disk.display());
+        }
+        Ok(true)
     }
 
     /// The kernel file limine.conf boots by default: the first entry's `path:` under the
@@ -180,15 +260,15 @@ fn root_uuid() -> Option<String> {
         .map(str::to_string)
 }
 
-/// (mount point, fs type) of every mount.
-fn mounts() -> Vec<(String, String)> {
+/// (device, mount point, fs type) of every mount.
+fn mounts() -> Vec<(String, String, String)> {
     fs::read_to_string("/proc/mounts")
         .unwrap_or_default()
         .lines()
         .filter_map(|l| {
             let mut f = l.split_whitespace();
-            let _dev = f.next()?;
-            Some((f.next()?.to_string(), f.next()?.to_string()))
+            let dev = f.next()?.to_string();
+            Some((dev, f.next()?.to_string(), f.next()?.to_string()))
         })
         .collect()
 }
