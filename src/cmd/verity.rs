@@ -26,16 +26,17 @@ const D: &str = "\x1b[2m";
 const R: &str = "\x1b[0m";
 
 pub fn run(args: Vec<String>) -> Result<()> {
-    let union = args.iter().position(|a| a == "--union");
-    let Some(i) = union else {
-        let on = Path::new(SWITCH).exists();
+    let on = Path::new(SWITCH).exists();
+    let Some(i) = args.iter().position(|a| a == "--union") else {
+        let (sealed, open) = count_tree(Path::new(UNION));
         println!(
-            "\n  Userland fs-verity: {}\n  {D}(elevate zex verity --union on|off){R}\n",
+            "\n  Userland fs-verity: {}\n  {sealed} of {} files are sealed.\n  {D}(elevate zex verity --union on|off){R}\n",
             if on {
                 format!("{G}on{R}, sealed at every boot")
             } else {
                 format!("{Y}off{R}, only the base and zaisys are sealed")
-            }
+            },
+            sealed + open
         );
         return Ok(());
     };
@@ -45,20 +46,29 @@ pub fn run(args: Vec<String>) -> Result<()> {
     }
     match args.get(i + 1).map(String::as_str) {
         Some("on") => {
-            fs::write(SWITCH, b"").with_context(|| format!("creating {SWITCH}"))?;
+            if !on {
+                fs::write(SWITCH, b"").with_context(|| format!("creating {SWITCH}"))?;
+            }
             let (sealed, already, failed) = seal_tree(Path::new(UNION))?;
+            let total = sealed + already;
+            let state = if on { "already on" } else { "on" };
             println!(
-                "\n  {G}✓{R} Userland fs-verity on: {sealed} files sealed now, {already} were already, {failed} could not be sealed (in use or not regular).\n  {D}quantra-ramfs seals new userland files at every boot.{R}\n"
+                "\n  {G}✓{R} Userland fs-verity {state}: {total} files sealed ({sealed} new).{}\n  {D}quantra-ramfs seals new userland files at every boot.{R}\n",
+                if failed > 0 {
+                    format!(" {Y}{failed} could not be sealed{R} (in use or not regular).")
+                } else {
+                    String::new()
+                }
             );
         }
         Some("off") => {
-            match fs::remove_file(SWITCH) {
-                Ok(()) => {}
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                Err(e) => return Err(e).with_context(|| format!("removing {SWITCH}")),
+            if on {
+                fs::remove_file(SWITCH).with_context(|| format!("removing {SWITCH}"))?;
             }
+            let (sealed, _) = count_tree(Path::new(UNION));
+            let state = if on { "off" } else { "already off" };
             println!(
-                "\n  {G}✓{R} Userland fs-verity off: new userland files are no longer sealed at boot.\n  {D}Files sealed already stay sealed until an upgrade or reinstall replaces them.{R}\n"
+                "\n  {G}✓{R} Userland fs-verity {state}: new userland files are not sealed at boot.\n  {D}{sealed} files stay sealed until an upgrade or reinstall replaces them.{R}\n"
             );
         }
         _ => bail!("usage: elevate zex verity --union on|off"),
@@ -66,16 +76,48 @@ pub fn run(args: Vec<String>) -> Result<()> {
     Ok(())
 }
 
-/// Seals every regular file under `top` except the writable trees: (sealed, already, failed).
-fn seal_tree(top: &Path) -> Result<(usize, usize, usize)> {
-    let (mut sealed, mut already, mut failed) = (0, 0, 0);
-    let walker = walkdir::WalkDir::new(top)
+/// The regular files under `top` outside the writable trees.
+fn files(top: &Path) -> impl Iterator<Item = walkdir::Result<walkdir::DirEntry>> {
+    walkdir::WalkDir::new(top)
         .follow_links(false)
         .into_iter()
         .filter_entry(|e| {
             e.depth() != 1 || !WRITABLE.iter().any(|w| e.file_name() == std::ffi::OsStr::new(w))
-        });
-    for entry in walker {
+        })
+}
+
+/// (sealed, not sealed) regular files under `top`, without changing any.
+fn count_tree(top: &Path) -> (usize, usize) {
+    let (mut sealed, mut open) = (0, 0);
+    for entry in files(top).flatten() {
+        if entry.file_type().is_file() {
+            if is_sealed(entry.path()) {
+                sealed += 1;
+            } else {
+                open += 1;
+            }
+        }
+    }
+    (sealed, open)
+}
+
+/// FS_IOC_GETFLAGS: the file has FS_VERITY_FL.
+fn is_sealed(path: &Path) -> bool {
+    const FS_IOC_GETFLAGS: libc::c_ulong = 0x8008_6601;
+    const FS_VERITY_FL: libc::c_long = 0x0010_0000;
+    let Ok(f) = fs::File::open(path) else {
+        return false;
+    };
+    let mut flags: libc::c_long = 0;
+    // SAFETY: `flags` is writable and outlives the call; the fd is open.
+    let r = unsafe { libc::ioctl(f.as_raw_fd(), FS_IOC_GETFLAGS as _, &mut flags) };
+    r == 0 && flags & FS_VERITY_FL != 0
+}
+
+/// Seals every regular file under `top` except the writable trees: (sealed, already, failed).
+fn seal_tree(top: &Path) -> Result<(usize, usize, usize)> {
+    let (mut sealed, mut already, mut failed) = (0, 0, 0);
+    for entry in files(top) {
         let Ok(entry) = entry else {
             failed += 1;
             continue;
