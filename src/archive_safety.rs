@@ -319,12 +319,30 @@ pub const UNION_ROOT: &str = "/overlayer/zexlib/union";
 /// The merged overlay whose upper layer is [`UNION_ROOT`].
 pub const LIVE_ROOT: &str = "/overlayer/syshub";
 
-/// Where a union path is written or removed: through the merged mount, so the overlay
-/// sees the change at once (writing the upper layer behind its back stays invisible until reboot).
+/// Whether the merged mount takes writes. On an installed system it is read-only and
+/// `sealed`: nothing writes through it, and the kernel shows changes made in the upper
+/// layer at once. The live system's overlay is writable.
+pub fn live_is_writable() -> bool {
+    static WRITABLE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *WRITABLE.get_or_init(|| {
+        let Ok(path) = std::ffi::CString::new(LIVE_ROOT) else {
+            return false;
+        };
+        // SAFETY: `path` is a valid NUL-terminated string and `st` a writable statvfs.
+        unsafe {
+            let mut st: libc::statvfs = std::mem::zeroed();
+            libc::statvfs(path.as_ptr(), &mut st) == 0 && st.f_flag & libc::ST_RDONLY == 0
+        }
+    })
+}
+
+/// Where a union path is written or removed: the upper layer itself under a sealed view,
+/// through the merged mount when that is writable (there, writing the upper layer behind
+/// the overlay's back stays invisible until reboot).
 /// Reads of the userland-only view keep using the union path itself.
 pub fn live_path(p: &Path) -> PathBuf {
     match p.strip_prefix(UNION_ROOT) {
-        Ok(rel) if Path::new(LIVE_ROOT).is_dir() => Path::new(LIVE_ROOT).join(rel),
+        Ok(rel) if live_is_writable() => Path::new(LIVE_ROOT).join(rel),
         _ => p.to_path_buf(),
     }
 }
