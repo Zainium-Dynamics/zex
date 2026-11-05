@@ -7,7 +7,7 @@ use crate::cmd::install::registry::PkgRecord;
 /// Snapshots the pre-operation state of a whole package batch (a main
 /// package plus every dependency being installed alongside it) as ONE
 /// transaction, so a failure partway through can roll back everything
-/// that already succeeded — not just the single package that happened to
+/// that already succeeded: not just the single package that happened to
 /// fail. Returns the transaction id for use with `rollback::rollback_userland`.
 pub fn create_snapshot(pkgs: &[String], op: &str) -> std::io::Result<String> {
     let ts = SystemTime::now()
@@ -25,9 +25,6 @@ pub fn create_snapshot(pkgs: &[String], op: &str) -> std::io::Result<String> {
     };
     let target_label = pkgs.join(",");
 
-    // Zex writes receipts to /overlayer/zexlib/registry/installed/PKG.toml.
-    // Snapshot each package's pre-existing receipt (if any — a fresh
-    // install has none) so the whole batch can be rolled back together.
     let mut existing: Vec<(String, PkgRecord)> = Vec::new();
     for pkg in pkgs {
         let live_receipt =
@@ -62,9 +59,6 @@ pub fn create_snapshot(pkgs: &[String], op: &str) -> std::io::Result<String> {
     }
 
     if op == "remove" || op == "upgrade" {
-        // Aggregate every affected package's files into one backup — the
-        // restore side just extracts by path, it doesn't need to know
-        // which package a file belonged to.
         let all_files: Vec<String> = existing
             .iter()
             .flat_map(|(_, r)| r.installed_files.clone())
@@ -74,7 +68,6 @@ pub fn create_snapshot(pkgs: &[String], op: &str) -> std::io::Result<String> {
         }
     }
 
-    // Implicit Strict Rule of 3 Enforcement
     let _ = prune_transactions(3);
 
     Ok(tx_id)
@@ -88,7 +81,6 @@ fn create_tar_backup(paths: &[String], dest: &Path) -> std::io::Result<()> {
     for path_str in paths {
         let p = Path::new(path_str);
         if p.exists() && p.is_file() {
-            // Strip the leading slash so tar doesn't complain about absolute paths
             let tar_path = p.strip_prefix("/").unwrap_or(p);
             let mut f = fs::File::open(p)?;
             builder.append_file(tar_path, &mut f)?;

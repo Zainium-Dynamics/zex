@@ -1,28 +1,4 @@
-//! zex_manifest.rs — Reads `manifest.toml` from inside a `.zex` archive.
-//!
-//! Every `.zex` file is a `tar.zst` with this layout:
-//!
-//!   archive.zex
-//!   ├── manifest.toml      ← THIS file — package metadata + install map
-//!   └── payload/           ← actual files to install
-//!       ├── bin/
-//!       ├── lib/
-//!       ├── share/
-//!       └── etc/
-//!
-//! `manifest.toml` schema:
-//!
-//!   [package]        — identity + metadata
-//!   [install]        — where each payload dir maps to on disk
-//!   [remove]         — files/dirs deleted on `zex remove`
-//!   [editions]       — optional: available editions + default
-//!   [edition.2021]   — per-edition overrides (Rust-style)
-//!
-//! The installer reads manifest.toml BEFORE extracting payload/ so it can:
-//!   1. Verify ed25519 signature (package.ed25519_sig)
-//!   2. Resolve install paths per-package (no hardcoding in the driver)
-//!   3. Know exactly which files to remove on uninstall
-//!   4. Handle edition selection
+//! zex_manifest.rs: Reads `manifest.toml` from inside a `.zex` archive.
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
@@ -32,8 +8,6 @@ use std::{
     io::Read,
     path::{Path, PathBuf},
 };
-
-// ── Schema ────────────────────────────────────────────────────────────────────
 
 /// Full contents of `manifest.toml` inside a `.zex` archive.
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -48,7 +22,7 @@ pub struct ZexManifest {
     pub hooks: HookMap,
 }
 
-/// [package] — identity and metadata.
+/// [package]: identity and metadata.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PackageMeta {
     pub name: String,
@@ -74,7 +48,7 @@ pub struct PackageMeta {
     #[serde(default)]
     pub blake3: Option<String>,
     /// Ed25519 verifying key embedded by `substrate pack` (hex, 32 bytes).
-    /// Ephemeral per-build — there is no fixed publisher key any more, so
+    /// Ephemeral per-build: there is no fixed publisher key any more, so
     /// this is what `trust.rs` verifies the signature against.
     #[serde(default)]
     pub ed25519_pubkey: Option<String>,
@@ -89,7 +63,7 @@ pub struct PackageMeta {
     pub tags: Vec<String>,
 }
 
-/// [install] — maps payload/ subdirs to absolute on-disk destinations.
+/// [install]: maps payload/ subdirs to absolute on-disk destinations.
 ///
 /// Keys are relative payload paths (e.g. "bin"), values are absolute
 /// Zainium overlayer paths (e.g. "/overlayer/zexlib/union/bin").
@@ -117,8 +91,8 @@ pub struct InstallMap {
     pub _kernel: bool,
 }
 
-/// [remove] — exact file/dir list written by the installer at install time.
-/// Used verbatim by `zex remove` — no guessing, no glob scanning.
+/// [remove]: exact file/dir list written by the installer at install time.
+/// Used verbatim by `zex remove`: no guessing, no glob scanning.
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct RemoveMap {
     /// Absolute paths of installed files (populated by installer, not shipped)
@@ -132,7 +106,7 @@ pub struct RemoveMap {
     pub symlinks: Vec<String>,
 }
 
-/// [editions] — optional edition support (Rust-style).
+/// [editions]: optional edition support (Rust-style).
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct EditionSet {
     /// All editions shipped in this .zex
@@ -141,7 +115,7 @@ pub struct EditionSet {
     pub default: String,
 }
 
-/// [edition.<name>] overrides — per-edition install path differences.
+/// [edition.<name>] overrides: per-edition install path differences.
 /// If a specific edition is selected, its overrides are merged into InstallMap.
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct HookMap {
@@ -159,10 +133,8 @@ pub struct HookMap {
     pub post_remove: Option<String>,
 }
 
-// ── Reader ────────────────────────────────────────────────────────────────────
-
 /// Extract and parse `manifest.toml` from a `.zex` archive.
-/// Does NOT extract payload/ — call `extract_payload` separately.
+/// Does NOT extract payload/: call `extract_payload` separately.
 pub fn read_from_zex(zex_path: &Path) -> Result<ZexManifest> {
     let dec = crate::zex_codec::open_decoder(zex_path)
         .with_context(|| format!("opening {}", zex_path.display()))?;
@@ -197,7 +169,6 @@ pub fn extract_payload(
     #[cfg(unix)]
     use std::os::unix::fs::symlink;
 
-    // Build the install map — payload_prefix → dest_root
     let install_map = &manifest.install.paths;
 
     let dec = crate::zex_codec::open_decoder(zex_path)?;
@@ -210,7 +181,6 @@ pub fn extract_payload(
         let raw_path = entry.path()?.into_owned();
         let rel = raw_path.to_string_lossy();
 
-        // Only process payload/ entries
         if !rel.starts_with("payload/") {
             continue;
         }
@@ -222,13 +192,10 @@ pub fn extract_payload(
             continue;
         }
 
-        // Match the first path component against the install map
         let dest_abs = resolve_install_dest(inner, install_map)?;
 
         let typ = entry.header().entry_type();
 
-        // Edition filtering: if edition-specific subdir exists, only install
-        // files from payload/<edition>/ and skip others for that component.
         if let Some(ed) = edition {
             let first_component = inner.split('/').next().unwrap_or("");
             let all_editions = manifest
@@ -236,7 +203,6 @@ pub fn extract_payload(
                 .as_ref()
                 .map(|e| e.available.as_slice())
                 .unwrap_or(&[]);
-            // If this is an edition-prefixed path for a *different* edition, skip
             if all_editions.contains(&first_component.to_string()) && first_component != ed {
                 continue;
             }
@@ -293,14 +259,13 @@ pub fn resolve_install_dest_pub(
 }
 
 fn resolve_install_dest(inner: &str, install_map: &HashMap<String, String>) -> Result<PathBuf> {
-    // Try longest prefix match first (e.g. "lib64" before "lib")
     let mut best_prefix = "";
     let mut best_dest = "";
 
     for (prefix, dest) in install_map {
         if prefix.starts_with('_') {
             continue;
-        } // skip special keys
+        }
         let pfx = prefix.trim_end_matches('/');
         if (inner == pfx || inner.starts_with(&format!("{pfx}/"))) && pfx.len() > best_prefix.len()
         {
@@ -310,7 +275,6 @@ fn resolve_install_dest(inner: &str, install_map: &HashMap<String, String>) -> R
     }
 
     if best_dest.is_empty() {
-        // No explicit mapping — fall back to union root
         let fallback = "/overlayer/zexlib/union";
         return Ok(PathBuf::from(fallback).join(inner));
     }
@@ -325,8 +289,6 @@ fn resolve_install_dest(inner: &str, install_map: &HashMap<String, String>) -> R
 
     Ok(PathBuf::from(best_dest).join(remainder))
 }
-
-// ── Receipt writer ────────────────────────────────────────────────────────────
 
 const INSTALLED_DIR: &str = "/overlayer/zexlib/registry/installed";
 

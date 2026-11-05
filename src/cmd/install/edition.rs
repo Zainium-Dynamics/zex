@@ -1,21 +1,4 @@
-//! edition.rs — Package edition management.
-//!
-//! Some packages (Rust, GCC, Python) ship multiple editions inside one .zex.
-//! An "edition" is a self-contained variant of a package:
-//!   rust-1.87.0.zex
-//!     payload/
-//!       2015/          ← Rust 2015 edition toolchain
-//!       2018/          ← Rust 2018 edition toolchain
-//!       2021/          ← Rust 2021 edition toolchain (default)
-//!       2024/          ← Rust 2024 edition toolchain
-//!       bin/           ← shared binaries (rustc, cargo) — always installed
-//!       lib/           ← shared libs — always installed
-//!
-//! Commands:
-//!   elevate zex edition add rust 2024
-//!   elevate zex edition remove rust 2018
-//!   elevate zex edition list rust
-//!   elevate zex edition set-default rust 2021
+//! edition.rs: Package edition management.
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
@@ -29,8 +12,6 @@ use super::{
 const INSTALLED_DIR: &str = "/overlayer/zexlib/registry/installed";
 const CACHE_DIR: &str = "/overlayer/zexlib/registry/cache";
 
-// ── Receipt with edition tracking ─────────────────────────────────────────────
-
 #[derive(Debug, Deserialize, Serialize)]
 struct EditionReceipt {
     name: String,
@@ -42,8 +23,6 @@ struct EditionReceipt {
     /// Shared files (always installed, not edition-specific)
     shared_remove: RemoveMap,
 }
-
-// ── Public API ────────────────────────────────────────────────────────────────
 
 /// List all editions available in an installed package.
 pub fn list_editions(pkg_name: &str) -> Result<()> {
@@ -76,7 +55,6 @@ pub fn list_editions(pkg_name: &str) -> Result<()> {
 pub fn add_edition(pkg_name: &str, edition: &str) -> Result<()> {
     let mut receipt = load_edition_receipt(pkg_name)?;
 
-    // Check already installed
     if receipt.active_editions.contains(&edition.to_string()) {
         println!(
             " {G}Edition {B}{edition}{G} is already installed for {P}{pkg_name}{G}.{RST}",
@@ -88,11 +66,9 @@ pub fn add_edition(pkg_name: &str, edition: &str) -> Result<()> {
         return Ok(());
     }
 
-    // Find cached .zex
     let zex_path = find_cached_zex(pkg_name, &receipt.version)?;
     let manifest = zex_manifest::read_from_zex(&zex_path)?;
 
-    // Validate edition exists in manifest
     let editions = manifest
         .editions
         .as_ref()
@@ -114,7 +90,6 @@ pub fn add_edition(pkg_name: &str, edition: &str) -> Result<()> {
         RST = ui::RST
     );
 
-    // Extract only files for this specific edition from payload/<edition>/
     let steps = crate::steps::Guard::new();
     ui::print_install_step("Installing edition");
     let rm = extract_single_edition(&zex_path, &manifest, edition)?;
@@ -159,7 +134,6 @@ pub fn remove_edition(pkg_name: &str, edition: &str) -> Result<()> {
 
     let rm = receipt.edition_removes.remove(edition).unwrap_or_default();
 
-    // Delete files
     let live = |p: &String| crate::archive_safety::live_path(std::path::Path::new(p));
     for file in &rm.files {
         let _ = fs::remove_file(live(file));
@@ -168,10 +142,9 @@ pub fn remove_edition(pkg_name: &str, edition: &str) -> Result<()> {
         let _ = fs::remove_file(live(link));
     }
     for dir in rm.dirs.iter().rev() {
-        let _ = fs::remove_dir(live(dir)); // only succeeds if empty
+        let _ = fs::remove_dir(live(dir));
     }
 
-    // Update default if needed
     if receipt.default_edition == edition {
         let next = receipt
             .active_editions
@@ -223,8 +196,6 @@ pub fn set_default_edition(pkg_name: &str, edition: &str) -> Result<()> {
     Ok(())
 }
 
-// ── Edition-aware install (called by infuse.rs after download) ────────────────
-
 /// Install a package using its manifest.toml, honouring the selected edition.
 /// Returns the RemoveMap written into the receipt.
 pub fn install_with_manifest(
@@ -237,10 +208,8 @@ pub fn install_with_manifest(
 
     let rm = zex_manifest::extract_payload(zex_path, manifest, edition)?;
 
-    // Write receipt
     zex_manifest::write_receipt(manifest, &rm)?;
 
-    // If editions exist, write edition receipt too
     if let Some(eds) = &manifest.editions {
         let ed_name = edition.unwrap_or(&eds.default).to_string();
         let ed_receipt = EditionReceipt {
@@ -260,8 +229,6 @@ pub fn install_with_manifest(
 
     Ok(rm)
 }
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn edition_receipt_path(pkg_name: &str) -> std::path::PathBuf {
     Path::new(INSTALLED_DIR).join(format!("{pkg_name}.editions.toml"))
@@ -330,7 +297,6 @@ fn extract_single_edition(
             .strip_prefix("payload/")
             .unwrap_or("")
             .trim_start_matches('/');
-        // Only accept paths under payload/<edition>/
         let pfx = format!("{edition}/");
         if !inner.starts_with(&pfx) {
             continue;
@@ -340,9 +306,7 @@ fn extract_single_edition(
             continue;
         }
 
-        // Map edition-relative path using install map
         let dest = super::zex_manifest::resolve_install_dest_pub(inner_rel, install_map)?;
-        // recorded as the union path, written through the merged mount
         let live = crate::archive_safety::live_path(&dest);
         let typ = entry.header().entry_type();
         if typ.is_dir() {

@@ -320,7 +320,6 @@ pub fn startup_cleanup(config: &BackendConfig) -> CleanupReport {
         return report;
     }
 
-    // temp artifacts
     for p in ["/tmp", "/var/tmp"] {
         if let Ok(rd) = fs::read_dir(p) {
             for e in rd.flatten() {
@@ -334,7 +333,6 @@ pub fn startup_cleanup(config: &BackendConfig) -> CleanupReport {
         }
     }
 
-    // stale locks
     let lock_ttl = Duration::from_secs(config.stale_lock_ttl_minutes.saturating_mul(60));
     if let Ok(rd) = fs::read_dir(zex_lock_dir()) {
         for e in rd.flatten() {
@@ -350,7 +348,6 @@ pub fn startup_cleanup(config: &BackendConfig) -> CleanupReport {
         }
     }
 
-    // orphan txn journals
     let txn_ttl = Duration::from_secs(config.txn_retention_hours.saturating_mul(3600));
     if let Ok(rd) = fs::read_dir(zex_txn_dir()) {
         for e in rd.flatten() {

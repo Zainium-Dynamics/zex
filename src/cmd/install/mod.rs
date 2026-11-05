@@ -1,4 +1,3 @@
-// cmd/install/mod.rs — re-exports the install driver entry point
 pub mod activation;
 pub mod adb;
 pub mod apk;

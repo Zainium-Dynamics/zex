@@ -1,10 +1,4 @@
-//! blocked.rs — package names Zainium's base (syshub) already provides, so they
-//! are never installed into userland. As a dependency a blocked name counts as
-//! satisfied and is never downloaded; installing one directly is refused.
-//!
-//! This is the hand-kept fallback for names `backend::is_in_syshub` can't detect
-//! from files (e.g. `coreutils`, which Zainium's own `userutils` replaces). To
-//! block a name, add a `| "name"` line to the list in `provided_by`.
+//! blocked.rs: package names Zainium's base (syshub) already provides, so they
 
 /// What in the base provides `name`, if `name` is blocked in userland.
 /// `name` should already be constraint-stripped and lowercased.

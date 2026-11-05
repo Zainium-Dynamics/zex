@@ -1,21 +1,4 @@
-//! downloader.rs — Streaming HTTP downloader with live progress reporting.
-//!
-//! Design goals
-//! ────────────
-//! • Stream the response body chunk-by-chunk directly to disk; never buffer
-//!   the entire file in memory (packages can be hundreds of megabytes).
-//! • Update the indicatif progress bar on every received chunk so the UI
-//!   stays responsive even on slow connections.
-//! • Detect mid-download network failures (broken pipe, reset, timeout) and
-//!   propagate them as a typed `DownloadError::NetworkLost` so the caller can
-//!   show the correct "Connection lost / system kept clean" message.
-//! • Clean up the partially-written file on any failure — the caller must
-//!   never have to think about orphaned temp files.
-//!
-//! The caller is responsible for:
-//!   1. Creating the destination path (typically inside a `tempdir`).
-//!   2. Passing an already-styled progress bar (created by `ui::make_download_bar`).
-//!   3. Removing the temp directory after the package is installed.
+//! downloader.rs: Streaming HTTP downloader with live progress reporting.
 
 use std::path::Path;
 use std::time::Instant;
@@ -28,9 +11,7 @@ use tokio::io::{AsyncWriteExt, BufWriter};
 use super::backend::{BackendConfig, DownloadStats};
 use super::runtime::{self, LogLevel};
 
-// ─── Error type ───────────────────────────────────────────────────────────────
-
-/// Typed download error — lets equip.rs choose the right UI message.
+/// Typed download error: lets equip.rs choose the right UI message.
 #[derive(Debug, thiserror::Error)]
 pub enum DownloadError {
     /// The connection broke after at least one byte was received.
@@ -46,8 +27,6 @@ pub enum DownloadError {
     Other(#[from] anyhow::Error),
 }
 
-// ─── Public API ───────────────────────────────────────────────────────────────
-
 const MAX_RETRIES: u32 = 3;
 
 /// Downloads `url` to `dest` with **up to 3 retries** (exponential backoff).
@@ -56,7 +35,7 @@ const MAX_RETRIES: u32 = 3;
 ///   - Attempt 1: immediate
 ///   - Attempt 2: wait 500 ms
 ///   - Attempt 3: wait 1 000 ms
-///   - Attempt 4: wait 2 000 ms — then give up
+///   - Attempt 4: wait 2 000 ms: then give up
 ///
 /// Only `NetworkLost` is retried; `HttpError` (4xx/5xx) and `Other` are
 /// returned immediately because retrying won't fix a missing file or bad auth.
@@ -81,7 +60,6 @@ pub async fn download(
                 delay
             ));
             tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
-            // Reset bar for the fresh attempt
             pb.set_position(0);
             pb.set_message("Downloading…");
         }
@@ -113,7 +91,6 @@ pub async fn download(
                 return Err(DownloadError::NetworkLost { bytes_received });
             }
             Err(e) => {
-                // Non-retryable: clean up and return immediately
                 let _ = tokio::fs::remove_file(dest).await;
                 runtime::log_event(
                     config,
@@ -125,7 +102,6 @@ pub async fn download(
         }
     }
 
-    // Unreachable — loop always returns — but required for type safety
     let _ = tokio::fs::remove_file(dest).await;
     Err(DownloadError::NetworkLost { bytes_received: 0 })
 }
@@ -137,7 +113,6 @@ async fn try_download(
     client: &reqwest::Client,
     pb: &ProgressBar,
 ) -> std::result::Result<DownloadStats, DownloadError> {
-    // ── 1. Open HTTP connection ──────────────────────────────────────────────
     let response = client
         .get(url)
         .send()
@@ -151,24 +126,18 @@ async fn try_download(
         });
     }
 
-    // Content-Length may be absent; in that case the progress bar was created
-    // as an indeterminate spinner by ui::make_download_bar.
     let total = response.content_length().unwrap_or(0);
 
-    // Re-set the bar length in case the caller created it with a placeholder.
     if total > 0 {
         pb.set_length(total);
     }
 
-    // ── 2. Open destination file ─────────────────────────────────────────────
     let file = tokio::fs::File::create(dest)
         .await
         .map_err(|e| DownloadError::Other(anyhow::anyhow!("cannot create temp file: {}", e)))?;
 
-    // Use a large 128KB buffer for high-speed SSD/NVMe writes.
     let mut writer = BufWriter::with_capacity(128 * 1024, file);
 
-    // ── 3. Stream body to disk ────────────────────────────────────────────────
     let mut stream = response.bytes_stream();
     let mut bytes_written = 0u64;
     let start = Instant::now();
@@ -193,7 +162,6 @@ async fn try_download(
         pb.set_position(bytes_written);
     }
 
-    // Flush the BufWriter to ensure all data is on disk.
     writer
         .flush()
         .await
@@ -206,7 +174,6 @@ async fn try_download(
         0.0
     };
 
-    // Mark the bar complete.
     pb.set_position(bytes_written);
     pb.finish_with_message(pb.message().to_string());
 
@@ -217,8 +184,6 @@ async fn try_download(
     })
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
 pub async fn download_to_vec_with_progress(
     client: &reqwest::Client,
     url: &str,
@@ -226,7 +191,6 @@ pub async fn download_to_vec_with_progress(
 ) -> anyhow::Result<(Vec<u8>, bool)> {
     let mut request = client.get(url);
 
-    // Check if we have a cached version to send If-Modified-Since
     let safe_name = url.replace(|c: char| !c.is_alphanumeric(), "_");
     let cache_dir = "/overlayer/syshub/var/cache/zex/equip";
     let cache_path = std::path::PathBuf::from(cache_dir).join(&safe_name);
@@ -273,9 +237,5 @@ pub async fn download_to_vec_with_progress(
 /// Returns true when a reqwest error looks like a mid-stream network failure
 /// (as opposed to a malformed response or a deliberate HTTP error).
 fn is_network_error(e: &reqwest::Error) -> bool {
-    // reqwest surfaces connection-related errors as "request errors" rather
-    // than decode errors.  The most reliable check is whether the error is
-    // a body/stream error (i.e. the connection broke after headers were
-    // received, which is exactly the "downloading but network died" case).
     e.is_body() || e.is_connect() || e.is_timeout()
 }

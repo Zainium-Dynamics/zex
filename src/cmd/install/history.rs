@@ -1,18 +1,4 @@
-//! history.rs — Transaction History Engine for Zex.
-//!
-//! Logs every install/remove/upgrade/pin operation with full metadata.
-//! Stored at /overlayer/zexlib/history.toml (TOML, not JSON — kept
-//! consistent with every other piece of zex-managed state: receipts,
-//! packages.toml master index, transaction snapshots — all TOML, no
-//! JSON, no SQL). Moved here from /var/lib/zex/history.json — that path
-//! sat outside /overlayer entirely, which is inconsistent with every
-//! other piece of zex state living under zexlib.
-//!
-//! Features:
-//!   • Full audit trail of every package operation
-//!   • Timestamps, package lists, operation types, success/failure
-//!   • Query by date range or package name
-//!   • Enables future `zex history undo <id>` functionality
+//! history.rs: Transaction History Engine for Zex.
 
 use std::path::Path;
 
@@ -21,8 +7,6 @@ use serde::{Deserialize, Serialize};
 
 const HISTORY_PATH: &str = "/overlayer/zexlib/history.toml";
 const MAX_HISTORY_ENTRIES: usize = 1000;
-
-// ─── Data Types ──────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum OperationType {
@@ -74,15 +58,13 @@ pub struct PackageRecord {
     pub format: String,
 }
 
-/// TOML requires a top-level table, not a bare array — this wraps the
+/// TOML requires a top-level table, not a bare array: this wraps the
 /// entry list as `[[entry]]` array-of-tables.
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct HistoryFile {
     #[serde(default, rename = "entry")]
     entries: Vec<HistoryEntry>,
 }
-
-// ─── Core API ────────────────────────────────────────────────────────────────
 
 /// Load the history log from disk. Returns empty vec if file doesn't exist.
 pub fn load_history() -> Vec<HistoryEntry> {
@@ -110,7 +92,6 @@ fn save_history(entries: &[HistoryEntry]) -> Result<()> {
     };
     let toml_str = toml::to_string_pretty(&file).context("Failed to serialize history")?;
 
-    // Atomic write: write to temp, then rename
     let tmp_path = format!("{}.tmp", HISTORY_PATH);
     std::fs::write(&tmp_path, &toml_str).context("Failed to write history temp file")?;
     std::fs::rename(&tmp_path, HISTORY_PATH).context("Failed to commit history file")?;
@@ -128,10 +109,8 @@ pub fn record(
 ) -> Result<()> {
     let mut history = load_history();
 
-    // Compute next ID
     let next_id = history.iter().map(|e| e.id).max().unwrap_or(0) + 1;
 
-    // Detect user
     let user = std::env::var("SUDO_USER")
         .or_else(|_| std::env::var("USER"))
         .unwrap_or_else(|_| "root".to_string());
@@ -149,7 +128,6 @@ pub fn record(
 
     history.push(entry);
 
-    // Prune oldest entries if exceeding max
     while history.len() > MAX_HISTORY_ENTRIES {
         history.remove(0);
     }
@@ -172,8 +150,6 @@ pub fn find_by_package(name: &str) -> Vec<HistoryEntry> {
         .filter(|e| e.packages.iter().any(|p| p.name.eq_ignore_ascii_case(name)))
         .collect()
 }
-
-// ─── Tests ───────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {

@@ -1,23 +1,4 @@
-//! installer.rs — Atomic package extractor with snapshot-based rollback.
-//!
-//! Architecture (Snapshot → Stage → Commit → Cleanup):
-//!   1. Snapshot:  If upgrading, back up every file the old package owns
-//!                 to /var/cache/zex/snapshots/<pkg>-<ts>/.
-//!   2. Stage:    Extract the new package into a private TempDir — never
-//!                directly into /.  Nothing on the live system is touched yet.
-//!   3. Commit:   Move staged files from TempDir to their final / destinations.
-//!                On failure, the snapshot is restored — system is never broken.
-//!   4. Cleanup:  Remove orphan files from the old version, then delete the
-//!                snapshot and staging dirs.
-//!
-//! No other mainstream package manager (apt, pacman, dnf) does file-level
-//! backup before overwriting.  If they fail midway, the system is left
-//! half-installed.  Zex guarantees atomic installs.
-//!
-//! Additional features:
-//!   • Streaming Decompression: Feed tar directly from the decompressor.
-//!   • SHA256 / Blake3 integrity: Verify every package before extracting.
-//!   • Supported formats only: `.zex` (zexc), `.apk` (gzip), `.xbps` (zstd).
+//! installer.rs: Atomic package extractor with snapshot-based rollback.
 
 use std::collections::HashSet;
 use std::io::{Read, Seek};
@@ -76,7 +57,7 @@ pub struct InstallTelemetry {
     pub detected_launch_cmd: Option<String>,
     /// Set when this call was a no-op because the dependency's files are
     /// already fully provided by syshub under a different package name
-    /// (e.g. Void's `ncurses-libs` vs syshub's `ncurses`) — nothing was
+    /// (e.g. Void's `ncurses-libs` vs syshub's `ncurses`): nothing was
     /// staged, registered, or committed.
     pub skipped_syshub_satisfied: bool,
     /// Libraries the package links against that neither it nor the system provides.
@@ -98,11 +79,7 @@ impl Drop for InstallPackageLock {
     }
 }
 
-// ─── Snapshot Constants ───────────────────────────────────────────────────────
-
 const SNAPSHOT_BASE: &str = "/overlayer/syshub/var/cache/zex/snapshots";
-
-// ─── Public API ───────────────────────────────────────────────────────────────
 
 /// Scan staged files for the primary binary name.
 /// Returns the basename of the first file under usr/bin/ or usr/sbin/.
@@ -152,7 +129,7 @@ fn compute_symlink_target(
 /// already owns a file that this package would install, the operation is aborted
 /// with a clear error unless `--force` is used.
 ///
-/// Pipeline order (CRITICAL — do not reorder):
+/// Pipeline order (CRITICAL: do not reorder):
 ///   1. Verify integrity + signature
 ///   2. Snapshot (upgrade only)
 ///   3. Extract to Content Store
@@ -165,7 +142,7 @@ fn compute_symlink_target(
 ///  10. Cleanup snapshot
 /// Detached-signature material for Void `.xbps` packages, fetched
 /// asynchronously (alongside the package download) before this otherwise
-/// fully synchronous install pipeline runs — xbps is the one format whose
+/// fully synchronous install pipeline runs: xbps is the one format whose
 /// signature isn't self-contained in the package file itself.
 pub struct XbpsVerifyData {
     pub sig2: Vec<u8>,
@@ -184,10 +161,8 @@ pub fn install(
     allow_missing_libs: bool,
 ) -> Result<InstallTelemetry> {
     let _pkg_lock = acquire_package_lock(&info.name)?;
-    // parallel installs share one step line owned by the caller
     let steps = (!parallel).then(crate::steps::Guard::new);
 
-    // ── Step 1: Verify ────────────────────────────────────────────────────
     let verify_start = Instant::now();
     if !parallel {
         ui::print_install_step("Verifying integrity");
@@ -202,7 +177,6 @@ pub fn install(
 
     let extract_start = Instant::now();
 
-    // ── Step 2: Snapshot (upgrade only) ───────────────────────────────────
     let snapshot_dir = if let Some(old) = existing {
         if !parallel {
             ui::print_install_step("Snapshotting previous version");
@@ -213,12 +187,10 @@ pub fn install(
         None
     };
 
-    // ── Step 3: Stage — extract into Content Store, NOT into / ───────────
     if !parallel {
         ui::print_install_step("Extracting to Content Store");
     }
 
-    // Create a staging directory in the same filesystem as union/ for fast atomic renames
     let zex_tmp = Path::new("/overlayer/zexlib/tmp");
     let _ = std::fs::create_dir_all(zex_tmp);
     let stage_dir = tempfile::Builder::new()
@@ -242,17 +214,13 @@ pub fn install(
     let postinstall_script = match stage_result {
         Ok(script) => script,
         Err(e) => {
-            // Staging failed — nothing on the live system was touched.
-            // Snapshot (if any) is still intact, no restore needed.
             cleanup_snapshot(&snapshot_dir);
             return Err(e);
         }
     };
 
-    // Detect the actual binary name from extracted files (Phase 4 — launch_cmd fix)
     let detected_launch = detect_launch_cmd(&staged_files, &store_path);
 
-    // shared indexes and caches are rebuilt for the whole system, never taken from one package
     staged_files.retain(|staged| {
         let generated = staged.strip_prefix(&store_path).is_ok_and(|rel| {
             super::generated::is_generated(&crate::archive_safety::remap_usr_paths(
@@ -265,28 +233,6 @@ pub fn install(
         !generated
     });
 
-    // ── Step 3b: ELF-patch + pkg-config-patch staged files ────────────────
-    //
-    // Alpine/Void/Chimera binaries carry a host-FHS PT_INTERP/RPATH that
-    // doesn't resolve under /overlayer/, and their `-dev` packages' `.pc`
-    // files carry FHS `prefix=/usr` path variables that don't either. Must
-    // happen here, while staged_files are still mutable under store_path —
-    // files become immutable right after commit() at Step 7 below.
-    //
-    // Unconditional across every PackageFormat — NOT gated on
-    // `info.format != PackageFormat::Zex` as before. That gate assumed a
-    // `.zex` container always means "already correctly built against
-    // /overlayer/ at packaging time", which is only true for genuinely
-    // T1-native packages. It's false for foreign packages substrate has
-    // repackaged INTO a `.zex` container (confirmed live: the real
-    // production `curl-dev-8.21.0.zex` ships `native = false` in its own
-    // manifest.toml and its `libcurl.pc` still had a wrong prefix baked
-    // in) — those never reached either patch pass under the old gate.
-    // Both passes are idempotent no-ops on already-correct native
-    // binaries/`.pc` files (elfpatch only rewrites genuinely-FHS entries
-    // and otherwise just appends missing fallback RPATH entries; pcpatch
-    // only rewrites lines already under a recognized foreign/wrong root),
-    // so running them unconditionally is safe.
     if let Err(e) = super::elfpatch::patch_staged_elfs(&staged_files) {
         cleanup_snapshot(&snapshot_dir);
         return Err(e);
@@ -297,24 +243,12 @@ pub fn install(
         cleanup_snapshot(&snapshot_dir);
         return Err(e);
     }
-    // Shebang scripts (`#!/bin/sh`, `#!/usr/bin/env ...`) — exec() resolves
-    // that path literally with no fallback, and Zainium has no `/bin` or
-    // `/usr/bin` at all, so an unpatched script fails with ENOENT despite
-    // installing "successfully". Same timing/staging constraint as the
-    // two passes above.
     if let Err(e) = super::shebangpatch::patch_staged_scripts(&staged_files) {
         cleanup_snapshot(&snapshot_dir);
         return Err(e);
     }
-    // a library's SONAME link the package forgot (libwget.so.4 -> libwget.so.4.0.0)
     super::libcheck::add_soname_links(&mut staged_files);
 
-    // ── Step 4: Compute final system paths ───────────────────────────────
-    //
-    // Build the list of system paths inside /overlayer/zexlib/union/ from staged files.
-    // We are bypassing the legacy / symlinks and overlay mount, and directly populating the union layer.
-    // Final destinations always under /overlayer/zexlib/union/
-    // (apk/xbps archive paths already remapped: usr/bin → bin, etc.)
     let union_root = Path::new(crate::archive_safety::UNION_ROOT);
     let mut committed_files = Vec::new();
 
@@ -327,20 +261,11 @@ pub fn install(
             )
         })?;
 
-        // Re-apply remapping so any leftover FHS prefixes never escape into union.
         let clean_rel = crate::archive_safety::remap_usr_paths(rel.to_path_buf());
         let final_path = union_root.join(clean_rel);
         committed_files.push(final_path);
     }
 
-    // Some packages emit multiple archive entries that remap onto the
-    // *same* final union path — confirmed with Void's `base-files`, where
-    // both the root-level "sbin" symlink and the separate "usr/sbin"
-    // symlink collapse onto the identical union "sbin" destination. Keep
-    // only the last one (matching what already happens on disk in the
-    // staging tree itself, where the later symlink()/write() call always
-    // wins) — otherwise the commit loop below tries to `rename()` the same
-    // already-moved staged file twice and fails with ENOENT the second time.
     {
         let mut pairs: Vec<(PathBuf, PathBuf)> = staged_files
             .into_iter()
@@ -355,8 +280,6 @@ pub fn install(
         committed_files = new_committed;
     }
 
-    // what the package's programs and libraries link against but nothing provides yet;
-    // unless allowed, stop before touching the system so the caller can install the providers
     let missing_libs = super::libcheck::missing_libraries(&staged_files);
     if !missing_libs.is_empty() && !allow_missing_libs {
         cleanup_snapshot(&snapshot_dir);
@@ -368,17 +291,6 @@ pub fn install(
         });
     }
 
-    // ── Step 4b: Pre-flight conflict check ────────────────────────────────
-    //
-    // Must run against committed_files (final union destinations), not
-    // staged_files (temp dir) — and must run before anything is registered
-    // or committed, so an abort here has touched nothing on the live
-    // system. Also catches a package silently shadowing a file that
-    // already exists in immutable syshub (OverlayFS always serves the
-    // union/upperdir copy over syshub/lowerdir on a path collision).
-    //
-    // the base keeps its own copy of a file a package also ships (Void's ncurses-libs vs the base
-    // ncurses); the package installs without it. Another zex package's file is still a conflict.
     let base_owned: HashSet<String> = check_file_conflicts(&info.name, &committed_files)
         .into_iter()
         .filter(|(owner, _)| owner == BASE_OWNER)
@@ -418,7 +330,6 @@ pub fn install(
         return Err(e);
     }
 
-    // ── Step 4c: xbps alternatives (Void's `vim` -> vim-normal and similar) ─
     if info.format == PackageFormat::Xbps {
         if !parallel {
             ui::print_install_step("Updating alternatives");
@@ -434,7 +345,6 @@ pub fn install(
         }
     }
 
-    // ── Step 5: Register in DB ────────────────────────────────────────────
     if !parallel {
         ui::print_install_step("Registering in database");
     }
@@ -446,7 +356,6 @@ pub fn install(
         .collect();
 
     if let Err(e) = register_package(info, string_paths) {
-        // DB write failed — nothing on live system was touched (no symlinks yet).
         cleanup_snapshot(&snapshot_dir);
         return Err(e);
     }
@@ -459,8 +368,6 @@ pub fn install(
     let mut plan = super::activation::ActivationPlan::new();
 
     for (staged_path, final_path) in staged_files.iter().zip(committed_files.iter()) {
-        // Configuration Conflict Handling (.new files)
-        // If it's in /etc and the file already exists, we should write it as .new to avoid overwriting user changes.
         let mut target_dest = final_path.clone();
         if final_path.starts_with("/overlayer/zexlib/union/etc/") && final_path.exists() {
             target_dest =
@@ -488,7 +395,6 @@ pub fn install(
 
     let commit_result = plan.commit();
 
-    // userland files stay mutable: only zex replaces or removes them; the base is what stays locked
     if commit_result.is_ok() {
         crate::triggers::note(&committed_files);
         crate::triggers::note_installed(&info.name);
@@ -502,23 +408,12 @@ pub fn install(
     }
 
     if let Err(e) = commit_result {
-        // Commit failed midway — restore from snapshot if upgrading,
-        // or rollback new files if fresh install.
         if existing.is_some() {
-            // Upgrade: files are restored to the old version below via
-            // restore_snapshot, but register_package() already overwrote
-            // the registry with the new version's record before commit.
-            // Reconstructing the old PkgRecord here is a separate gap —
-            // flagged rather than silently left inconsistent.
             log::warn!(
                 "'{}' upgrade failed after the registry was already updated — it may still describe the new version even though files were rolled back to the old one",
                 info.name
             );
         } else {
-            // Fresh install: nothing was live before this operation, so
-            // it's safe to fully undo the registration written above —
-            // otherwise the registry would claim a package is installed
-            // whose files were never actually committed.
             let _ = super::registry::unregister(&info.name);
         }
         if let Some(ref snap) = snapshot_dir {
@@ -531,15 +426,6 @@ pub fn install(
         return Err(e);
     }
 
-    // ── Step 8: Post-install script ───────────────────────────────────────
-    //
-    // Package-embedded install scripts (Alpine's `.post-install`, Void's
-    // `INSTALL post-install`) — captured during extraction instead of
-    // being silently discarded as metadata. Run sandboxed (landlock/
-    // seccomp via cmd::install::sandbox), after the commit has already
-    // succeeded so the package's own files are in place first. A failing
-    // script is logged, not fatal — the package is correctly installed
-    // either way, matching how apk/dpkg treat postinst failures.
     if let Some(script) = &postinstall_script {
         let (bytes, action_arg): (&Vec<u8>, Option<&str>) = match script {
             PostInstallScript::ApkStyle(b) => (b, None),
@@ -567,7 +453,6 @@ pub fn install(
         }
     }
 
-    // ── Step 9: Orphan cleanup (upgrade only) ────────────────────────────
     if let Some(old) = existing {
         if !parallel {
             ui::print_install_step("Cleaning up orphan files");
@@ -581,7 +466,6 @@ pub fn install(
             if !new_set.contains(old_file) {
                 let path = Path::new(old_file);
                 let _ = std::fs::remove_file(path);
-                // Try to remove empty parent dirs left behind
                 let mut curr = path.parent();
                 while let Some(parent) = curr {
                     if parent == Path::new("/") {
@@ -598,10 +482,8 @@ pub fn install(
 
     let extract_ms = extract_start.elapsed().as_millis();
 
-    // ── Step 10: Cleanup — remove snapshot (success path) ────────────────
     cleanup_snapshot(&snapshot_dir);
 
-    // desktop/mime databases, icon caches and package hooks for the files committed above
     if !parallel {
         ui::print_install_step("Setting up desktop entry");
         crate::triggers::flush();
@@ -625,7 +507,7 @@ fn sha256_of_file(path: &Path) -> Result<String> {
     let mut file = std::fs::File::open(path)
         .map_err(|e| anyhow::anyhow!("cannot open file for SHA256: {}", e))?;
     let mut hasher = Sha256::new();
-    let mut buf = [0u8; 65536]; // 64 KB chunks — good balance of speed vs stack
+    let mut buf = [0u8; 65536];
     loop {
         let n = file
             .read(&mut buf)
@@ -641,7 +523,7 @@ fn sha256_of_file(path: &Path) -> Result<String> {
 /// Verify the downloaded package against the repository-supplied SHA256 checksum.
 ///
 /// If `info.sha256` is `None` (e.g. some apk/xbps mirrors that don't yet return
-/// checksums), verification is skipped with a warning — not a hard failure.
+/// checksums), verification is skipped with a warning: not a hard failure.
 ///
 /// If `info.sha256` is `Some(expected)`, the file digest *must* match or the
 /// install is aborted before a single byte touches the system.
@@ -653,25 +535,9 @@ fn verify_signature(
     xbps_sig: Option<&XbpsVerifyData>,
 ) -> Result<()> {
     if info.format == PackageFormat::Zex {
-        // trust::verify_zex_archive already performs the complete, stronger
-        // check here: Ed25519 signature + Blake3 hash embedded in the
-        // package's own manifest.toml, verified against the ephemeral
-        // per-package signing key. The zex_ledger.toml index format carries
-        // no separate top-level `blake3` field per package, so falling
-        // through to verify_blake3() below would always find `info.blake3
-        // == None` and hard-fail every install in Strict integrity mode —
-        // that's not a missing checksum, it's a check that doesn't apply
-        // to this format.
         return crate::trust::verify_zex_archive(path, signature_mode);
     }
 
-    // Real cryptographic authenticity check — RSA signature verification
-    // against each tier's actual trust anchors (see native_sig.rs). This
-    // is independent of, and stronger than, the SHA256/size checks below:
-    // those only prove the downloaded bytes match what the *index* claims,
-    // which is worthless if the index itself was tampered with or served
-    // by a compromised/MITM mirror. Signature verification proves the
-    // package was actually produced by a trusted upstream signing key.
     if signature_mode != crate::trust::SignatureVerificationMode::Off {
         let native_result = match info.format {
             PackageFormat::Apk => {
@@ -710,17 +576,8 @@ fn verify_signature(
         }
     }
 
-    // NOTE: apk's own index (APKINDEX) never publishes a plain SHA256 (it
-    // uses the embedded ".SIGN" scheme checked above instead), so
-    // `info.sha256` is always `None` for that format by design — a
-    // missing checksum here is informational only, never a hard failure,
-    // regardless of integrity_mode. xbps repodata *does* publish a real
-    // "filename-sha256", so this still provides a genuine integrity check
-    // for Tier 3 on top of the signature check above.
     match &info.sha256 {
         None => {
-            // No checksum available from this backend yet.
-            // Still safe: file-size is checked by verify_file() above.
             log::warn!(
                 "SHA256 not available for '{}' (backend: {:?}) — skipping checksum verification",
                 info.name,
@@ -831,8 +688,6 @@ fn acquire_package_lock(package_name: &str) -> Result<InstallPackageLock> {
     Ok(InstallPackageLock { file })
 }
 
-// ─── Atomic Transaction Helpers ───────────────────────────────────────────────
-
 /// Create a snapshot of all files owned by the old package version.
 /// Each file is copied to `/var/cache/zex/snapshots/<pkg>-<ts>/` preserving
 /// relative paths.  Returns the snapshot directory path.
@@ -850,11 +705,9 @@ fn create_snapshot(info: &PackageInfo, old: &DbEntry) -> Result<PathBuf> {
     for file_path in &old.installed_files {
         let src = Path::new(file_path);
         if !src.exists() {
-            // File was already deleted externally — nothing to back up.
             continue;
         }
 
-        // Preserve the directory structure inside the snapshot.
         let rel = src.strip_prefix("/").unwrap_or(src);
         let dst = snap_dir.join(rel);
 
@@ -862,7 +715,6 @@ fn create_snapshot(info: &PackageInfo, old: &DbEntry) -> Result<PathBuf> {
             std::fs::create_dir_all(parent)?;
         }
 
-        // Copy file content + preserve symlink status
         if src.is_symlink() {
             let target = std::fs::read_link(src)?;
             #[cfg(unix)]
@@ -880,8 +732,6 @@ fn create_snapshot(info: &PackageInfo, old: &DbEntry) -> Result<PathBuf> {
     );
     Ok(snap_dir)
 }
-
-// Removed commit_staged_files because we use ActivationPlan instead.
 
 /// Restore all files from the snapshot back to the system root.
 /// Called when commit or DB registration fails during an upgrade.
@@ -904,7 +754,6 @@ fn restore_snapshot(snap_dir: &Path, _dest: &Path, old: &DbEntry) {
             continue;
         }
 
-        // Ensure parent directory exists
         if let Some(parent) = src_on_system.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
@@ -931,7 +780,7 @@ fn cleanup_snapshot(snap_dir: &Option<PathBuf>) {
 }
 
 /// Rollback files that were committed to the system root during a failed install.
-/// This is the new replacement for the old `rollback()` — works on committed files.
+/// This is the new replacement for the old `rollback()`: works on committed files.
 fn rollback_committed(paths: &[PathBuf]) {
     for p in paths.iter().rev() {
         let p = crate::archive_safety::live_path(p);
@@ -950,8 +799,6 @@ fn rollback_committed(paths: &[PathBuf]) {
     }
 }
 
-// ─── Extraction Logic ─────────────────────────────────────────────────────────
-
 fn sanitize_path(path: &Path) -> Result<PathBuf> {
     crate::archive_safety::sanitize_archive_path(path)
 }
@@ -968,22 +815,12 @@ fn extract_zex(
     #[cfg(unix)]
     use std::os::unix::fs::symlink;
 
-    // Canonical .zex = zexc (ZEX1) frame wrapping tar:
-    //   manifest.toml    ← TOML with ed25519_sig + blake3
-    //   signature.b3     ← hex Blake3(manifest_toml ++ payload_blake3)
-    //   payload/<files>  ← package files
-    //
-    // signature.b3 hash matches packer.rs / verifier.rs exactly.
     let dec = crate::zex_codec::open_decoder(zex_path)?;
     let mut archive = tar::Archive::new(dec);
 
     let mut sig_b3_expected: Option<String> = None;
     let mut manifest_raw: Option<Vec<u8>> = None;
-    // (archive path, bytes, symlink target). `target` is `Some(..)` for a
-    // symlink entry — matches `trust.rs::parse_for_verification`'s shape
-    // exactly (see the hash loop below for why).
     let mut payload_files: Vec<(String, Vec<u8>, Option<String>)> = Vec::new();
-    // Symlinks/hardlinks are applied after files so targets exist.
     let mut pending_symlinks: Vec<(PathBuf, PathBuf)> = Vec::new();
     let mut pending_hardlinks: Vec<(PathBuf, PathBuf)> = Vec::new();
 
@@ -1015,7 +852,6 @@ fn extract_zex(
             continue;
         }
 
-        // Ignore legacy/unknown root entries (e.g. old manifest.json).
         if !rel_str.starts_with("payload/") {
             continue;
         }
@@ -1040,21 +876,11 @@ fn extract_zex(
         }
 
         if entry_type.is_file() {
-            // Mode must be read before entry.read_to_end() — it doesn't
-            // consume the header, but capture it up front for clarity.
             let mode = entry.header().mode().unwrap_or(0o644);
             let mut data = Vec::new();
             entry.read_to_end(&mut data)?;
-            // Hash uses the full archive path ("payload/...") to match packer.
             payload_files.push((rel_str.to_string(), data.clone(), None));
             std::fs::write(&dest_path, &data)?;
-            // Same class of bug already found and fixed in extract_adb
-            // (Chimera): std::fs::write() always creates with the process
-            // umask default, never the archive's own mode — every native
-            // .zex binary landed non-executable (confirmed live: a fresh
-            // `zex install htop` produced -rw-r--r-- and `bwrap ...
-            // /overlayer/zexlib/union/bin/htop` failed with "Permission
-            // denied").
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt;
@@ -1071,16 +897,6 @@ fn extract_zex(
             let link_target = entry.link_name()?.ok_or_else(|| {
                 anyhow::anyhow!("symlink entry missing target: {}", rel.display())
             })?;
-            // Symlink entries carry no body in the tar — their contribution
-            // to the payload hash is the raw, pre-sanitize link TARGET
-            // string instead, exactly as `substrate pack`'s packer.rs
-            // computed it at sign time (matches
-            // `trust.rs::parse_for_verification`'s identical handling —
-            // confirmed live: without this, any package containing even
-            // one symlink, e.g. zlib-dev's `libz.so -> libz.so.1.3.2`,
-            // permanently fails `zex install` with a signature.b3
-            // mismatch, even though `trust.rs`'s own earlier check on the
-            // same archive already passed).
             payload_files.push((
                 rel_str.to_string(),
                 Vec::new(),
@@ -1095,15 +911,7 @@ fn extract_zex(
             let link_target = entry.link_name()?.ok_or_else(|| {
                 anyhow::anyhow!("hard link entry missing target: {}", rel.display())
             })?;
-            // Hard link entries also carry no body — matches trust.rs,
-            // which doesn't special-case them and so hashes an empty byte
-            // string for this path (tar's own read_to_end on a hardlink
-            // entry yields zero bytes).
             payload_files.push((rel_str.to_string(), Vec::new(), None));
-            // Unlike symlinks, a hardlink target must resolve to a sibling
-            // already extracted into *this same staging tree* — it needs
-            // sanitize_archive_path's plain archive-relative, remapped result,
-            // not sanitize_link_target's link-relative one.
             let safe_target = crate::archive_safety::sanitize_archive_path(&link_target)?;
             pending_hardlinks.push((dest_path, safe_target));
             continue;
@@ -1120,7 +928,6 @@ fn extract_zex(
         bail!(".zex archive missing payload/");
     }
 
-    // Apply links after regular files.
     for (dest_path, safe_target) in pending_symlinks {
         let _ = std::fs::remove_file(&dest_path);
         #[cfg(unix)]
@@ -1137,8 +944,6 @@ fn extract_zex(
         installed.push(dest_path);
     }
 
-    // signature.b3 = Blake3(manifest.toml ++ payload_blake3)
-    // payload_blake3 = Blake3 over sorted (path, bytes) pairs — same as packer.
     let expected =
         sig_b3_expected.ok_or_else(|| anyhow::anyhow!(".zex archive missing signature.b3"))?;
     let manifest_bytes =
@@ -1177,15 +982,12 @@ fn extract_apk(
     installed: &mut Vec<PathBuf>,
 ) -> Result<Option<PostInstallScript>> {
     let file = std::fs::File::open(pkg_path)?;
-    // .apk packages are a concatenation of multiple gzip members
-    // (signature + control + data tarballs) — MultiGzDecoder reads
-    // through all of them instead of stopping after the signature.
     let dec = flate2::read::MultiGzDecoder::new(file);
     extract_tar(dec, dest, installed, true)
 }
 
 /// Void `.xbps` packages are tar archives compressed with **either** zstd
-/// or xz — confirmed live: `figlet-2.2.5_6.x86_64-musl.xbps` from the real
+/// or xz: confirmed live: `figlet-2.2.5_6.x86_64-musl.xbps` from the real
 /// Void mirror is XZ (`file` reports "XZ compressed data"), while other
 /// packages (e.g. `kurly`) are zstd. The old code assumed zstd
 /// unconditionally and failed on any xz-compressed package with zstd's own
@@ -1217,7 +1019,6 @@ fn stage_xbps_alternatives(
     let mut out = Vec::new();
     for entries in groups.values().filter_map(|v| v.as_array()) {
         for entry in entries.iter().filter_map(|e| e.as_string()) {
-            // "link:target"; a relative link lives in the target's directory
             let Some((link, target)) = entry.split_once(':') else {
                 continue;
             };
@@ -1302,7 +1103,7 @@ fn extract_xbps(
     }
 }
 
-/// Extracts a Chimera Linux `.apk` package — apk-tools v3's binary "ADB"
+/// Extracts a Chimera Linux `.apk` package: apk-tools v3's binary "ADB"
 /// container format, not the legacy gzip-tar `.apk` used by Alpine (see
 /// `cmd::install::adb` for the format itself). Applies the same path/link
 /// sanitization as `extract_tar` since this walks an untrusted archive too.
@@ -1356,17 +1157,6 @@ fn extract_adb(
             S_IFLNK => {
                 let target = entry.link_target.unwrap_or_default();
 
-                // Chimera's usrmerge layout ships real top-level symlinks
-                // like "/bin -> usr/bin" — but our own `remap_usr_paths`
-                // *already* collapses "usr/bin" onto the same "bin" union
-                // directory structurally. Creating the symlink literally
-                // (confirmed against a real `base-files` package) then
-                // collides with the real directory/files that same
-                // package installs under "usr/bin", since both now want
-                // to own the identical union path. Skip only this
-                // self-referential case — a real, non-colliding symlink
-                // (e.g. "sbin -> usr/bin", a distinct union path) still
-                // gets created normally below.
                 let target_remapped =
                     crate::archive_safety::remap_usr_paths(PathBuf::from(&target));
                 if target_remapped == rel {
@@ -1388,11 +1178,6 @@ fn extract_adb(
                 installed.push(dest_path);
             }
             _ if entry.link_target.is_some() => {
-                // Hardlink: target is a path already extracted earlier in
-                // the walk (paths/files are emitted in on-disk order, so
-                // it always precedes its hardlinks). Needs the plain
-                // relative-and-remapped path (sanitize_archive_path), not
-                // sanitize_link_target's link-relative symlink form.
                 let target = entry.link_target.unwrap();
                 let safe_target = crate::archive_safety::sanitize_archive_path(Path::new(&target))?;
                 let target_path = dest.join(&safe_target);
@@ -1418,15 +1203,6 @@ fn extract_adb(
                 std::fs::write(&dest_path, entry.content.unwrap_or_default()).map_err(|e| {
                     anyhow::anyhow!("failed to write '{}': {}", dest_path.display(), e)
                 })?;
-                // ADB stores the real POSIX mode per-entry (already used
-                // above for S_IFDIR/S_IFLNK type bits) but this regular-file
-                // branch never applied the permission bits — every T4
-                // binary landed non-executable. Confirmed live: a real
-                // Chimera package (`apk-tools-static-bin`) installed with
-                // `-rw-r--r--`, `bwrap ... apk.static` then failed with
-                // "Permission denied". extract_tar (apk/xbps) already does
-                // this correctly via `entry.header().mode()`; this brings
-                // extract_adb in line with it.
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;
@@ -1485,8 +1261,6 @@ fn extract_tar<R: Read>(
                 captured_script = Some(PostInstallScript::XbpsStyle(buf));
                 continue;
             }
-            // Apk files use dot-prefixed metadata like .PKGINFO, .SIGN.*
-            // Xbps uses props.plist, files.plist, REMOVE
             if s.starts_with('.')
                 || s.is_empty()
                 || s == "props.plist"
@@ -1535,14 +1309,6 @@ fn extract_tar<R: Read>(
                     anyhow::anyhow!("symlink entry missing target: {}", rel.display())
                 })?;
 
-                // Some base-layout packages (confirmed with Void's
-                // `base-files`, same real-world case as Chimera's) ship
-                // real top-level usrmerge symlinks like "/lib -> usr/lib"
-                // — but `remap_usr_paths` already collapses "usr/lib" onto
-                // the same "lib" union directory structurally. Creating
-                // the symlink literally then collides with the real
-                // directory/files the same package installs under
-                // "usr/lib". Skip only this self-referential case.
                 let target_remapped = crate::archive_safety::remap_usr_paths(PathBuf::from(
                     link_target.to_string_lossy().as_ref(),
                 ));
@@ -1569,8 +1335,6 @@ fn extract_tar<R: Read>(
             let link_target = entry.link_name()?.ok_or_else(|| {
                 anyhow::anyhow!("hard link entry missing target: {}", rel.display())
             })?;
-            // Needs the plain relative-and-remapped path, not
-            // sanitize_link_target's link-relative symlink form.
             let safe_target = crate::archive_safety::sanitize_archive_path(&link_target)?;
             let target_path = dest.join(&safe_target);
             if !target_path.exists() {
@@ -1593,7 +1357,6 @@ fn extract_tar<R: Read>(
             continue;
         }
 
-        // Explicit allowlist: skip all unsupported entry types.
         log::debug!(
             "Skipping unsupported archive entry type for '{}': {:?}",
             rel.display(),
@@ -1603,8 +1366,6 @@ fn extract_tar<R: Read>(
     Ok(captured_script)
 }
 
-// ─── Pre-flight Conflict Detection ───────────────────────────────────────────
-
 /// Base OS immutable layer. A zex package landing on a path that already
 /// exists here would silently shadow it at read time (OverlayFS always
 /// serves the upperdir/`zexlib/union` copy over the syshub lowerdir) —
@@ -1613,7 +1374,7 @@ const SYSHUB_ROOT: &str = "/overlayer/syshub";
 const BASE_OWNER: &str = "syshub (immutable base OS)";
 
 /// Check whether any of `committed_files` (final `/overlayer/zexlib/union/...`
-/// destinations, *not* staging-dir paths — those never match anything, which
+/// destinations, *not* staging-dir paths: those never match anything, which
 /// is why this previously went unused) is already owned by another
 /// installed package, or already exists under [`SYSHUB_ROOT`] (the
 /// immutable base OS image, which zex never tracks in its own registry so
@@ -1629,7 +1390,6 @@ pub fn check_file_conflicts(pkg_name: &str, committed_files: &[PathBuf]) -> Vec<
     let incoming: HashSet<&Path> = committed_files.iter().map(|p| p.as_path()).collect();
 
     for entry in &db {
-        // Skip the package itself — this is a reinstall/upgrade, not a conflict.
         if entry.name.eq_ignore_ascii_case(pkg_name) {
             continue;
         }
@@ -1640,19 +1400,6 @@ pub fn check_file_conflicts(pkg_name: &str, committed_files: &[PathBuf]) -> Vec<
         }
     }
 
-    // No exceptions here — this check is deliberately uniform. `musl` (and
-    // anything else syshub's manifest declares via `[packages.provides]`
-    // aliases, e.g. `libc = "musl"`, `openssl = "libressl"`) is instead
-    // excluded far earlier, at dependency-resolution time
-    // (`depends.rs::dep_already_present` -> `backend::is_in_syshub`), so
-    // it's never queued/staged/committed as a zexlib package at all — see
-    // the fix to `is_in_syshub` (was silently broken for `so:`-prefixed
-    // soname tokens like Alpine's `so:libc.musl-x86_64.so.1`, which is
-    // exactly why `musl` was reaching this far in the first place and
-    // needing a carve-out here). If a *different* package still lands on
-    // a syshub path (e.g. Alpine's own libcurl/curl shadowing syshub's),
-    // that's a real, surprising conflict: the base copy is kept.
-    // a base path (file, link or directory) shows in the merged view but has no copy in the union layer
     for file in committed_files {
         if let Ok(rel) = file.strip_prefix(union_root) {
             let merged = Path::new(SYSHUB_ROOT).join(rel);
@@ -1667,7 +1414,7 @@ pub fn check_file_conflicts(pkg_name: &str, committed_files: &[PathBuf]) -> Vec<
 
 /// Run conflict detection on a package's final union destinations. Must run
 /// after `committed_files` is computed (Step 4) and before registration
-/// (Step 5) — true pre-flight, nothing registered or committed yet if this
+/// (Step 5): true pre-flight, nothing registered or committed yet if this
 /// aborts.
 ///
 /// With `zex install --force` another package's files are overwritten instead.

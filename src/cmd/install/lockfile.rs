@@ -1,13 +1,4 @@
-//! lockfile.rs — Reproducible-install lockfiles.
-//!
-//! Captures the *exact* resolved package graph (name, version, format,
-//! source mirror, URL, hashes) for a completed install, so the identical
-//! install can be repeated later — bypassing live dependency resolution
-//! entirely, which could otherwise yield a different result if an
-//! upstream index changed between then and now — and so drift from that
-//! recorded state can be detected independently of zex's own bookkeeping
-//! (the `packages.toml` master index is a derived, not authoritative,
-//! view; this reads each package's real `registry/installed/*.toml`).
+//! lockfile.rs: Reproducible-install lockfiles.
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -108,8 +99,8 @@ impl std::fmt::Display for Drift {
 }
 
 /// Compares a lockfile's pinned packages against the live registry. Reads
-/// each package's own `registry/installed/<name>.toml` directly — not the
-/// derived master index — so this is a genuine independent check, not
+/// each package's own `registry/installed/<name>.toml` directly: not the
+/// derived master index: so this is a genuine independent check, not
 /// something that could be fooled by a stale/corrupted summary.
 pub fn verify_against_registry(lock: &Lockfile) -> Vec<Drift> {
     let mut drift = Vec::new();
@@ -131,9 +122,6 @@ pub fn verify_against_registry(lock: &Lockfile) -> Vec<Drift> {
             continue;
         }
 
-        // Cross-check whichever hash the lockfile actually recorded —
-        // apk/xbps/adb formats use sha256 when the backend supplies one,
-        // native .zex packages use blake3.
         if let Some(expected) = pkg.sha256.as_ref().filter(|s| !s.is_empty()) {
             if &rec.sha256 != expected {
                 drift.push(Drift::HashMismatch {

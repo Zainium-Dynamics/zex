@@ -1,14 +1,10 @@
-//! hooks.rs — Post-install/upgrade hook system for Zex.
-//!
-//! Hooks are TOML files (`*.hook`) in /overlayer/syshub/etc/zex/hooks.d/ executed after package operations.
-//! Format: [hook] name="...", trigger="post-install", packages=["*"], exec="...", timeout_secs=30
+//! hooks.rs: Post-install/upgrade hook system for Zex.
 
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-// the merged view: hooks shipped by the base and by userland packages
 const HOOKS_DIR: &str = "/overlayer/syshub/etc/zex/hooks.d";
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]

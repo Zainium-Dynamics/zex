@@ -1,47 +1,4 @@
-//! registry.rs — TOML-per-package registry for Zex.
-//!
-//! Replaces SQLite (db.rs, store_index.rs) and JSON (/var/lib/zex/installed.json)
-//! with a filesystem-based registry: one `.toml` file per installed package.
-//!
-//! Path: /overlayer/zexlib/registry/installed/<package_name>.toml
-//!
-//! Design:
-//!   - `is_installed()` is O(1): just `Path::exists()`
-//!   - Atomic writes: write to `.tmp` then `rename()`
-//!   - No locking needed for different packages (file-per-package)
-//!   - Human-readable: `cat /overlayer/zexlib/registry/installed/vlc.toml`
-//!
-//! ## Authoritative vs. derived state
-//!
-//! Exactly one thing in this whole module is authoritative: the set of
-//! `PkgRecord` files under `installed/` (`load_all()` reads every one of
-//! them). Everything else this module writes is a **derived** view built
-//! from that source, kept only for other commands' convenience — none of
-//! it is ever the thing that gets consulted to answer "is X installed,
-//! and at what version":
-//!
-//!   - `packages.toml` (the "master index") — a flattened summary consumed
-//!     by `uland --u`, `doctor`, `search`, and `rollback` so they don't
-//!     each have to re-scan and re-parse every `installed/*.toml` file.
-//!     Kept in sync incrementally on every `register()`/`unregister()`
-//!     call via `sync_master_index`/`remove_from_master_index`. If it
-//!     ever drifts from the authoritative source (deleted, corrupted,
-//!     a bug skipped a sync call, or it predates that sync logic
-//!     existing at all), [`rebuild_master_index`] regenerates it *from
-//!     scratch* by replaying every real `PkgRecord` — this is the actual
-//!     integrity/repair operation (`zex doctor --fix` calls it), not
-//!     [`prune_master_index`], which only ever removes stale entries and
-//!     can't fix the opposite kind of drift (a real package missing from
-//!     the index).
-//!   - Any other cache built from this data (search indices, dashboards,
-//!     etc.) must follow the same rule: never treated as ground truth,
-//!     always regeneratable from `load_all()` alone.
-//!
-//! The practical test for "is this authoritative or derived": if the
-//! `installed/*.toml` files disappeared, would this file still tell the
-//! truth? For everything except `installed/` itself, the answer is no —
-//! which is exactly why every one of those views needs a from-scratch
-//! rebuild path, not just incremental patching.
+//! registry.rs: TOML-per-package registry for Zex.
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -81,7 +38,7 @@ pub struct PkgRecord {
     pub provides: Vec<String>,
     /// Packages this one genuinely cannot coexist with (Alpine's bare
     /// "!pkgname" negative-dependency convention). Checked bidirectionally
-    /// at install time — see `check_conflicts` in depends.rs.
+    /// at install time: see `check_conflicts` in depends.rs.
     #[serde(default)]
     pub conflicts: Vec<String>,
     #[serde(default)]
@@ -90,9 +47,7 @@ pub struct PkgRecord {
     pub installed_files: Vec<String>,
 }
 
-// ─── Public API ──────────────────────────────────────────────────────────────
-
-/// Check if a package is installed.  O(1) — just a filesystem path check.
+/// Check if a package is installed.  O(1): just a filesystem path check.
 pub fn is_installed(name: &str) -> bool {
     toml_path(name).exists()
 }
@@ -147,7 +102,6 @@ pub fn register(record: &PkgRecord) -> Result<()> {
     let toml_str =
         toml::to_string_pretty(record).context("Failed to serialise PkgRecord to TOML")?;
 
-    // Atomic write: write to .tmp then rename
     let path = toml_path(&record.name.to_lowercase());
     let tmp = path.with_extension("toml.tmp");
     fs::write(&tmp, toml_str.as_bytes())
@@ -167,7 +121,7 @@ pub fn register(record: &PkgRecord) -> Result<()> {
 /// Bumps an already-installed package's version in place, for `uland --u`.
 ///
 /// Loads the existing full `PkgRecord`, updates only `version` and
-/// `installed_at`, and re-registers it — preserving every other field
+/// `installed_at`, and re-registers it: preserving every other field
 /// (`installed_files`, `dependencies`, `provides`, `sha256`, …). Upgrade
 /// code must use this instead of writing a fresh, mostly-empty receipt:
 /// a receipt missing `installed_files` makes `zex remove` a no-op for
@@ -190,8 +144,6 @@ pub fn unregister(name: &str) -> Result<()> {
     let _ = remove_from_master_index(name);
     Ok(())
 }
-
-// ─── Master index (packages.toml) sync ──────────────────────────────────────
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct MasterIndex {
@@ -221,10 +173,10 @@ struct MasterPkgEntry {
     receipt: String,
     /// The *exact* mirror this package was resolved from (e.g.
     /// "alpine-community", not just "tier3-alpine"). Upgrade checking must
-    /// use this, not a generic per-tier default — a tier can have several
+    /// use this, not a generic per-tier default: a tier can have several
     /// mirrors (alpine-main vs alpine-community, chimera-main vs
     /// chimera-user), and checking the wrong one either misses the
-    /// package entirely or — worse — silently "upgrades" it from a
+    /// package entirely or: worse — silently "upgrades" it from a
     /// different mirror/tier than it was actually installed from.
     #[serde(default)]
     source_mirror: String,
@@ -235,7 +187,7 @@ struct MasterPkgEntry {
 ///
 /// Tier numbers match `zex_services.toml`'s real mirror priorities: Void
 /// is tier2 (power-user tier, tried first), Alpine is tier3 (embedded/
-/// minimal tier), Chimera stays tier4 — updated when the priorities were
+/// minimal tier), Chimera stays tier4: updated when the priorities were
 /// reordered. `upgrade/userland.rs::match_mirror` matches on the distro
 /// name substring too (`contains("alpine")`, not just `contains("tier2")`),
 /// so this rename doesn't change upgrade-routing behavior, only the label.
@@ -317,7 +269,7 @@ pub fn remove_from_master_index(name: &str) -> Result<()> {
 /// Returns the names that were removed. Safe struct-based read/write —
 /// no raw TOML text surgery.
 ///
-/// Only ever *removes* entries — it can't fix the opposite drift (a real,
+/// Only ever *removes* entries: it can't fix the opposite drift (a real,
 /// currently-installed package that's simply *missing* from the index,
 /// e.g. because `packages.toml` was deleted/corrupted, or predates
 /// `sync_master_index` existing at all). For that, use
@@ -345,7 +297,7 @@ pub fn prune_master_index(keep_names: &HashSet<String>) -> Result<Vec<String>> {
 }
 
 /// Regenerates `packages.toml` **from scratch**, entirely from the
-/// authoritative per-package files under `installed/` — the actual
+/// authoritative per-package files under `installed/`: the actual
 /// integrity/repair operation for the derived index, as opposed to
 /// [`prune_master_index`]'s narrower "remove entries that no longer have a
 /// receipt" pass. Whatever the file currently contains (missing entries,
@@ -400,13 +352,9 @@ pub fn load_all() -> Vec<PkgRecord> {
     records
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
 fn toml_path(name: &str) -> PathBuf {
     Path::new(REGISTRY_DIR).join(format!("{}.toml", name))
 }
-
-// ─── Conversion helpers for compatibility with existing DbEntry API ──────────
 
 impl PkgRecord {
     /// Create a PkgRecord from a resolved PackageInfo + installed file list.
