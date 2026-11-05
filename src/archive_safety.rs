@@ -30,8 +30,8 @@ pub fn sanitize_archive_path(path: &Path) -> Result<PathBuf> {
     Ok(remap_usr_paths(out))
 }
 
-/// Rewrites a **symlink's** target — relative or absolute, possibly
-/// containing `..` — into a target that is correct at the link's own
+/// Rewrites a **symlink's** target: relative or absolute, possibly
+/// containing `..`: into a target that is correct at the link's own
 /// install location.
 ///
 /// Not for hardlinks: use [`sanitize_archive_path`] on a hardlink's target
@@ -82,8 +82,6 @@ pub fn sanitize_link_target(owner_path: &Path, target: &Path) -> Result<PathBuf>
             return Ok(target.to_path_buf());
         }
     } else if !target.to_string_lossy().contains('/') {
-        // A bare filename with no directory component at all (e.g. "sudo", a
-        // same-directory sibling) has nothing that needs remapping.
         return Ok(target.to_path_buf());
     } else {
         let base_dir = owner_path.parent().unwrap_or_else(|| Path::new(""));
@@ -147,20 +145,6 @@ pub fn safe_join_under(root: &Path, rel: &Path) -> Result<PathBuf> {
     let clean = sanitize_archive_path(rel)?;
     let dest = root.join(&clean);
 
-    // `clean` is already guaranteed traversal-free by sanitize_archive_path
-    // (any `..` component bails there), so this is defense-in-depth, not
-    // the primary guarantee — and it must not depend on `dest`'s parent
-    // directory already existing on disk. A file entry's parent dirs
-    // aren't created until *after* this call returns (see unpack_tar), and
-    // real archives can ship a file entry with no preceding directory
-    // entry for its parent at all (confirmed live: curl-dev-8.21.0.zex's
-    // `payload/include/curl/curl.h`). The old code canonicalized
-    // `dest.parent()` and silently fell back to the raw, possibly-relative
-    // `dest` when that lookup failed (nonexistent dir) — which then never
-    // `starts_with` the always-absolute canonicalized `root`, a permanent
-    // false positive that made every such real package fail to extract.
-    // Joining `clean` onto the canonicalized root instead needs no
-    // filesystem lookup and can't produce this mismatch.
     let root_canon = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
     let dest_canon = root_canon.join(&clean);
 
@@ -313,7 +297,7 @@ pub fn create_sanitized_symlink(target: &Path, link_path: &Path) -> Result<()> {
         .with_context(|| format!("symlink {} -> {}", link_path.display(), target.display()))
 }
 
-/// Zainium union layer root — final install destination for userland packages.
+/// Zainium union layer root: final install destination for userland packages.
 pub const UNION_ROOT: &str = "/overlayer/zexlib/union";
 
 /// The merged overlay whose upper layer is [`UNION_ROOT`].
@@ -362,10 +346,9 @@ pub fn live_path(p: &Path) -> PathBuf {
 /// | `usr/include/…`           | `include/…`          | `…/union/include/…`           |
 /// | other `usr/…`             | strip `usr/`         | under union                   |
 ///
-/// Pure structural prefix rewrite — no package-name hardcoding.
+/// Pure structural prefix rewrite: no package-name hardcoding.
 pub fn remap_usr_paths(path: PathBuf) -> PathBuf {
     let s = path.to_string_lossy();
-    // Normalize: drop leading ./ and /
     let s = s.trim_start_matches("./").trim_start_matches('/');
 
     let mapped = if let Some(rest) = s.strip_prefix("usr/local/bin/") {
@@ -436,9 +419,6 @@ mod tests {
 
     #[test]
     fn link_target_allows_legitimate_relative_parent_dirs() {
-        // Real Void package data: xbps-triggers ships a symlink whose
-        // target is `../../../usr/libexec/xbps-triggers` — this used to be
-        // rejected outright as "path traversal".
         let owner = Path::new("usr/bin/xbps-trigger");
         let target = Path::new("../../../usr/libexec/xbps-triggers");
         let resolved = sanitize_link_target(owner, target).unwrap();
@@ -447,8 +427,6 @@ mod tests {
 
     #[test]
     fn link_target_clamps_excess_parent_dirs_at_root() {
-        // Even more `..` than there are directories to climb must clamp at
-        // the archive root, not error and not escape past it.
         let owner = Path::new("usr/bin/foo");
         let target = Path::new("../../../../../../etc/passwd");
         let resolved = sanitize_link_target(owner, target).unwrap();
@@ -457,8 +435,6 @@ mod tests {
 
     #[test]
     fn link_target_leaves_bare_filename_unchanged() {
-        // A bare filename with no directory component at all has nothing
-        // to remap — left exactly as-is (a plain same-directory sibling).
         let owner = Path::new("usr/bin/sudoedit");
         let target = Path::new("sudo");
         let resolved = sanitize_link_target(owner, target).unwrap();
@@ -467,11 +443,6 @@ mod tests {
 
     #[test]
     fn link_target_remaps_relative_multi_component_with_no_dotdot() {
-        // Real Void/Chimera `base-files` data: a top-level usrmerge symlink
-        // like "/sbin -> usr/bin" has *no* ".." at all, but "usr/bin" isn't
-        // a real directory anywhere in our flattened union tree — it must
-        // still be resolved + remapped, not left as a dangling literal
-        // "usr/bin" string.
         let owner = Path::new("sbin");
         let target = Path::new("usr/bin");
         let resolved = sanitize_link_target(owner, target).unwrap();
@@ -488,8 +459,6 @@ mod tests {
 
     #[test]
     fn link_target_stays_relative_inside_the_package() {
-        // upower's unit enable link: must stay "../upower.service", not become
-        // a union path (wrong for a base package, and through `payload/`).
         let owner = Path::new("lib/systemd/system/graphical.target.wants/upower.service");
         let target = Path::new("../upower.service");
         assert_eq!(sanitize_link_target(owner, target).unwrap(), target);

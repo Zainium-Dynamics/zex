@@ -1,5 +1,4 @@
-//! tests/test_pubgrub.rs — PubGrub dependency solver stress tests.
-//! Verifies constraint resolution, conflict detection, and large graph perf.
+//! tests/test_pubgrub.rs: PubGrub dependency solver stress tests.
 
 use pubgrub::{
     range::Range,
@@ -7,8 +6,6 @@ use pubgrub::{
     version::SemanticVersion,
 };
 use std::collections::HashMap;
-
-// ── Minimal dependency provider for testing ───────────────────────────────────
 
 #[derive(Clone)]
 struct FakeRegistry {
@@ -49,7 +46,6 @@ impl DependencyProvider<String, SemanticVersion> for FakeRegistry {
     {
         for (pkg, range) in potential_packages {
             if let Some(versions) = self.packages.get(pkg.borrow()) {
-                // Pick the newest version that satisfies the range
                 for (ver, _) in versions.iter().rev() {
                     if range.borrow().contains(ver) {
                         return Ok((pkg, Some(ver.clone())));
@@ -97,10 +93,6 @@ fn gte(s: &str) -> Range<SemanticVersion> {
 fn between(lo: &str, hi: &str) -> Range<SemanticVersion> {
     Range::between(v(lo), v(hi))
 }
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  BASIC RESOLUTION (8 tests)
-// ══════════════════════════════════════════════════════════════════════════════
 
 mod basic {
     use super::*;
@@ -162,14 +154,12 @@ mod basic {
         reg.add_version("app", "1.0.0", vec![("lib", between("1.0.0", "2.0.0"))]);
 
         let sol = resolve(&reg, "app".to_string(), v("1.0.0")).unwrap();
-        // Should pick 1.5.0 (newest below 2.0.0)
         let lib_ver = sol.get("lib").unwrap();
         assert!(*lib_ver < v("2.0.0"));
     }
 
     #[test]
     fn diamond_dependency_resolved() {
-        // app → libA, libB; libA → libC >=1; libB → libC >=1; libC 2.0
         let mut reg = FakeRegistry::new();
         reg.add_version("libc", "1.0.0", vec![]);
         reg.add_version("libc", "2.0.0", vec![]);
@@ -183,14 +173,12 @@ mod basic {
 
         let sol = resolve(&reg, "app".to_string(), v("1.0.0")).unwrap();
         assert!(sol.contains_key("libc"));
-        // Only one version of libc
-        assert_eq!(sol.len(), 4); // app + liba + libb + libc
+        assert_eq!(sol.len(), 4);
     }
 
     #[test]
     fn unsatisfiable_returns_error() {
         let mut reg = FakeRegistry::new();
-        // lib exists at 1.0 but app needs >=2.0
         reg.add_version("lib", "1.0.0", vec![]);
         reg.add_version("app", "1.0.0", vec![("lib", gte("2.0.0"))]);
 
@@ -200,7 +188,6 @@ mod basic {
 
     #[test]
     fn conflicting_diamond_detected() {
-        // app → liba (needs lib <2.0), libb (needs lib >=2.0) — conflict
         let mut reg = FakeRegistry::new();
         reg.add_version("lib", "1.5.0", vec![]);
         reg.add_version("lib", "2.0.0", vec![]);
@@ -213,20 +200,15 @@ mod basic {
         );
 
         let result = resolve(&reg, "app".to_string(), v("1.0.0"));
-        assert!(result.is_err()); // Conflict: liba needs <2.0, libb needs >=2.0
+        assert!(result.is_err());
     }
 }
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  STRESS TESTS (5 tests)
-// ══════════════════════════════════════════════════════════════════════════════
 
 mod stress {
     use super::*;
 
     #[test]
     fn linear_chain_100_packages() {
-        // pkg0 → pkg1 → ... → pkg99 (linear chain)
         let mut reg = FakeRegistry::new();
         for i in 0..100 {
             if i + 1 < 100 {
@@ -254,7 +236,6 @@ mod stress {
 
     #[test]
     fn wide_flat_100_deps() {
-        // root depends directly on 100 packages, each with no further deps
         let mut reg = FakeRegistry::new();
         let mut root_deps = Vec::new();
         for i in 0..100 {
@@ -282,13 +263,11 @@ mod stress {
 
     #[test]
     fn deep_diamond_10_levels() {
-        // Diamond: root → (a_i, b_i) → mid_i → … → base
         let mut reg = FakeRegistry::new();
         let levels = 5;
 
         reg.add_version("base", "1.0.0", vec![]);
 
-        // mid_N depends on base; mid_i depends on mid_{i+1}
         for i in (0..levels).rev() {
             let name = format!("mid_{i}");
             if i + 1 == levels {
@@ -299,7 +278,6 @@ mod stress {
             }
         }
 
-        // Parallel branches at each level both depend on the shared mid node.
         for i in 0..levels {
             let mid = format!("mid_{i}");
             let a = format!("a_{i}");
@@ -308,7 +286,6 @@ mod stress {
             reg.add_version(&b, "1.0.0", vec![(&mid, gte("1.0.0"))]);
         }
 
-        // Root depends on both top-level branches.
         reg.add_version(
             "root",
             "1.0.0",
@@ -325,7 +302,6 @@ mod stress {
 
     #[test]
     fn multiple_versions_per_package() {
-        // Each package has 10 versions, solver picks the right one
         let mut reg = FakeRegistry::new();
         for major in 1..=10 {
             reg.add_version("lib", &format!("{major}.0.0"), vec![]);
@@ -340,7 +316,6 @@ mod stress {
 
     #[test]
     fn sibling_constraints_satisfied() {
-        // app needs both: lib >= 2.0, lib < 3.0 via two different deps
         let mut reg = FakeRegistry::new();
         for i in 1..=5 {
             reg.add_version("lib", &format!("{i}.0.0"), vec![]);
@@ -355,15 +330,10 @@ mod stress {
 
         let sol = resolve(&reg, "app".to_string(), v("1.0.0")).unwrap();
         let lib_ver = sol.get("lib").unwrap();
-        // Satisfies both: >=2.0 AND <3.0
         assert!(*lib_ver >= v("2.0.0"));
         assert!(*lib_ver < v("3.0.0"));
     }
 }
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  EDGE CASES (5 tests)
-// ══════════════════════════════════════════════════════════════════════════════
 
 mod edge_cases {
     use super::*;
@@ -372,7 +342,6 @@ mod edge_cases {
     fn self_referential_not_possible() {
         let mut reg = FakeRegistry::new();
         reg.add_version("lib", "1.0.0", vec![]);
-        // app with no problematic self-deps
         reg.add_version("app", "1.0.0", vec![("lib", gte("1.0.0"))]);
         let result = resolve(&reg, "app".to_string(), v("1.0.0"));
         assert!(result.is_ok());
@@ -390,7 +359,6 @@ mod edge_cases {
         let mut reg = FakeRegistry::new();
         reg.add_version("lib", "1.0.0", vec![]);
         reg.add_version("lib", "2.0.0", vec![]);
-        // Exact version via between 1.0.0..1.0.1
         reg.add_version("app", "1.0.0", vec![("lib", between("1.0.0", "1.0.1"))]);
         let sol = resolve(&reg, "app".to_string(), v("1.0.0")).unwrap();
         assert_eq!(sol.get("lib"), Some(&v("1.0.0")));

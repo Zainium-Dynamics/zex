@@ -1,12 +1,8 @@
-//! tests/test_remove_upgrade.rs — Remove and Upgrade driver tests.
+//! tests/test_remove_upgrade.rs: Remove and Upgrade driver tests.
 
 mod harness;
 use harness::*;
 use std::fs;
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  REMOVE DRIVER — preflight + single package removal logic (15 tests)
-// ══════════════════════════════════════════════════════════════════════════════
 
 mod remove {
     use super::*;
@@ -18,21 +14,18 @@ mod remove {
         let bin = env.p("overlayer/zexlib/union/bin/ripgrep");
         assert_file_exists(&bin);
 
-        // Read files from receipt and remove them
         let receipt =
             fs::read_to_string(env.p("overlayer/zexlib/registry/installed/ripgrep.toml")).unwrap();
         let val: toml::Value = toml::from_str(&receipt).unwrap();
         let files = val["remove"]["files"].as_array().unwrap();
         for file_val in files {
             let f = file_val.as_str().unwrap();
-            // Remap to temp env
             let rel = f.strip_prefix('/').unwrap_or(f);
             let path = env.path().join(rel);
             if path.exists() {
                 fs::remove_file(&path).unwrap();
             }
         }
-        // Binary gone
         assert!(!bin.exists());
     }
 
@@ -52,7 +45,6 @@ mod remove {
         let env = TempOverlayer::new();
         let receipt = env.p("overlayer/zexlib/registry/installed/ghost.toml");
         assert!(!receipt.exists());
-        // Cannot remove what isn't installed
         assert!(fs::read_to_string(&receipt).is_err());
     }
 
@@ -62,7 +54,6 @@ mod remove {
         env.add_installed_receipt("curl", "8.11", "tier2-alpine");
         let pkg_toml = env.p("overlayer/zexlib/registry/packages.toml");
 
-        // Simulate updating packages.toml after removal
         let raw = fs::read_to_string(&pkg_toml).unwrap();
         let mut val: toml::Value = toml::from_str(&raw).unwrap();
         if let Some(pkgs) = val.get_mut("packages").and_then(|p| p.as_table_mut()) {
@@ -87,7 +78,6 @@ mod remove {
             fs::remove_file(&bin).unwrap();
             fs::remove_file(&receipt).unwrap();
         }
-        // Files should still exist in dry run
         assert_file_exists(&bin);
         assert_file_exists(&receipt);
     }
@@ -114,7 +104,7 @@ mod remove {
             assert!(link.exists());
             fs::remove_file(&link).unwrap();
             assert!(!link.exists());
-            assert!(target.exists()); // Target untouched
+            assert!(target.exists());
         }
     }
 
@@ -126,11 +116,9 @@ mod remove {
         let datafile = pkg_dir.join("data.dat");
         fs::write(&datafile, b"data").unwrap();
 
-        // Dir not empty — should not remove
         let result = fs::remove_dir(&pkg_dir);
         assert!(result.is_err(), "remove_dir should fail when not empty");
 
-        // Remove file first, then dir
         fs::remove_file(&datafile).unwrap();
         fs::remove_dir(&pkg_dir).unwrap();
         assert!(!pkg_dir.exists());
@@ -150,7 +138,6 @@ mod remove {
         let syshub_manifest = env.p("overlayer/syshub/engine/services/syshub.toml");
         let raw = fs::read_to_string(&syshub_manifest).unwrap();
         let val: toml::Value = toml::from_str(&raw).unwrap();
-        // bash is in syshub — can't remove via zex remove
         let is_syshub = val["packages"].get("bash").is_some();
         assert!(is_syshub);
     }
@@ -191,7 +178,6 @@ mod remove {
         let raw = fs::read_to_string(&pinned_path).unwrap();
         let is_pinned = raw.contains("name = \"gcc\"");
         assert!(is_pinned, "gcc should be pinned");
-        // In real driver: return error "package is pinned"
     }
 
     #[test]
@@ -218,27 +204,21 @@ mod remove {
         let remove_receipt = env.p("overlayer/zexlib/registry/installed/remove.toml");
         fs::remove_file(&remove_receipt).unwrap();
 
-        // keep is still there
         assert_file_exists(&env.p("overlayer/zexlib/registry/installed/keep.toml"));
         assert!(!remove_receipt.exists());
     }
 }
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  UPGRADE — vercmp and diff logic (18 tests)
-// ══════════════════════════════════════════════════════════════════════════════
 
 mod upgrade_logic {
     use zex::cmd::upgrade::vercmp::is_upgrade;
 
     #[test]
     fn many_version_pairs() {
-        // Pure structural compare (numeric then raw suffix lex) — no keyword policy.
         let should_upgrade = [
             ("1.0", "1.1"),
             ("1.0.0", "1.0.1"),
             ("0.9", "1.0"),
-            ("1.0-alpha", "1.0-beta"), // suffix lex only
+            ("1.0-alpha", "1.0-beta"),
             ("9.1.0-r0", "9.1.0-r1"),
             ("3.14.0_1", "3.14.0_2"),
             ("0", "1"),
@@ -264,8 +244,6 @@ mod upgrade_logic {
 
     #[test]
     fn epoch_handling() {
-        // Some distros use 1:1.0 epoch notation
-        // If we don't support it, at least don't panic
         let result = std::panic::catch_unwind(|| {
             let _ = is_upgrade("1:1.0", "1:1.1");
         });
@@ -279,21 +257,18 @@ mod upgrade_logic {
     fn very_long_version() {
         let v1 = "1.2.3.4.5.6.7.8.9.10.11.12";
         let v2 = "1.2.3.4.5.6.7.8.9.10.11.13";
-        // Just shouldn't panic
         let result = std::panic::catch_unwind(|| is_upgrade(v1, v2));
         assert!(result.is_ok());
     }
 
     #[test]
     fn empty_versions() {
-        // "" → "1.0" = should be upgrade (empty = unknown = old)
         let result = std::panic::catch_unwind(|| is_upgrade("", "1.0"));
         assert!(result.is_ok());
     }
 
     #[test]
     fn prerelease_ordering() {
-        // alpha < beta < rc < release
         assert!(
             is_upgrade("1.0-alpha", "1.0-beta") || !is_upgrade("1.0-beta", "1.0-alpha"),
             "pre-release ordering must be consistent"
@@ -302,15 +277,10 @@ mod upgrade_logic {
 
     #[test]
     fn apk_revision_latest() {
-        // r5 > r4 > r0
         assert!(is_upgrade("1.0.0-r4", "1.0.0-r5"));
         assert!(!is_upgrade("1.0.0-r5", "1.0.0-r4"));
     }
 }
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  ROLLBACK — transaction restore (10 tests)
-// ══════════════════════════════════════════════════════════════════════════════
 
 mod rollback {
     use super::*;
@@ -335,7 +305,6 @@ mod rollback {
             .collect();
         entries.sort();
         assert_eq!(entries.len(), 5);
-        // Sorted means deterministic order
         assert!(entries[0] < entries[4]);
     }
 
@@ -344,7 +313,6 @@ mod rollback {
         let env = TempOverlayer::new();
         env.add_installed_receipt("curl", "8.11", "tier2-alpine");
 
-        // Simulate rollback: restore receipt from backup
         let current_receipt = env.p("overlayer/zexlib/registry/installed/curl.toml");
         let backup_content = "name = \"curl\"\nversion = \"8.10\"\n\
                               origin = \"tier2-alpine\"\ninstalled_at = \"2026-06-01\"\n\
@@ -369,11 +337,9 @@ mod rollback {
         let live = env.p("overlayer/syshub");
         let backup = env.p("overlayer/syshub.old");
 
-        // Create fake backup
         fs::create_dir_all(backup.join("bin")).unwrap();
         fs::write(backup.join("bin/old-zex"), b"old binary").unwrap();
 
-        // Rollback: live → trash, backup → live
         let trash = env.p("overlayer/syshub.rollback_trash");
         fs::rename(&live, &trash).unwrap();
         fs::rename(&backup, &live).unwrap();
@@ -387,7 +353,6 @@ mod rollback {
         let env = TempOverlayer::new();
         env.add_installed_receipt("vim", "9.1.0", "tier1-zainium");
 
-        // Rollback: delete the new receipt (downgrade)
         let receipt = env.p("overlayer/zexlib/registry/installed/vim.toml");
         fs::remove_file(&receipt).unwrap();
         assert!(!receipt.exists());
@@ -400,10 +365,8 @@ mod rollback {
         env.add_installed_receipt("htop", "3.4.0", "tier1-zainium");
         env.add_installed_receipt("curl", "8.11", "tier2-alpine");
 
-        // Rollback only vim
         fs::remove_file(env.p("overlayer/zexlib/registry/installed/vim.toml")).unwrap();
 
-        // Others intact
         assert_file_exists(&env.p("overlayer/zexlib/registry/installed/htop.toml"));
         assert_file_exists(&env.p("overlayer/zexlib/registry/installed/curl.toml"));
     }
@@ -421,7 +384,6 @@ mod rollback {
     #[test]
     fn oldest_transaction_pruned_first() {
         let env = TempOverlayer::new();
-        // Add 15 transactions, keep 10
         for i in 0..15 {
             env.add_transaction(
                 &format!("tx-{i:03}"),
@@ -437,7 +399,6 @@ mod rollback {
             .collect();
         entries.sort();
 
-        // Prune oldest (first 5)
         let keep = 10;
         for tx_name in entries.iter().take(entries.len() - keep) {
             fs::remove_dir_all(dir.join(tx_name)).unwrap();
@@ -447,11 +408,10 @@ mod rollback {
 
     #[test]
     fn rollback_id_format() {
-        // Transaction IDs should be sortable by timestamp
         let ids = ["tx-1719446400000", "tx-1719446500000", "tx-1719446600000"];
         let mut sorted = ids.to_vec();
         sorted.sort();
-        assert_eq!(sorted, ids); // Already in order
+        assert_eq!(sorted, ids);
     }
 
     #[test]
@@ -460,6 +420,5 @@ mod rollback {
         let dir = env.p("overlayer/zexlib/transactions");
         let count = fs::read_dir(&dir).unwrap().count();
         assert_eq!(count, 0);
-        // Listing empty dir should not panic
     }
 }

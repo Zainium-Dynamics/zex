@@ -1,13 +1,8 @@
-//! tests/test_integration.rs — End-to-end integration tests.
-//! Tests full package lifecycle: create → extract → install → inspect → remove.
+//! tests/test_integration.rs: End-to-end integration tests.
 
 mod harness;
 use harness::*;
 use std::fs;
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  PACKAGE LIFECYCLE — create, extract, verify (12 tests)
-// ══════════════════════════════════════════════════════════════════════════════
 
 mod lifecycle {
     use super::*;
@@ -68,7 +63,6 @@ mod lifecycle {
 
         assert_file_contains(&out_a.join("manifest.toml"), "alpha");
         assert_file_contains(&out_b.join("manifest.toml"), "bravo");
-        // They don't contaminate each other
         let a_content = fs::read_to_string(out_a.join("manifest.toml")).unwrap();
         assert!(!a_content.contains("bravo"));
     }
@@ -78,7 +72,6 @@ mod lifecycle {
         let tmp = tempfile::TempDir::new().unwrap();
         let pkg = create_test_zex_package("zexctest", "1.0", tmp.path());
 
-        // First 4 bytes of zexc: "ZEX1" (0x5A 0x45 0x58 0x31)
         let data = fs::read(&pkg).unwrap();
         assert!(data.len() >= 4);
         assert_eq!(&data[..4], b"ZEX1");
@@ -105,10 +98,6 @@ mod lifecycle {
         assert_file_contains(&out.join("manifest.toml"), "1.0.0-rc1+build.42");
     }
 }
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  OVERLAYER STATE — registry integrity (10 tests)
-// ══════════════════════════════════════════════════════════════════════════════
 
 mod registry {
     use super::*;
@@ -191,7 +180,6 @@ pinned_by = "alizain"
         let env = TempOverlayer::new();
         env.fill_cache("tier1-zainium", 1024);
 
-        // tier2 should be empty
         let t2 = env.p("overlayer/zexlib/registry/cache/tier2-alpine");
         assert_eq!(fs::read_dir(t2).unwrap().count(), 0);
     }
@@ -199,11 +187,9 @@ pinned_by = "alizain"
     #[test]
     fn syshub_immutable_marker() {
         let env = TempOverlayer::new();
-        // syshub.toml is the immutable manifest
         let syshub = env.p("overlayer/syshub/engine/services/syshub.toml");
         let raw = fs::read_to_string(&syshub).unwrap();
         let val: toml::Value = toml::from_str(&raw).unwrap();
-        // Should have bash and coreutils
         assert!(val["packages"]["bash"].is_table());
         assert!(val["packages"]["coreutils"].is_table());
     }
@@ -221,16 +207,13 @@ pinned_by = "alizain"
     #[test]
     fn union_dir_is_userland_root() {
         let env = TempOverlayer::new();
-        // union/ is where userland packages install their files
         assert_dir_exists(&env.p("overlayer/zexlib/union/bin"));
         assert_dir_exists(&env.p("overlayer/zexlib/union/lib"));
         assert_dir_exists(&env.p("overlayer/zexlib/union/share"));
     }
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
 //  FILESYSTEM SAFETY — permission + error handling (8 tests)
-// ══════════════════════════════════════════════════════════════════════════════
 
 mod fs_safety {
     use super::*;
@@ -249,13 +232,10 @@ mod fs_safety {
             fs::set_permissions(&out, fs::Permissions::from_mode(0o444)).unwrap();
 
             let result = zex::extract::extract(&pkg, &out.join("sub"));
-            // Should fail — can't write to readonly parent
-            // (may succeed if running as root)
             if !nix::unistd::Uid::effective().is_root() {
                 assert!(result.is_err());
             }
 
-            // Restore permissions for cleanup
             fs::set_permissions(&out, fs::Permissions::from_mode(0o755)).unwrap();
         }
     }
@@ -280,7 +260,6 @@ mod fs_safety {
     fn corrupt_zstd_fails() {
         let tmp = tempfile::TempDir::new().unwrap();
         let corrupt = tmp.path().join("corrupt.zex");
-        // Write zstd magic but garbage after
         fs::write(&corrupt, &[0x28, 0xB5, 0x2F, 0xFD, 0xFF, 0xFF]).unwrap();
         let result = zex::extract::extract(&corrupt, &tmp.path().join("out"));
         assert!(result.is_err());
@@ -298,7 +277,6 @@ mod fs_safety {
         let env = TempOverlayer::new();
         let tmp = env.p("overlayer/zexlib/tmp");
 
-        // Simulate concurrent writes
         for i in 0..10 {
             fs::write(tmp.join(format!("concurrent_{i}")), format!("data {i}")).unwrap();
         }
@@ -314,7 +292,6 @@ mod fs_safety {
             "1.0",
         );
 
-        // Overwrite with new version
         env.add_installed_receipt("pkg", "2.0", "tier1-zainium");
         assert_file_contains(
             &env.p("overlayer/zexlib/registry/installed/pkg.toml"),
@@ -332,10 +309,6 @@ mod fs_safety {
         assert_file_exists(&out.join("manifest.toml"));
     }
 }
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  CRYPTO — Ed25519 + Blake3 + SHA256 roundtrips (10 tests)
-// ══════════════════════════════════════════════════════════════════════════════
 
 mod crypto {
     use ed25519_dalek::{Signer, SigningKey};
@@ -399,7 +372,7 @@ mod crypto {
         let mut sha = Sha256::new();
         sha.update(data);
         let s2 = hex::encode(sha.finalize());
-        assert_ne!(b3, s2); // Different algorithms produce different hashes
+        assert_ne!(b3, s2);
     }
 
     #[test]
@@ -411,7 +384,7 @@ mod crypto {
 
     #[test]
     fn large_data_hashing() {
-        let data = vec![0xAB_u8; 10_000_000]; // 10 MB
+        let data = vec![0xAB_u8; 10_000_000];
         let h = blake3::hash(&data).to_hex().to_string();
         assert_eq!(h.len(), 64);
     }
@@ -422,7 +395,6 @@ mod crypto {
         let vk = sk.verifying_key();
         let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, vk.as_bytes());
         assert!(!b64.is_empty());
-        // Decode back
         let decoded =
             base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &b64).unwrap();
         assert_eq!(decoded.len(), 32);

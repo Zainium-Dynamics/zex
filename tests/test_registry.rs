@@ -1,13 +1,8 @@
-//! tests/test_registry.rs — Registry TOML format validation.
-//! Every schema we read/write must survive full roundtrips.
+//! tests/test_registry.rs: Registry TOML format validation.
 
 mod harness;
 use harness::*;
 use std::fs;
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  PINNED.TOML — schema (8 tests)
-// ══════════════════════════════════════════════════════════════════════════════
 
 mod pinned_schema {
     use super::*;
@@ -86,7 +81,6 @@ mod pinned_schema {
             }],
         };
         let text = toml::to_string_pretty(&f).unwrap();
-        // Option<None> should NOT serialize the key
         assert!(!text.contains("reason ="));
     }
 
@@ -134,10 +128,6 @@ mod pinned_schema {
         assert!(found.is_some());
     }
 }
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  RECEIPT.TOML — schema (10 tests)
-// ══════════════════════════════════════════════════════════════════════════════
 
 mod receipt_schema {
     use serde::{Deserialize, Serialize};
@@ -313,10 +303,6 @@ version = "1.0"
     }
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-//  MANIFEST.TOML — .zex package format (8 tests)
-// ══════════════════════════════════════════════════════════════════════════════
-
 mod manifest_schema {
 
     #[test]
@@ -430,7 +416,6 @@ bin = "/overlayer/zexlib/union/bin"
 [remove]
 files = ["/overlayer/zexlib/union/bin/tool"]
 "#;
-        // Host FHS paths forbidden; /overlayer/…/bin is the correct layout.
         assert!(!raw.contains("/usr/"));
         assert!(!raw.contains("/usr/bin/"));
         assert!(!raw.contains("/lib64/ld-linux"));
@@ -447,14 +432,9 @@ version = "1.0"
 files = []
 "#;
         let val: toml::Value = toml::from_str(raw).unwrap();
-        // No signature field — should parse fine
         assert!(val["package"].get("ed25519_sig").is_none());
     }
 }
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  ZEX_SERVICES.TOML — mirror config (6 tests)
-// ══════════════════════════════════════════════════════════════════════════════
 
 mod zex_services_schema {
     use super::*;

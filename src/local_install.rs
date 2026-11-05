@@ -1,20 +1,10 @@
 //! Local package installer for ZEX.
-//!
-//! Takes a downloaded file or extracted directory and installs it
-//! to the system root using Rootfs Overlay.
-//!
-//! Flags:
-//!   --dry-run           Preview files without writing
-//!   --root <path>       Install to custom root (default: /)
-//!   -f, --force         Force overwrite existing files
-//!   -o, --out <dir>     Custom extraction output (passed to extract)
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::extract;
 
-// Root check without nix crate dependency
 #[cfg(unix)]
 unsafe extern "C" {
     fn geteuid() -> u32;
@@ -24,10 +14,6 @@ unsafe fn libc_geteuid() -> u32 {
     unsafe { geteuid() }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// TYPES
-// ─────────────────────────────────────────────────────────────────────────────
-
 struct InstallOpts {
     target: PathBuf,
     root: PathBuf,
@@ -35,10 +21,6 @@ struct InstallOpts {
     force: bool,
     package_name: Option<String>,
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// CLI ENTRY POINT
-// ─────────────────────────────────────────────────────────────────────────────
 
 /// Called from main.rs: `zex -i <file|dir> [--dry-run] [--root <path>] [-f]`
 pub fn run(args: &[String]) -> Result<(), String> {
@@ -55,7 +37,6 @@ pub fn run(args: &[String]) -> Result<(), String> {
         return Err(format!("Path not found: {}", opts.target.display()));
     }
 
-    // Check root privileges (unless dry-run or custom root)
     #[cfg(unix)]
     if !opts.dry_run
         && opts.root == Path::new("/overlayer/zexlib/union")
@@ -74,13 +55,11 @@ pub fn run(args: &[String]) -> Result<(), String> {
     }
     println!();
 
-    // If target is a file → extract first, then install from extracted dir
     let install_dir = if opts.target.is_file() {
         let format = extract::detect_format(&opts.target)
             .map_err(|e| format!("Format detection failed: {}", e))?;
         println!("  ▶ Detected: {}", format);
 
-        // Extract to Zainium temp directory (not /tmp)
         let stem = opts
             .target
             .file_stem()
@@ -96,17 +75,6 @@ pub fn run(args: &[String]) -> Result<(), String> {
             .map_err(|e| format!("Extraction failed: {}", e))?;
         println!("✓ ({} files)", result.files_extracted);
 
-        // ── ELF-patch + pkg-config-patch, while still mutable ──────────────
-        //
-        // `zex install <name>` (cmd::install::installer.rs) runs both
-        // passes on every staged file before commit — `zex -i <file>`
-        // (this local/offline path) extracts through the same
-        // `crate::extract` engine but never called either pass, so an
-        // Alpine/Void/Chimera archive installed this way kept its
-        // original FHS `PT_INTERP`/RPATH and any `.pc` file kept its
-        // FHS `prefix=/usr`. Same timing constraint as the network path:
-        // must happen here, before `overlay_install` below copies these
-        // files to their real destination.
         if !opts.dry_run {
             let staged_files: Vec<PathBuf> = walkdir::WalkDir::new(&extract_dir)
                 .into_iter()
@@ -145,7 +113,6 @@ pub fn run(args: &[String]) -> Result<(), String> {
     create_transaction_snapshot(&pkg_name, "install", &opts.root)
         .map_err(|e| format!("Transaction failed: {}", e))?;
 
-    // Overlay to root
     let result = overlay_install(&install_dir, &opts.root, opts.dry_run, opts.force)?;
 
     if !opts.dry_run {
@@ -156,7 +123,6 @@ pub fn run(args: &[String]) -> Result<(), String> {
         crate::triggers::flush();
     }
 
-    // Cleanup temp extraction if we extracted
     if opts.target.is_file() {
         let _ = fs::remove_dir_all(&install_dir);
     }
@@ -190,8 +156,6 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
     Ok(())
 }
-
-// ARGUMENT PARSER
 
 fn parse_opts(args: &[String]) -> Result<InstallOpts, String> {
     let mut target: Option<PathBuf> = None;
@@ -237,10 +201,6 @@ fn parse_opts(args: &[String]) -> Result<InstallOpts, String> {
     })
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// ROOTFS OVERLAY INSTALLER
-// ─────────────────────────────────────────────────────────────────────────────
-
 pub struct InstallResultExtended {
     pub files_installed: usize,
     pub files_skipped: usize,
@@ -259,11 +219,6 @@ fn overlay_install(
     let mut skipped = 0usize;
     let mut paths = Vec::new();
 
-    // ── manifest.toml awareness ─────────────────────────────────────────────
-    // If the extracted dir contains a manifest.toml, read its [install] map
-    // and use it to determine correct dest paths per payload/ subdir.
-    // This makes `zex -i package.zex` use the same install logic as the
-    // install driver (zex_manifest::extract_payload).
     let manifest_path = source_dir.join("manifest.toml");
     let install_map: std::collections::HashMap<String, String> = if manifest_path.exists() {
         if let Ok(raw) = fs::read_to_string(&manifest_path) {
@@ -294,7 +249,6 @@ fn overlay_install(
         Default::default()
     };
 
-    // The walk base: if payload/ subdir exists, walk that; else walk source_dir
     let walk_base = if source_dir.join("payload").exists() {
         source_dir.join("payload")
     } else {
@@ -308,19 +262,15 @@ fn overlay_install(
             .strip_prefix(&walk_base)
             .map_err(|e| format!("Path error: {}", e))?;
 
-        // Skip the root directory itself
         if relative.as_os_str().is_empty() {
             continue;
         }
-        // Skip manifest.toml — it's metadata, not a payload file
         if relative.to_string_lossy() == "manifest.toml" {
             continue;
         }
 
-        // Resolve destination: use install_map prefix if available
         let rel_str = relative.to_string_lossy();
         let dest = if !install_map.is_empty() {
-            // Match first path component against install_map
             let first = rel_str.split('/').next().unwrap_or("");
             if let Some(mapped_root) = install_map.get(first) {
                 let remainder = rel_str
@@ -333,20 +283,17 @@ fn overlay_install(
         } else {
             root.join(relative)
         };
-        // written through the merged mount; recorded as the union path
         let union_dest = dest;
         let dest = crate::archive_safety::live_path(&union_dest);
 
         if src_path.is_dir() {
             if dry_run {
-                // Don't create dirs in dry run
             } else {
                 let _ = fs::create_dir_all(&dest);
             }
             continue;
         }
 
-        // Handle symlinks
         #[cfg(unix)]
         if src_path
             .symlink_metadata()
@@ -387,7 +334,6 @@ fn overlay_install(
             continue;
         }
 
-        // Regular file
         if dry_run {
             let action = if dest.exists() {
                 "[OVERWRITE]"
@@ -403,23 +349,19 @@ fn overlay_install(
             continue;
         }
 
-        // Check for existing file
         if dest.exists() && !force {
             println!("    [SKIP] {} (exists, use -f to force)", dest.display());
             skipped += 1;
             continue;
         }
 
-        // Create parent dirs
         if let Some(p) = dest.parent() {
             fs::create_dir_all(p).map_err(|e| format!("mkdir error: {}", e))?;
         }
 
-        // Atomic install: copy to .tmp → rename
         let tmp = dest.with_extension("_zex_tmp");
         fs::copy(src_path, &tmp).map_err(|e| format!("Copy error: {}", e))?;
 
-        // Set executable for binaries
         #[cfg(unix)]
         if is_executable_path(&dest) {
             use std::os::unix::fs::PermissionsExt;

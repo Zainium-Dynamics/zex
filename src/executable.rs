@@ -5,7 +5,7 @@ use std::path::Path;
 use anyhow::{Context, Result, bail};
 
 /// Verify that a driver/binary exists and is executable.
-/// Never mutates permissions — callers must fix packaging if the bit is missing.
+/// Never mutates permissions: callers must fix packaging if the bit is missing.
 pub fn ensure_executable(binary_path: &str) -> Result<()> {
     let path = Path::new(binary_path);
 

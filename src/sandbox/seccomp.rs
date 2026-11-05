@@ -1,5 +1,4 @@
-//! Seccomp fallback — currently a no-op placeholder.
-//! Landlock is the primary confinement layer; elevate(1) provides the outer boundary.
+//! Seccomp fallback: currently a no-op placeholder.
 
 use anyhow::Result;
 

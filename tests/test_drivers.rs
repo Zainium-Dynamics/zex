@@ -1,13 +1,8 @@
-//! tests/test_drivers.rs — Unit tests for driver sub-modules.
-//! Tests internal logic without running full CLI dispatch.
+//! tests/test_drivers.rs: Unit tests for driver sub-modules.
 
 mod harness;
 use harness::*;
 use std::fs;
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  UPGRADE — vercmp (18 tests)
-// ══════════════════════════════════════════════════════════════════════════════
 
 mod vercmp {
     use zex::cmd::upgrade::vercmp::is_upgrade;
@@ -32,11 +27,10 @@ mod vercmp {
     fn older_not_upgrade() {
         assert!(!is_upgrade("2.0.0", "1.0.0"));
     }
-    // Suffix compare is pure lexicographic (no hardcoded alpha/beta/rc policy).
     #[test]
     fn suffix_lex_order() {
-        assert!(is_upgrade("1.0-alpha", "1.0-beta")); // "-alpha" < "-beta"
-        assert!(is_upgrade("1.0-beta", "1.0-rc1")); // "-beta"  < "-rc1"
+        assert!(is_upgrade("1.0-alpha", "1.0-beta"));
+        assert!(is_upgrade("1.0-beta", "1.0-rc1"));
     }
     #[test]
     fn apk_revision() {
@@ -81,10 +75,6 @@ mod vercmp {
         assert!(!is_upgrade("3.0", "2.99"));
     }
 }
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  UPGRADE — checksum (8 tests)
-// ══════════════════════════════════════════════════════════════════════════════
 
 mod checksum {
     use zex::cmd::upgrade::checksum;
@@ -137,13 +127,9 @@ mod checksum {
     #[test]
     fn sha256_hex_length() {
         let hash = checksum::calculate_sha256_bytes(b"anything");
-        assert_eq!(hash.len(), 64); // SHA256 = 32 bytes = 64 hex chars
+        assert_eq!(hash.len(), 64);
     }
 }
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  UPGRADE — signing (6 tests)
-// ══════════════════════════════════════════════════════════════════════════════
 
 mod signing {
     use ed25519_dalek::{Signer, SigningKey};
@@ -196,17 +182,12 @@ mod signing {
     }
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-//  SWEEP — scanner logic (10 tests)
-// ══════════════════════════════════════════════════════════════════════════════
-
 mod sweep {
     use super::*;
 
     #[test]
     fn empty_system_is_clean() {
         let env = TempOverlayer::new();
-        // No cache, no tmp files — should report clean
         let cache_dir = env.p("overlayer/zexlib/registry/cache/tier1-zainium");
         assert!(fs::read_dir(cache_dir).unwrap().count() == 0);
     }
@@ -239,7 +220,6 @@ mod sweep {
         env.fill_cache("tier1-zainium", 4096);
         let cache = env.p("overlayer/zexlib/registry/cache/tier1-zainium");
 
-        // Clear
         for entry in fs::read_dir(&cache).unwrap().flatten() {
             fs::remove_file(entry.path()).unwrap();
         }
@@ -306,7 +286,6 @@ mod sweep {
 
     #[test]
     fn human_bytes_formatting() {
-        // Test the formatting logic
         assert_eq!(format_bytes(0), "0 B");
         assert_eq!(format_bytes(512), "512 B");
         assert_eq!(format_bytes(1024), "1.0 KB");
@@ -326,10 +305,6 @@ mod sweep {
         }
     }
 }
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  INSPECT — receipt parsing (8 tests)
-// ══════════════════════════════════════════════════════════════════════════════
 
 mod inspect {
     use super::*;
@@ -370,8 +345,6 @@ mod inspect {
     fn receipt_lowercase_name() {
         let env = TempOverlayer::new();
         env.add_installed_receipt("MyPkg", "1.0", "tier1-zainium");
-        // Receipt should be at mypkg.toml (lowercase) — but our harness uses the name as-is
-        // This tests the exact filename behavior
         assert_file_exists(&env.p("overlayer/zexlib/registry/installed/MyPkg.toml"));
     }
 
@@ -415,10 +388,6 @@ mod inspect {
         );
     }
 }
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  DOCTOR — layout checks (10 tests)
-// ══════════════════════════════════════════════════════════════════════════════
 
 mod doctor_layout {
     use super::*;
@@ -493,10 +462,6 @@ mod doctor_layout {
     }
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-//  SEARCH — models + config (6 tests)
-// ══════════════════════════════════════════════════════════════════════════════
-
 mod search {
     use zex::cmd::search::models::{Origin, SearchResult};
 
@@ -551,10 +516,6 @@ mod search {
     }
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-//  UPDATE — diff logic (6 tests)
-// ══════════════════════════════════════════════════════════════════════════════
-
 mod update_vercmp {
     use zex::cmd::update::vercmp::is_upgrade;
 
@@ -583,10 +544,6 @@ mod update_vercmp {
         assert!(is_upgrade("", "0.1"));
     }
 }
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  INSTALL — backend config (5 tests)
-// ══════════════════════════════════════════════════════════════════════════════
 
 mod install_backend {
     use zex::cmd::install::backend::PackageFormat;
@@ -623,10 +580,6 @@ mod install_backend {
         assert!(pi.sha256.is_none());
     }
 }
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  INSTALL — zex_manifest (6 tests)
-// ══════════════════════════════════════════════════════════════════════════════
 
 mod zex_manifest {
     #[test]

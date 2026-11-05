@@ -1,18 +1,5 @@
-//! main.rs — Zex multicall binary dispatcher.
-//!
-//! BusyBox-style: ONE binary, many commands.
-//!
-//! Detection order:
-//!   1. argv[0] contains "zex-<cmd>" → run <cmd>
-//!   2. argv[1] is a known command   → run <cmd> with argv[2..] as args
-//!
-//! Install layout:
-//!   /overlayer/syshub/bin/zex              ← single ELF
-//!   /overlayer/syshub/bin/zex-install      → zex  (symlink)
-//!   /overlayer/syshub/bin/zex-upgrade      → zex
-//!   /overlayer/syshub/drivers/system/*     → zex  (symlinks for driver compat)
+//! main.rs: Zex multicall binary dispatcher.
 
-// the modules live in the zex library (lib.rs); the binary is only the dispatcher
 use zex::{cmd, extract, local_install, pinning};
 
 use std::{env, process::exit};
@@ -25,8 +12,6 @@ unsafe extern "C" {
 unsafe fn libc_geteuid() -> u32 {
     unsafe { geteuid() }
 }
-
-// ── Help ──────────────────────────────────────────────────────────────────────
 
 fn print_help() {
     const G: &str = "\x1b[92m";
@@ -90,8 +75,6 @@ fn print_help() {
     println!();
 }
 
-// ── Async runtime ─────────────────────────────────────────────────────────────
-
 #[tokio::main]
 async fn main() {
     let all_args: Vec<String> = env::args().collect();
@@ -99,17 +82,14 @@ async fn main() {
         exit(1);
     }
 
-    // Detect argv[0] for symlink dispatch (zex-install, zex-remove, …)
     let argv0 = std::path::Path::new(&all_args[0])
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("zex");
 
     let (command, cmd_args): (&str, Vec<String>) = if let Some(cmd) = argv0.strip_prefix("zex-") {
-        // Symlink dispatch: argv[0] = "zex-install", args = argv[1..]
         (cmd, all_args[1..].to_vec())
     } else {
-        // Normal dispatch: argv[1] = command, args = argv[2..]
         if all_args.len() < 2 {
             print_help();
             exit(0);
@@ -117,14 +97,10 @@ async fn main() {
         (all_args[1].as_str(), all_args[2..].to_vec())
     };
 
-    // Build args vector the driver sees: [command, ...user_args]
-    // This lets Clap see argv[0] = command name for error messages
     let mut driver_args = vec![command.to_string()];
     driver_args.extend(cmd_args.clone());
 
-    // ── Dispatch ─────────────────────────────────────────────────────────────
     let result: anyhow::Result<()> = match command {
-        // ── Built-ins (no driver binary needed) ──────────────────────────────
         "-h" | "--help" | "help" => {
             print_help();
             exit(0);
@@ -162,7 +138,6 @@ async fn main() {
             local_install::run(&cmd_args).map_err(|e| anyhow::anyhow!(e))
         }
 
-        // ── Pin / Unpin (built-in) ────────────────────────────────────────────
         "pin" => {
             if cmd_args.is_empty() {
                 eprintln!("Usage: elevate zex pin <package> [--reason <text>]");
@@ -212,7 +187,6 @@ async fn main() {
             Ok(())
         }
 
-        // ── Driver commands (now compiled into this binary) ───────────────────
         "install" => {
             cmd::install::run(driver_args).await;
             Ok(())
@@ -254,7 +228,6 @@ async fn main() {
         "history" => cmd::history::run(driver_args),
         "update" => cmd::update::run(driver_args).await,
 
-        // ── Upgrade: exactly two commands (syshub | uland) — no bare `upgrade` ─
         "kernel" => cmd::upgrade::run(vec!["upgrade".into(), "kernel".into()]).await,
         "verity" => cmd::verity::run(cmd_args.to_vec()),
         "syshub" | "uland" => {
@@ -273,7 +246,6 @@ async fn main() {
             cmd::upgrade::run(up_args).await
         }
 
-        // ── Unknown ───────────────────────────────────────────────────────────
         other => {
             eprintln!(
                 "\n \x1b[91mError:\x1b[0m Unknown command '{other}'.\n\

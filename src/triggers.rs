@@ -1,5 +1,4 @@
 //! Post-transaction triggers: caches and daemons that must learn about files zex added or removed.
-//! Paths are noted while a command runs; `flush` then runs each needed trigger once, as root.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -140,7 +139,6 @@ pub fn flush() {
         }
     }
     if has("etc/flatpak/remotes.d") {
-        // flatpak adds static remotes on its first system-wide run
         run("flatpak", &["remotes"]);
     }
 
@@ -209,7 +207,6 @@ fn rebuild(prog: &str, args: &[&str], rel: &str, only: Option<&str>) {
             let entry = entry?;
             if entry.file_type()?.is_file() {
                 let to = dest.join(entry.file_name());
-                // a sealed cache can be replaced, not written
                 let _ = std::fs::remove_file(&to);
                 std::fs::copy(entry.path(), &to)?;
             }
@@ -256,7 +253,6 @@ fn run(prog: &str, args: &[&str]) {
     }
 }
 
-// zex has no logger, so trigger problems are printed where the user sees them
 fn warn(prog: &str, msg: &str) {
     eprintln!(" \x1b[93m⚠\x1b[0m  {prog}: {msg}");
 }

@@ -1,10 +1,4 @@
-//! Native `.zex` compression codec — wraps the `zexc` crate.
-//!
-//! Wire format: zexc stream with magic `ZEX1` containing a tar archive of:
-//!   manifest.toml + signature.b3 + payload/
-//!
-//! APK (gzip) and XBPS (zstd/xz) use their own codecs; only native packages
-//! go through this module.
+//! Native `.zex` compression codec: wraps the `zexc` crate.
 
 use std::fs::File;
 use std::io::{self, Read};

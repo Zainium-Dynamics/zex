@@ -1,6 +1,4 @@
 //! Helpers that only work setuid root. Packages built by an unprivileged CI lose the bit
-//! (libfuse, for one, only sets it when installed as root), so zex restores it for exactly
-//! these paths after a transaction. Nothing outside this list is ever made setuid.
 
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::Path;
@@ -32,7 +30,6 @@ pub fn restore(path: &Path) -> std::io::Result<bool> {
         return Ok(false);
     }
     std::os::unix::fs::chown(path, Some(0), Some(0))?;
-    // chown clears setuid, so the mode goes last
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o4755))?;
     Ok(true)
 }

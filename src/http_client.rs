@@ -32,7 +32,7 @@ struct PinsFile {
 /// HEAD, manifest/ledger fetches) is also the one every download path
 /// reuses for the actual package bytes (`cmd::upgrade::userland`,
 /// `cmd::update::apply` both take a shared client rather than building a
-/// download-specific one) — so `.timeout()` here is a ceiling on the
+/// download-specific one): so `.timeout()` here is a ceiling on the
 /// *entire* request, including the full body transfer, not just a connect
 /// timeout. 300s was sized for API-style calls and silently turned any
 /// large package (gcc/rust-toolchain scale, 100MB-2GB+) on a real-world
@@ -49,7 +49,6 @@ pub fn build(user_agent: &str) -> Result<reqwest::Client> {
     let mut builder = reqwest::Client::builder()
         .connect_timeout(std::time::Duration::from_secs(15))
         .timeout(std::time::Duration::from_secs(4 * 60 * 60))
-        // a stalled transfer (no bytes for 30s) errors out so the downloader retries
         .read_timeout(std::time::Duration::from_secs(30))
         .tcp_keepalive(std::time::Duration::from_secs(30))
         .user_agent(user_agent)
