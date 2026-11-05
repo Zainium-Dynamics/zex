@@ -1,5 +1,4 @@
-//! apk.rs — Native resolver for Alpine Linux (APK) and Chimera Linux
-//! Parses APKINDEX.tar.gz directly into Zex package records.
+//! apk.rs: Native resolver for Alpine Linux (APK) and Chimera Linux
 
 use super::backend::{
     BackendConfig, MetadataManager, MirrorConfig, PackageFormat, PackageInfo, dynamic_metadata,
@@ -15,29 +14,23 @@ pub async fn resolve_apk(
 ) -> Result<Option<PackageInfo>> {
     let mirror_name = mirror.id.clone();
 
-    // Substitute {arch} placeholder in mirror URLs.
     #[cfg(target_arch = "x86_64")]
     let arch = "x86_64";
     #[cfg(target_arch = "aarch64")]
     let arch = "aarch64";
     #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
     let arch = std::env::var("ARCH").unwrap_or_else(|_| "x86_64".to_string());
-    let arch = arch.to_string(); // bind lifetime
+    let arch = arch.to_string();
 
     let index_url = mirror.index_url.replace("{arch}", &arch);
     let base_url = mirror.base_url.replace("{arch}", &arch);
 
-    // Fetch APKINDEX.tar.gz
     let (bytes, _) = mm
         .fetch(&index_url, client, super::installer::reinstalling())
         .await?;
 
-    // Unpack tar.gz in memory
     let decompressed = tokio::task::spawn_blocking(move || -> Result<String> {
         use std::io::Read;
-        // APKINDEX.tar.gz is a concatenation of multiple gzip members
-        // (signature tarball + index tarball) — a plain GzDecoder only
-        // reads the first member and silently truncates before APKINDEX.
         let decoder = flate2::read::MultiGzDecoder::new(&bytes[..]);
         let mut archive = tar::Archive::new(decoder);
         let mut text = String::new();
@@ -63,10 +56,6 @@ pub async fn resolve_apk(
     if let Some(rec) = find_record(&parse_all(&decompressed), name) {
         let (display_name, launch_cmd) = dynamic_metadata(&rec.name, Some(&rec.desc));
 
-        // Filename/URL must use the *resolved* package name — for a
-        // version-pinned dep ("vim-common=9.2.0747-r0") or a virtual
-        // "provides" capability (e.g. "so:libncursesw.so.6"), that can
-        // differ from the originally requested `name`.
         let filename = format!("{}-{}.apk", rec.name, rec.version);
         let url = format!("{}/{}", base_url.trim_end_matches('/'), filename);
 
@@ -102,17 +91,17 @@ struct ApkRecord {
     /// "Provides" tokens with any embedded version constraint stripped
     /// (e.g. "so:libc.musl-x86_64.so.1", "cmd:ldd").
     provides: Vec<String>,
-    /// Genuine "cannot coexist with" conflicts — bare `!pkgname` entries
+    /// Genuine "cannot coexist with" conflicts: bare `!pkgname` entries
     /// in the `D:` field with no version operator at all. Alpine also
     /// uses *paired* `!pkg<V !pkg>V` entries to pin a subpackage to its
     /// parent's exact version (they're built and released together, so
-    /// that's not a real conflict) — those are deliberately excluded.
+    /// that's not a real conflict): those are deliberately excluded.
     conflicts: Vec<String>,
 }
 
 /// Strips an embedded version constraint from a dependency/provides token.
 /// APKINDEX tokens look like "vim-common=9.2.0747-r0", "so:libc.so.1>=1",
-/// or plain "musl" — the resolvable identity is always the part before the
+/// or plain "musl": the resolvable identity is always the part before the
 /// first constraint operator.
 pub(crate) fn strip_constraint(tok: &str) -> &str {
     match tok.find(['=', '<', '>', '~']) {
@@ -129,12 +118,12 @@ pub(crate) enum ConstraintOp {
     Gt,
     Lt,
     Eq,
-    /// Alpine's "~=" fuzzy operator — same version prefix, not a strict order.
+    /// Alpine's "~=" fuzzy operator: same version prefix, not a strict order.
     Fuzzy,
 }
 
 /// Parses the version constraint embedded in a dependency/provides token,
-/// if any — e.g. "vim-common=9.2.0747-r0" yields `(Eq, "9.2.0747-r0")`,
+/// if any: e.g. "vim-common=9.2.0747-r0" yields `(Eq, "9.2.0747-r0")`,
 /// "so:libc.so.1>=1" yields `(Ge, "1")`; a plain "musl" (no operator)
 /// yields `None`. Longer operators are checked before their single-char
 /// prefixes so "libfoo>=1.2" isn't misread as "libfoo" `Gt` "=1.2".
@@ -158,7 +147,6 @@ pub(crate) fn parse_constraint(tok: &str) -> Option<(ConstraintOp, &str)> {
 fn parse_all(text: &str) -> Vec<ApkRecord> {
     let mut out = Vec::new();
 
-    // We split by "\n\n" as each block is a package definition
     for block in text.split("\n\n") {
         let mut name = String::new();
         let mut version = String::new();
@@ -179,13 +167,8 @@ fn parse_all(text: &str) -> Vec<ApkRecord> {
                 "T:" => desc = value.to_owned(),
                 "S:" => size = value.parse().unwrap_or(0),
                 "D:" => {
-                    // Depends field: "D:!sudo so:libc.so.1 vim-common=9.2.0747-r0"
                     for d in value.split_whitespace() {
                         if let Some(pkg) = d.strip_prefix('!') {
-                            // Bare "!pkg" (no operator) = real conflict.
-                            // "!pkg<V" / "!pkg>V" pairs pin a subpackage
-                            // to its parent's exact version — not a
-                            // conflict, so those are dropped, not kept.
                             if !pkg.contains(['<', '>', '=', '~']) {
                                 conflicts.push(pkg.to_string());
                             }
@@ -195,7 +178,6 @@ fn parse_all(text: &str) -> Vec<ApkRecord> {
                     }
                 }
                 "p:" => {
-                    // Provides field: "p:so:libc.so.1=1 cmd:ldd=1.2.4"
                     for p in value.split_whitespace() {
                         provides.push(strip_constraint(p).to_string());
                     }
@@ -222,7 +204,7 @@ fn parse_all(text: &str) -> Vec<ApkRecord> {
 
 /// Resolves `target` against a package list two ways:
 ///   1. Direct package-name match (after stripping any version constraint).
-///   2. Virtual "provides" match — e.g. "so:libncursesw.so.6" is satisfied
+///   2. Virtual "provides" match: e.g. "so:libncursesw.so.6" is satisfied
 ///      by whichever real package declares it in its `p:` field.
 fn find_record<'a>(records: &'a [ApkRecord], target: &str) -> Option<&'a ApkRecord> {
     let target_base = strip_constraint(target);

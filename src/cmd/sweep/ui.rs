@@ -1,4 +1,4 @@
-//! ui.rs — Sweep driver visual output. Same palette as all other drivers.
+//! ui.rs: Sweep driver visual output. Same palette as all other drivers.
 
 use super::scanner::SweepTarget;
 

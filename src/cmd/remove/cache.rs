@@ -1,12 +1,3 @@
-// zex/src/cache.rs
-//
-// Backend Detection Cache
-// ────────────────────────
-// Caches backend probing results to avoid redundant dpkg/flatpak/snap queries.
-// Useful when removing multiple packages in parallel or re-checking dependencies.
-//
-// Thread-safe via RwLock.
-
 use super::backend::PackageBackend;
 use lazy_static::lazy_static;
 use std::collections::HashMap;

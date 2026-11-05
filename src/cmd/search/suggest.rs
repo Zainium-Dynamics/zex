@@ -1,5 +1,4 @@
-//! suggest.rs — Fuzzy "did you mean?" suggestions for not-found queries.
-//! Fetches Tier 1 ledger only (fast, native, most complete).
+//! suggest.rs: Fuzzy "did you mean?" suggestions for not-found queries.
 
 use super::config::ZexServices;
 use serde::Deserialize;
@@ -36,7 +35,7 @@ pub async fn fuzzy_suggest(
         .packages
         .keys()
         .map(|name| (edit_distance(&q, &name.to_ascii_lowercase()), name.clone()))
-        .filter(|(d, _)| *d <= 4) // max edit distance threshold
+        .filter(|(d, _)| *d <= 4)
         .collect();
 
     scored.sort_by_key(|(d, _)| *d);

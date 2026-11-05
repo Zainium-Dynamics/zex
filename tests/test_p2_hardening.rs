@@ -1,4 +1,4 @@
-//! P2 hardening integration tests — trust, archive safety, union sync, executable.
+//! P2 hardening integration tests: trust, archive safety, union sync, executable.
 
 mod harness;
 
@@ -6,10 +6,6 @@ use harness::*;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  Archive safety — path traversal + O_NOFOLLOW confinement
-// ══════════════════════════════════════════════════════════════════════════════
 
 mod archive_safety {
     use super::*;
@@ -32,10 +28,6 @@ mod archive_safety {
         assert!(out.join("payload/bin/confined").starts_with(&out));
     }
 }
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  Executable policy — no silent chmod
-// ══════════════════════════════════════════════════════════════════════════════
 
 mod executable {
     use super::*;
@@ -68,10 +60,6 @@ mod executable {
     }
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-//  Union sync event — JSON stamp format for Quantra hook
-// ══════════════════════════════════════════════════════════════════════════════
-
 mod union_sync {
     #[test]
     fn sync_event_serializes_for_quantra_watchers() {
@@ -83,10 +71,6 @@ mod union_sync {
         assert!(json.contains("/run/quantra-system/zex-upperlayer-stamp"));
     }
 }
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  TempOverlayer fixture — registry + syshub layout smoke
-// ══════════════════════════════════════════════════════════════════════════════
 
 mod overlayer_fixture {
     use super::*;

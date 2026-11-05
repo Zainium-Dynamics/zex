@@ -1,27 +1,4 @@
-//! immutable.rs — Immutable Core & System Snapshot Engine for Zainium OS.
-//!
-//! Architecture:
-//!   Zainium's system partition is treated as read-only by default.  Before any
-//!   package install/upgrade/remove operation, zex creates a lightweight snapshot
-//!   of the current system state.  If the operation fails — or if the user
-//!   explicitly requests rollback — the snapshot is restored atomically.
-//!
-//! Design Principles (vs competitors):
-//!   • APT/Pacman: No snapshot system.  A failed `apt upgrade` can brick the
-//!     system.  Manual `timeshift` or btrfs snapshots are separate tools.
-//!   • RedoxOS pkgar: Has atomic updates but no multi-snapshot history.
-//!   • Zex: Built-in snapshot chain with instant rollback + boot-time recovery.
-//!
-//! Snapshot Layout:
-//!   /overlayer/zexlib/registry/snapshots/
-//!     ├── current → symlink to active snapshot ID
-//!     ├── 1716048000-pre-install-vlc/
-//!     │   ├── manifest.toml      (packages + versions + file hashes)
-//!     │   ├── db_backup.toml     (full registry::PkgRecord list, not a lossy projection)
-//!     │   └── files/             (backed-up files that will be overwritten)
-//!     ├── 1716048300-pre-upgrade-gcc/
-//!     │   └── ...
-//!     └── boot-fallback/         (last known-good state for boot recovery)
+//! immutable.rs: Immutable Core & System Snapshot Engine for Zainium OS.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -34,14 +11,12 @@ use sha2::{Digest, Sha256};
 use super::registry::{self, PkgRecord};
 use super::ui;
 
-// ─── Constants ───────────────────────────────────────────────────────────────
-
 const SNAPSHOT_ROOT: &str = "/overlayer/zexlib/registry/snapshots";
 const CURRENT_LINK: &str = "/overlayer/zexlib/registry/snapshots/current";
 const BOOT_FALLBACK: &str = "/overlayer/zexlib/registry/snapshots/boot-fallback";
 const MAX_SNAPSHOTS: usize = 10;
 
-/// Immutable system paths — these directories are read-only by default.
+/// Immutable system paths: these directories are read-only by default.
 /// Zex temporarily unlocks them during install/upgrade, then re-locks.
 const IMMUTABLE_PATHS: &[&str] = &[
     "/overlayer/syshub/bin",
@@ -50,8 +25,6 @@ const IMMUTABLE_PATHS: &[&str] = &[
     "/overlayer/syshub/libexec",
     "/overlayer/syshub/sbin",
 ];
-
-// ─── Snapshot Manifest ───────────────────────────────────────────────────────
 
 /// Records the exact system state at snapshot creation time.
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -78,14 +51,12 @@ pub struct SnapshotPackageEntry {
     pub file_count: usize,
 }
 
-/// TOML requires a table at the document root — wraps the flat package
+/// TOML requires a table at the document root: wraps the flat package
 /// list `db_backup.toml` actually stores.
 #[derive(Debug, Serialize, Deserialize)]
 struct DbBackup {
     packages: Vec<PkgRecord>,
 }
-
-// ─── Immutable Core Guard ────────────────────────────────────────────────────
 
 /// Check if system paths are currently in immutable (read-only) state.
 /// Returns a list of paths and their immutable status.
@@ -106,8 +77,6 @@ fn is_path_immutable(path: &str) -> bool {
         return false;
     }
 
-    // Try to get extended attributes — check for immutable flag
-    // On Linux, this checks the FS_IMMUTABLE_FL flag via ioctl
     match std::fs::metadata(p) {
         Ok(meta) => meta.permissions().readonly(),
         Err(_) => false,
@@ -122,7 +91,6 @@ pub fn unlock_system() -> Result<ImmutableGuard> {
     for path in IMMUTABLE_PATHS {
         let p = Path::new(path);
         if p.exists() {
-            // Remove read-only flag to allow writes
             if let Ok(meta) = std::fs::metadata(p) {
                 let mut perms = meta.permissions();
                 if perms.readonly() {
@@ -174,8 +142,6 @@ fn lock_system_paths() {
     ui::print_immutable_relock();
 }
 
-// ─── Snapshot Operations ─────────────────────────────────────────────────────
-
 /// Create a pre-operation snapshot of the current system state.
 ///
 /// This captures:
@@ -195,9 +161,6 @@ pub fn create_snapshot(label: &str, affected_packages: &[String]) -> Result<Snap
 
     std::fs::create_dir_all(&snap_dir).context("Failed to create snapshot directory")?;
 
-    // 1. Backup the full package registry — the real `PkgRecord` list, not
-    // a lossy `DbEntry` projection (that drops dependencies/provides/
-    // source_mirror, which a real restore needs).
     let db = registry::load_all();
     let db_backup_path = snap_dir.join("db_backup.toml");
     let db_toml = toml::to_string_pretty(&DbBackup {
@@ -206,7 +169,6 @@ pub fn create_snapshot(label: &str, affected_packages: &[String]) -> Result<Snap
     .context("Failed to serialise package registry backup")?;
     std::fs::write(&db_backup_path, &db_toml).context("Failed to write database backup")?;
 
-    // 2. Build manifest with package entries
     let packages: Vec<SnapshotPackageEntry> = db
         .iter()
         .map(|entry| SnapshotPackageEntry {
@@ -217,7 +179,6 @@ pub fn create_snapshot(label: &str, affected_packages: &[String]) -> Result<Snap
         })
         .collect();
 
-    // 3. Hash files owned by affected packages
     let mut file_hashes = HashMap::new();
     let files_dir = snap_dir.join("files");
 
@@ -226,12 +187,10 @@ pub fn create_snapshot(label: &str, affected_packages: &[String]) -> Result<Snap
             for file_path in &entry.installed_files {
                 let p = Path::new(file_path);
                 if p.exists() && p.is_file() {
-                    // Compute hash
                     if let Ok(hash) = sha256_of_path(p) {
                         file_hashes.insert(file_path.clone(), hash);
                     }
 
-                    // Backup the file
                     let backup_path =
                         files_dir.join(file_path.strip_prefix('/').unwrap_or(file_path));
                     if let Some(parent) = backup_path.parent() {
@@ -243,7 +202,6 @@ pub fn create_snapshot(label: &str, affected_packages: &[String]) -> Result<Snap
         }
     }
 
-    // 4. Build and save manifest
     let manifest = SnapshotManifest {
         id: timestamp,
         label: label.to_string(),
@@ -258,7 +216,6 @@ pub fn create_snapshot(label: &str, affected_packages: &[String]) -> Result<Snap
         toml::to_string_pretty(&manifest).context("Failed to serialise snapshot manifest")?;
     std::fs::write(&manifest_path, &manifest_toml).context("Failed to write snapshot manifest")?;
 
-    // 5. Update current symlink
     let current = Path::new(CURRENT_LINK);
     let _ = std::fs::remove_file(current);
     #[cfg(unix)]
@@ -266,7 +223,6 @@ pub fn create_snapshot(label: &str, affected_packages: &[String]) -> Result<Snap
         let _ = std::os::unix::fs::symlink(&snap_dir, current);
     }
 
-    // 6. Prune old snapshots (keep MAX_SNAPSHOTS)
     prune_old_snapshots()?;
 
     ui::print_snapshot_created(&snap_id);
@@ -287,10 +243,6 @@ pub fn restore_snapshot(snapshot_id: &str) -> Result<()> {
 
     ui::print_snapshot_restoring(snapshot_id);
 
-    // 1. Restore the registry: re-register every package the snapshot
-    // knew about (via registry::register(), which also keeps the master
-    // packages.toml index in sync), then unregister anything installed
-    // *after* the snapshot that the snapshot never saw.
     let db_backup = snap_dir.join("db_backup.toml");
     if db_backup.exists() {
         let raw = std::fs::read_to_string(&db_backup).context("reading db_backup.toml")?;
@@ -313,13 +265,11 @@ pub fn restore_snapshot(snapshot_id: &str) -> Result<()> {
         }
     }
 
-    // 2. Restore backed-up files
     let files_dir = snap_dir.join("files");
     if files_dir.exists() {
         restore_files_recursive(&files_dir, Path::new("/"))?;
     }
 
-    // 3. Update current symlink
     let current = Path::new(CURRENT_LINK);
     let _ = std::fs::remove_file(current);
     #[cfg(unix)]
@@ -340,14 +290,11 @@ pub fn update_boot_fallback() -> Result<()> {
     let _ = std::fs::remove_dir_all(&fallback_dir);
     std::fs::create_dir_all(&fallback_dir)?;
 
-    // Snapshot the real, current registry — not a dead path nothing writes
-    // to any more.
     let db = registry::load_all();
     let db_toml = toml::to_string_pretty(&DbBackup { packages: db })
         .context("Failed to serialise boot-fallback registry backup")?;
     std::fs::write(fallback_dir.join("installed.toml"), db_toml)?;
 
-    // Write boot marker with timestamp
     let marker = format!(
         "last_good_boot = \"{}\"\nkernel = \"{}\"\n",
         chrono_now_iso(),
@@ -371,7 +318,6 @@ pub fn list_snapshots() -> Result<Vec<SnapshotManifest>> {
         let entry = entry?;
         let path = entry.path();
 
-        // Skip non-directories and special entries
         if !path.is_dir() {
             continue;
         }
@@ -390,7 +336,6 @@ pub fn list_snapshots() -> Result<Vec<SnapshotManifest>> {
         }
     }
 
-    // Sort by ID (timestamp) descending — newest first
     snapshots.sort_by(|a, b| b.id.cmp(&a.id));
 
     Ok(snapshots)
@@ -431,15 +376,12 @@ pub fn verify_integrity() -> Result<Vec<String>> {
     Ok(modified)
 }
 
-// ─── Internal Helpers ────────────────────────────────────────────────────────
-
 /// Recursively restore files from backup directory to target root.
 fn restore_files_recursive(src: &Path, target_root: &Path) -> Result<()> {
     for entry in std::fs::read_dir(src)? {
         let entry = entry?;
         let path = entry.path();
 
-        // Compute the destination path relative to the backup dir
         let relative = path.strip_prefix(src).unwrap_or(&path);
         let dest = target_root.join(relative);
 
@@ -482,10 +424,8 @@ fn prune_old_snapshots() -> Result<()> {
         dirs.push((name, path));
     }
 
-    // Sort alphabetically (timestamp prefix ensures chronological order)
     dirs.sort_by(|a, b| a.0.cmp(&b.0));
 
-    // Remove oldest entries exceeding MAX_SNAPSHOTS
     while dirs.len() > MAX_SNAPSHOTS {
         if let Some((name, path)) = dirs.first() {
             log::info!("Pruning old snapshot: {}", name);
@@ -516,14 +456,12 @@ fn chrono_now_iso() -> String {
         .unwrap_or_default();
     let secs = duration.as_secs();
 
-    // Simple epoch to ISO conversion (UTC)
     let days = secs / 86400;
     let time_secs = secs % 86400;
     let hours = time_secs / 3600;
     let minutes = (time_secs % 3600) / 60;
     let seconds = time_secs % 60;
 
-    // Approximate date calculation from epoch days
     let mut y = 1970i64;
     let mut remaining = days as i64;
     loop {
@@ -569,8 +507,6 @@ fn get_kernel_version() -> String {
         .to_string()
 }
 
-// ─── Tests ───────────────────────────────────────────────────────────────────
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -578,7 +514,6 @@ mod tests {
     #[test]
     fn test_chrono_now_iso_format() {
         let ts = chrono_now_iso();
-        // Should match ISO 8601 pattern: YYYY-MM-DDTHH:MM:SSZ
         assert!(ts.len() == 20, "Unexpected timestamp length: {}", ts);
         assert!(ts.ends_with('Z'));
         assert!(ts.contains('T'));

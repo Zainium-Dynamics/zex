@@ -1,21 +1,7 @@
-//! resolver.rs — Orchestrates the dynamic, multi-engine resolution pipeline.
-//!
-//! This is the public face of the resolution layer. Callers (infuse.rs) ask
-//! for a package by name and receive either a fully-populated [`PackageInfo`]
-//! or an unambiguous "not found" error.
-//!
-//! Resolution pipeline
-//! ───────────────────
-//!   1. Normalise: lower-case the name, strip leading/trailing whitespace.
-//!   2. Iterate over all configured mirrors (from `zex_services.toml`).
-//!   3. Dispatch concurrently based on `mirror.format` (apk, xbps, zex).
-//!   4. Return the first match found, respecting the priority order.
-//!   5. If all mirrors fail: return a typed `NotFound` error.
+//! resolver.rs: Orchestrates the dynamic, multi-engine resolution pipeline.
 
 use super::backend::{self, BackendConfig, PackageInfo};
 use std::sync::Arc;
-
-// ─── Error type ───────────────────────────────────────────────────────────────
 
 /// Typed error returned when no backend can find a package.
 #[derive(Debug)]
@@ -48,8 +34,6 @@ pub struct ResolveManyResult {
     pub infra_failed: Vec<(String, String)>,
 }
 
-// ─── Public API ───────────────────────────────────────────────────────────────
-
 /// Resolves `name` to a [`PackageInfo`] by trying all configured mirrors concurrently.
 pub async fn resolve(
     name: &str,
@@ -65,8 +49,6 @@ pub async fn resolve(
         )));
     }
 
-    // `zex install --void wget` arrives as "void/wget": only that repository's
-    // mirrors (id "void" or "void-*") are asked; plain names ask every mirror
     let (repository, normalised) = match normalised.split_once('/') {
         Some((r, n)) if !r.is_empty() && !n.is_empty() => (Some(r.to_string()), n.to_string()),
         _ => (None, normalised),
@@ -78,9 +60,6 @@ pub async fn resolve(
     }
     sorted_mirrors.sort_by_key(|m| m.priority);
 
-    // Ask every mirror at once but take the answers in priority order, and return as soon
-    // as the best mirror that has the package answers instead of waiting for the slowest
-    // index (Void's repodata alone is ~17 s). Dropping the rest cancels their downloads.
     let name_ref = &normalised;
     let mut answers: futures::stream::FuturesOrdered<_> = sorted_mirrors
         .iter()
@@ -121,12 +100,10 @@ pub async fn resolve(
     }
     drop(answers);
 
-    // No mirror answered at all (offline, DNS, server down): that is not "not found"
     if let (false, Some(e)) = (answered, first_err) {
         return Err(ResolveError::Infra(e.context(UNREACHABLE)));
     }
 
-    // All mirrors exhausted.
     Err(ResolveError::NotFound(normalised))
 }
 
@@ -157,7 +134,7 @@ pub async fn joined_suggestions(
     found
 }
 
-/// Result of [`resolve_preferring`] — same as a normal resolve, plus
+/// Result of [`resolve_preferring`]: same as a normal resolve, plus
 /// whether the package had to be found on a *different* mirror than the
 /// one preferred (tier-affinity fallback).
 pub struct ResolvedWithAffinity {
@@ -174,15 +151,15 @@ pub struct ResolvedWithAffinity {
 ///
 /// Dependency resolution used to always search every mirror in raw
 /// priority order, with no notion of "this dependency belongs to the same
-/// tier as the package that needs it" — so a dependency could silently
+/// tier as the package that needs it": so a dependency could silently
 /// resolve from a *different* distro's repo than its own package came
 /// from whenever that other tier happened to have higher priority and
 /// also shipped a same-named package (confirmed repeatedly with real data:
 /// `busybox`, `xbps`, `base-files` each exist in more than one of
 /// Alpine/Void/Chimera's repos). Preferring the root package's own mirror
-/// for its dependencies first — falling back cross-tier only when that
+/// for its dependencies first: falling back cross-tier only when that
 /// mirror genuinely doesn't have it, and telling the caller when that
-/// happens — makes dependency resolution tier-consistent by default
+/// happens: makes dependency resolution tier-consistent by default
 /// instead of an accident of priority ordering.
 pub async fn resolve_preferring(
     name: &str,

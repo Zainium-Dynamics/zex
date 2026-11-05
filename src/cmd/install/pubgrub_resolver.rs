@@ -41,7 +41,6 @@ pub struct ZexDependencyProvider {
     pub config: Arc<super::backend::BackendConfig>,
     pub mm: Arc<super::backend::MetadataManager>,
 
-    // Dynamic Caches
     pub available_versions: RefCell<HashMap<ZexPackage, Vec<ZexVersion>>>,
     pub dependencies:
         RefCell<HashMap<(ZexPackage, ZexVersion), Dependencies<ZexPackage, ZexVersion>>>,
@@ -65,7 +64,6 @@ impl ZexDependencyProvider {
     }
 
     fn fetch_package(&self, pkg_name: &str) {
-        // Only fetch if we haven't already
         let real_pkg = ZexPackage {
             real_name: pkg_name.to_string(),
         };
@@ -81,18 +79,15 @@ impl ZexDependencyProvider {
 
         match result {
             Ok(info) => {
-                // Parse version
                 let ver = pubgrub::version::SemanticVersion::from_str(&info.version)
                     .unwrap_or_else(|_| {
                         pubgrub::version::SemanticVersion::from_str("1.0.0").unwrap()
                     });
 
-                // Add to available versions
                 self.available_versions
                     .borrow_mut()
                     .insert(real_pkg.clone(), vec![ver.clone()]);
 
-                // Add to tiers
                 let tier = match info.format {
                     super::backend::PackageFormat::Zex => PackageTier::Zainium,
                     super::backend::PackageFormat::Apk => PackageTier::Alpine,
@@ -103,7 +98,6 @@ impl ZexDependencyProvider {
                     .borrow_mut()
                     .insert((real_pkg.clone(), ver.clone()), tier);
 
-                // Add dependencies
                 let mut deps = pubgrub::type_aliases::Map::default();
                 for dep_name in &info.depends {
                     let dep_pkg = ZexPackage {
@@ -208,7 +202,6 @@ pub fn solve_dependencies(
     match resolve(provider, root_pkg.clone(), root_ver) {
         Ok(lock) => Ok(lock),
         Err(PubGrubError::NoSolution(derivation_tree)) => {
-            // Zainium Tier Supremacy rejection
             anyhow::bail!(
                 "Dependency Hell Averted: No solution exists that satisfies the requirements without violating a Zainium Core pin.\n\nConflict Details:\n{}",
                 pubgrub::report::DefaultStringReporter::report(&derivation_tree)

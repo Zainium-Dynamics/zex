@@ -1,5 +1,4 @@
 //! Step lines that follow the real work: a step shows as running (spinner) while its
-//! work runs, then prints its module's own "done" line. No timed animations.
 
 use std::sync::Mutex;
 use std::time::Duration;

@@ -1,13 +1,4 @@
-//! vercmp.rs — Version comparison for upgrade decisions.
-//!
-//! Pure structural compare only:
-//!   1. Dot-separated numeric parts (left-to-right, missing = 0)
-//!   2. Remaining suffix as raw bytes (lexicographic; no keyword lists)
-//!   3. A trailing `-rN` package release (recipe pkgrel) compared as a number,
-//!      so a rebuild `3.18.3-r1` upgrades `3.18.3` and `-r10` is newer than `-r9`
-//!
-//! No hardcoded "alpha" / "beta" / "rc" / "git" special cases.
-//! That keeps the policy: real version strings, no fake product logic.
+//! vercmp.rs: Version comparison for upgrade decisions.
 
 use std::cmp::Ordering;
 
@@ -56,7 +47,6 @@ impl Ord for Version {
                 ord => return ord,
             }
         }
-        // Suffix is raw remainder after the numeric stem — pure lexicographic.
         self.suffix
             .cmp(&other.suffix)
             .then(self.release.cmp(&other.release))
@@ -134,7 +124,6 @@ mod tests {
     }
     #[test]
     fn empty_suffix_lt_any() {
-        // Pure lex: "" < "-r1", so release stem alone is older than same stem + suffix.
         assert!(is_upgrade("1.0", "1.0-r1"));
     }
 }

@@ -1,8 +1,4 @@
-//! delta.rs — Delta Updates for Zex.
-//!
-//! Only downloads changed files when upgrading a package.
-//! Compares SHA256 hashes of installed files against remote manifest.
-//! Falls back to full download if delta info is unavailable.
+//! delta.rs: Delta Updates for Zex.
 
 use anyhow::Result;
 use sha2::{Digest, Sha256};
@@ -38,7 +34,6 @@ pub fn compute_delta(installed_files: &[String], remote_manifest: &DeltaManifest
     let mut removed = Vec::new();
     let mut bytes_saved: u64 = 0;
 
-    // Check existing files against remote hashes
     for (remote_path, remote_hash) in &remote_manifest.file_hashes {
         let local = Path::new(remote_path);
         if local.exists() && local.is_file() {
@@ -55,7 +50,6 @@ pub fn compute_delta(installed_files: &[String], remote_manifest: &DeltaManifest
         changed.push(remote_path.clone());
     }
 
-    // Files in installed but not in remote = removed
     for file in installed_files {
         if !remote_manifest.file_hashes.contains_key(file) {
             removed.push(file.clone());
@@ -80,7 +74,6 @@ pub fn check_delta_available(package_url: &str) -> Option<String> {
             .trim_end_matches(".apk")
             .trim_end_matches(".xbps")
     );
-    // Return the URL — caller decides whether to fetch
     Some(delta_url)
 }
 

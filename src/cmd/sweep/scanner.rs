@@ -1,13 +1,9 @@
-//! scanner.rs — Scans Zainium-specific locations and cleans them.
-//!
-//! All paths are real Zainium overlayer layout — no /usr, no /var/cache/apt,
-//! no flatpak, no snap. Only what actually exists in Zainium OS.
+//! scanner.rs: Scans Zainium-specific locations and cleans them.
 
 use std::time::{Duration, SystemTime};
 use std::{fs, path::Path};
 use walkdir::WalkDir;
 
-// ── Zainium paths ─────────────────────────────────────────────────────────────
 const CACHE_DIR: &str = "/overlayer/zexlib/registry/cache";
 const TMP_DIR: &str = "/overlayer/zexlib/tmp";
 const TRANSACTIONS_DIR: &str = "/overlayer/zexlib/transactions";
@@ -45,7 +41,6 @@ pub enum TargetKind {
 pub async fn scan_all(aggressive: bool) -> Vec<SweepTarget> {
     let mut targets = Vec::new();
 
-    // 1. Package download cache
     let cache_size = dir_size(CACHE_DIR);
     targets.push(SweepTarget {
         label: "Package cache".into(),
@@ -54,7 +49,6 @@ pub async fn scan_all(aggressive: bool) -> Vec<SweepTarget> {
         kind: TargetKind::ClearDir,
     });
 
-    // 2. Temp files
     let tmp_size = dir_size(TMP_DIR);
     targets.push(SweepTarget {
         label: "Temp files".into(),
@@ -63,7 +57,6 @@ pub async fn scan_all(aggressive: bool) -> Vec<SweepTarget> {
         kind: TargetKind::ClearDir,
     });
 
-    // 3. Orphaned staging (syshub.new from interrupted upgrade)
     let staging_size = dir_size(STAGING_NEW);
     if staging_size > 0 {
         targets.push(SweepTarget {
@@ -74,7 +67,6 @@ pub async fn scan_all(aggressive: bool) -> Vec<SweepTarget> {
         });
     }
 
-    // 4. Failed download artifacts
     let mut dl_size = 0u64;
     for prefix in DL_PREFIXES {
         dl_size += dir_size(prefix);
@@ -84,11 +76,10 @@ pub async fn scan_all(aggressive: bool) -> Vec<SweepTarget> {
             label: "Orphaned downloads".into(),
             path: "/overlayer/zexlib/tmp/[dl dirs]".into(),
             size_bytes: dl_size,
-            kind: TargetKind::ClearDir, // handled specially in clean_all
+            kind: TargetKind::ClearDir,
         });
     }
 
-    // 5. Old transaction records (keep newest 10)
     let tx_size = old_transaction_size(TRANSACTIONS_DIR, 10);
     if tx_size > 0 {
         targets.push(SweepTarget {
@@ -99,7 +90,6 @@ pub async fn scan_all(aggressive: bool) -> Vec<SweepTarget> {
         });
     }
 
-    // 6. Old logs (aggressive only — files > 30 days)
     if aggressive {
         let log_size = old_files_size(LOG_DIR, 30);
         if log_size > 0 {
@@ -131,7 +121,6 @@ pub async fn clean_all(targets: &[SweepTarget]) -> (usize, u64) {
 
         match &target.kind {
             TargetKind::ClearDir => {
-                // Special case for orphaned downloads (multiple dirs)
                 if target.label == "Orphaned downloads" {
                     for prefix in DL_PREFIXES {
                         let (r, b) = clear_dir(Path::new(prefix));
@@ -166,8 +155,6 @@ pub async fn clean_all(targets: &[SweepTarget]) -> (usize, u64) {
 
     (removed, freed)
 }
-
-// ── Size calculators ──────────────────────────────────────────────────────────
 
 fn dir_size(path: &str) -> u64 {
     let p = Path::new(path);
@@ -231,8 +218,6 @@ fn old_files_size(dir: &str, days: u64) -> u64 {
         })
         .sum()
 }
-
-// ── Cleaners ──────────────────────────────────────────────────────────────────
 
 /// Delete all contents of dir, keep the dir itself.
 fn clear_dir(p: &Path) -> (usize, u64) {

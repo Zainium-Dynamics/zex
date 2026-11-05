@@ -1,9 +1,4 @@
-//! Zex upper-layer management — no kernel mount operations.
-//!
-//! OverlayFS assembly (`syshub` + `zaisys` + `zexlib/union` → `/`) is owned
-//! by Quantra initramfs (`quantra-ramfs`) at boot. Zex writes package files
-//! directly into the writable upperdir; Quantra's merged root exposes them
-//! at runtime without any remount from zex.
+//! Zex upper-layer management: no kernel mount operations.
 
 use std::collections::HashSet;
 use std::fs;
@@ -105,7 +100,7 @@ impl UnionLayer {
         Ok(())
     }
 
-    /// Called after install/remove — prepares upperlayer dirs and stamps sync.
+    /// Called after install/remove: prepares upperlayer dirs and stamps sync.
     pub fn sync_after_package_change(&self) -> Result<()> {
         self.prepare_upperlayer()?;
         self.touch_sync_stamp()?;
@@ -118,7 +113,7 @@ impl UnionLayer {
         self.sync_after_package_change()
     }
 
-    /// Backward-compatible alias — fstab is owned by Quantra, not zex.
+    /// Backward-compatible alias: fstab is owned by Quantra, not zex.
     pub fn sync_fstab(&self) -> Result<()> {
         self.touch_sync_stamp()
     }

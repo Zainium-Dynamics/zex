@@ -1,16 +1,8 @@
-//! tests/test_fs_mutations.rs — Filesystem mutation safety tests.
-//!
-//! Tests the 180 fs::write/remove/rename/rename points under adversarial
-//! conditions: disk full, race conditions, partial writes, permission errors.
-//! Every mutation that touches the overlayer must be safe and atomic.
+//! tests/test_fs_mutations.rs: Filesystem mutation safety tests.
 
 mod harness;
 use harness::*;
 use std::{fs, io};
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  ATOMIC WRITE PATTERN — tmp → rename (15 tests)
-// ══════════════════════════════════════════════════════════════════════════════
 
 mod atomic_writes {
     use super::*;
@@ -60,15 +52,11 @@ mod atomic_writes {
         let path = env.p("overlayer/zexlib/registry/installed/real.toml");
         let tmp = path.with_extension("toml.tmp");
 
-        // Write a good version
         atomic_write(&path, b"version = \"1.0\"").unwrap();
 
-        // Simulate interrupted write: .tmp exists but rename never happened
         fs::write(&tmp, b"version = \"CORRUPT\"").unwrap();
 
-        // Original file should be untouched
         assert_file_contains(&path, "1.0");
-        // .tmp exists but is NOT the live file
         assert_file_exists(&tmp);
         let live = fs::read_to_string(&path).unwrap();
         assert!(!live.contains("CORRUPT"));
@@ -80,10 +68,8 @@ mod atomic_writes {
         let path = env.p("overlayer/zexlib/registry/installed/stale.toml");
         let tmp = path.with_extension("toml.tmp");
 
-        // Plant a stale .tmp
         fs::write(&tmp, b"stale data").unwrap();
 
-        // Next atomic write should overwrite .tmp and succeed
         atomic_write(&path, b"version = \"fresh\"").unwrap();
         assert_file_contains(&path, "fresh");
         assert!(!tmp.exists());
@@ -127,7 +113,6 @@ mod atomic_writes {
     fn write_large_receipt() {
         let env = TempOverlayer::new();
         let path = env.p("overlayer/zexlib/registry/installed/large.toml");
-        // Simulate a package with 1000 installed files
         let mut data = "name = \"large\"\nversion = \"1.0\"\n[remove]\nfiles = [\n".to_string();
         for i in 0..1000 {
             data.push_str(&format!(
@@ -146,7 +131,6 @@ mod atomic_writes {
         let env = TempOverlayer::new();
         let path = env.p("overlayer/zexlib/registry/installed/concurrent.toml");
 
-        // Sequential writes (simulating concurrent processes writing last wins)
         for i in 0..5 {
             atomic_write(&path, format!("version = \"v{i}\"").as_bytes()).unwrap();
         }
@@ -177,7 +161,6 @@ mod atomic_writes {
     fn write_to_nested_path_requires_parent() {
         let env = TempOverlayer::new();
         let path = env.p("overlayer/zexlib/registry/installed/deep.toml");
-        // Parent exists (created by TempOverlayer)
         assert!(path.parent().unwrap().is_dir());
         atomic_write(&path, b"name = \"deep\"").unwrap();
         assert_file_exists(&path);
@@ -204,10 +187,6 @@ mod atomic_writes {
     }
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-//  DIRECTORY OPERATIONS — create/remove/move (12 tests)
-// ══════════════════════════════════════════════════════════════════════════════
-
 mod dir_ops {
     use super::*;
 
@@ -216,7 +195,6 @@ mod dir_ops {
         let env = TempOverlayer::new();
         let path = env.p("overlayer/zexlib/tmp/nested/dir/here");
         fs::create_dir_all(&path).unwrap();
-        // Calling again should not fail
         fs::create_dir_all(&path).unwrap();
         assert_dir_exists(&path);
     }
@@ -238,10 +216,8 @@ mod dir_ops {
         let env = TempOverlayer::new();
         let path = env.p("overlayer/zexlib/tmp/doesnt_exist");
         assert!(!path.exists());
-        // remove_dir_all on nonexistent should not panic — check it's Err
         let result = fs::remove_dir_all(&path);
-        // On most Unix it returns Err(NotFound), but caller should handle it
-        let _ = result; // Either ok or err, just shouldn't panic
+        let _ = result;
     }
 
     #[test]
@@ -252,7 +228,6 @@ mod dir_ops {
         fs::write(staging.join("testfile"), b"data").unwrap();
         assert_dir_exists(&staging);
 
-        // Cleanup staging
         fs::remove_dir_all(&staging).unwrap();
         assert!(!staging.exists());
     }
@@ -263,22 +238,19 @@ mod dir_ops {
         env.fill_tmp(5);
         let tmp = env.p("overlayer/zexlib/tmp");
 
-        // Remove files but keep dir
         for entry in fs::read_dir(&tmp).unwrap().flatten() {
             fs::remove_file(entry.path()).unwrap();
         }
-        assert_dir_exists(&tmp); // dir still exists
+        assert_dir_exists(&tmp);
         assert_eq!(fs::read_dir(&tmp).unwrap().count(), 0);
     }
 
     #[test]
     fn union_dir_layout_preserved_after_install() {
         let env = TempOverlayer::new();
-        // Simulate installing a binary
         let bin = env.p("overlayer/zexlib/union/bin/myapp");
         fs::write(&bin, b"#!/bin/sh\necho myapp").unwrap();
 
-        // Uninstall: remove file but keep bin/ dir
         fs::remove_file(&bin).unwrap();
         assert_dir_exists(&env.p("overlayer/zexlib/union/bin"));
         assert!(!bin.exists());
@@ -346,16 +318,11 @@ mod dir_ops {
     #[test]
     fn overlayer_root_unchanged() {
         let env = TempOverlayer::new();
-        // Core overlayer dirs must always exist
         for dir in ["overlayer/syshub", "overlayer/zexlib", "overlayer/zaisys"] {
             assert_dir_exists(&env.p(dir));
         }
     }
 }
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  ERROR HANDLING — graceful failures (15 tests)
-// ══════════════════════════════════════════════════════════════════════════════
 
 mod error_handling {
     use super::*;
@@ -386,7 +353,6 @@ mod error_handling {
         fs::write(&path, b"").unwrap();
         let raw = fs::read_to_string(&path).unwrap();
         let val: toml::Value = toml::from_str(&raw).unwrap();
-        // Empty TOML parses as empty table
         assert!(val.as_table().map(|t| t.is_empty()).unwrap_or(true));
     }
 
@@ -402,7 +368,6 @@ mod error_handling {
     fn extract_truncated_zstd_fails() {
         let tmp = tempfile::TempDir::new().unwrap();
         let path = tmp.path().join("truncated.zex");
-        // Valid zstd magic but truncated body
         fs::write(&path, &[0x28, 0xB5, 0x2F, 0xFD, 0x01, 0x00]).unwrap();
         let result = zex::extract::extract(&path, &tmp.path().join("out"));
         assert!(result.is_err(), "truncated zstd should fail");
@@ -432,28 +397,24 @@ mod error_handling {
                 assert!(result.is_err());
             }
 
-            // Restore for cleanup
             fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
         }
     }
 
     #[test]
     fn rename_across_filesystems_may_fail() {
-        // On Linux, rename(2) fails with EXDEV if src and dst on different filesystems
-        // This test just documents the behavior — we use same-fs atomic writes
         let tmp1 = tempfile::TempDir::new().unwrap();
         let src = tmp1.path().join("src.txt");
-        let dst = tmp1.path().join("dst.txt"); // Same dir = same filesystem
+        let dst = tmp1.path().join("dst.txt");
         fs::write(&src, b"data").unwrap();
-        fs::rename(&src, &dst).unwrap(); // Should succeed (same FS)
+        fs::rename(&src, &dst).unwrap();
         assert_file_exists(&dst);
     }
 
     #[test]
     fn directory_where_file_expected_fails() {
         let env = TempOverlayer::new();
-        // Try to write to a path that is a directory
-        let path = env.p("overlayer/zexlib/tmp"); // this IS a directory
+        let path = env.p("overlayer/zexlib/tmp");
         assert!(path.is_dir());
         let result = fs::write(&path, b"data");
         assert!(result.is_err());
@@ -472,14 +433,12 @@ mod error_handling {
         let env = TempOverlayer::new();
         let path = env.p("overlayer/zexlib/registry/installed/nonexistent.toml");
         assert!(!path.exists());
-        // Should return Err(NotFound) but not panic
         let _ = fs::remove_file(&path);
     }
 
     #[test]
     fn invalid_utf8_in_filename_safe() {
         let env = TempOverlayer::new();
-        // Write a file with valid UTF-8 filename but unusual chars
         let path = env.p("overlayer/zexlib/tmp/pkg-name_1.0.0-r1.zex");
         fs::write(&path, b"data").unwrap();
         assert_file_exists(&path);
@@ -515,9 +474,7 @@ mod error_handling {
     }
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
 //  UPGRADE SWAP SAFETY — syshub atomic replacement (10 tests)
-// ══════════════════════════════════════════════════════════════════════════════
 
 mod upgrade_swap {
     use super::*;
@@ -533,7 +490,6 @@ mod upgrade_swap {
         let env = TempOverlayer::new();
         let staging = env.p("overlayer/syshub.new");
         fs::create_dir_all(&staging).unwrap();
-        // Staging dir is outside syshub/ to allow atomic swap
         assert!(!staging.starts_with(env.p("overlayer/syshub/")));
     }
 
@@ -544,21 +500,17 @@ mod upgrade_swap {
         let staging = env.p("overlayer/syshub.new");
         let backup = env.p("overlayer/syshub.old");
 
-        // Simulate: staging built, now perform swap
         fs::create_dir_all(staging.join("bin")).unwrap();
         fs::write(staging.join("bin/test"), b"test binary").unwrap();
 
-        // Step 1: rename live → backup
         fs::rename(&live, &backup).unwrap();
         assert!(!live.exists());
         assert_dir_exists(&backup);
 
-        // Step 2: rename staging → live
         fs::rename(&staging, &live).unwrap();
         assert_dir_exists(&live);
         assert!(!staging.exists());
 
-        // Step 3: cleanup backup
         fs::remove_dir_all(&backup).unwrap();
         assert!(!backup.exists());
     }
@@ -571,7 +523,6 @@ mod upgrade_swap {
         let old = fs::read_to_string(&path).unwrap();
         let new_content = old.replace("5.2.37", "5.2.38");
 
-        // Atomic write
         let tmp = path.with_extension("toml.tmp");
         fs::write(&tmp, &new_content).unwrap();
         fs::rename(&tmp, &path).unwrap();
@@ -586,7 +537,6 @@ mod upgrade_swap {
         let bin = env.p("overlayer/syshub/bin");
         assert_dir_exists(&bin);
 
-        // Write some binaries
         fs::write(bin.join("zex"), b"zex binary v5").unwrap();
         fs::write(bin.join("bash"), b"bash binary").unwrap();
 
@@ -614,12 +564,9 @@ mod upgrade_swap {
         let backup_dir = env.p("overlayer/zexlib/transactions/tx-rollback");
         fs::create_dir_all(&backup_dir).unwrap();
 
-        // Write current version
         fs::write(&path, "version = \"2.0\"").unwrap();
-        // Write backup
         fs::write(backup_dir.join("rollback.toml.bak"), "version = \"1.0\"").unwrap();
 
-        // Rollback: restore from backup
         let backup = backup_dir.join("rollback.toml.bak");
         let backup_content = fs::read_to_string(&backup).unwrap();
         fs::write(&path, &backup_content).unwrap();
@@ -632,7 +579,6 @@ mod upgrade_swap {
         let env = TempOverlayer::new();
         let staging = env.p("overlayer/syshub.new");
 
-        // If staging exists on boot = interrupted upgrade
         fs::create_dir_all(&staging).unwrap();
         let interrupted = staging.exists();
         assert!(
@@ -648,7 +594,6 @@ mod upgrade_swap {
         fs::create_dir_all(&staging).unwrap();
         assert_dir_exists(&staging);
 
-        // Sweep: remove orphaned staging
         fs::remove_dir_all(&staging).unwrap();
         assert!(!staging.exists());
     }
@@ -660,7 +605,6 @@ mod upgrade_swap {
         let cache = env.p("overlayer/zexlib/registry/cache/tier1-zainium");
         assert!(fs::read_dir(&cache).unwrap().count() > 0);
 
-        // Clear cache post-upgrade
         for entry in fs::read_dir(&cache).unwrap().flatten() {
             fs::remove_file(entry.path()).unwrap();
         }

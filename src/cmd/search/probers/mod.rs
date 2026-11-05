@@ -1,13 +1,4 @@
-//! probers/mod.rs — Zainium 4-tier search probers.
-//!
-//! Each prober fetches the index for its tier and filters by query.
-//! All probers run concurrently via tokio::join!.
-//!
-//! Tier routing (from zex_services.toml):
-//!   Tier 1 (Zainium) → zainium-userland-zexlib  format=zex   TOML ledger
-//!   Tier 2 (Alpine)  → alpine-main + community  format=apk   APKINDEX.tar.gz
-//!   Tier 3 (Void)    → void-musl-current         format=xbps  zstd repodata
-//!   Tier 4 (Chimera) → chimera-main + user       format=adb   Packages.adb (apk-tools v3)
+//! probers/mod.rs: Zainium 4-tier search probers.
 
 pub mod adb;
 pub mod apk;
@@ -22,7 +13,7 @@ pub use xbps::probe_xbps;
 pub use zex::probe_zex;
 
 /// Run all 4 tiers concurrently and merge results, deduplicating
-/// by (name, origin) — same package from two Alpine mirrors = one result.
+/// by (name, origin): same package from two Alpine mirrors = one result.
 pub async fn probe_all(
     query: &str,
     client: &reqwest::Client,
@@ -64,7 +55,6 @@ pub async fn probe_all(
         }
     }
 
-    // Sort: Zainium first, then alphabetically, installed floated to top
     all.sort_by(|a, b| {
         b.installed
             .cmp(&a.installed)
@@ -73,8 +63,6 @@ pub async fn probe_all(
     });
     all
 }
-
-// ── Internal per-tier helpers ─────────────────────────────────────────────────
 
 async fn probe_tier1(
     query: &str,

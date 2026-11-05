@@ -1,14 +1,14 @@
-//! models.rs — Search result types for Zainium 4-tier search.
+//! models.rs: Search result types for Zainium 4-tier search.
 
 use serde::{Deserialize, Serialize};
 
 /// Origin tier of a search result.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Origin {
-    Zainium, // Tier 1 — native .zex
-    Alpine,  // Tier 2 — .apk
-    Void,    // Tier 3 — .xbps
-    Chimera, // Tier 4 — .apk
+    Zainium,
+    Alpine,
+    Void,
+    Chimera,
 }
 
 impl Origin {
@@ -24,10 +24,10 @@ impl Origin {
     /// Terminal color for the origin label.
     pub fn color(&self) -> &'static str {
         match self {
-            Self::Zainium => "\x1b[92m", // green
-            Self::Alpine => "\x1b[96m",  // cyan
-            Self::Void => "\x1b[95m",    // purple
-            Self::Chimera => "\x1b[93m", // yellow
+            Self::Zainium => "\x1b[92m",
+            Self::Alpine => "\x1b[96m",
+            Self::Void => "\x1b[95m",
+            Self::Chimera => "\x1b[93m",
         }
     }
 }

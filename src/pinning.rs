@@ -1,10 +1,4 @@
-//! pinning.rs — Core package pinning for the zex multicall binary.
-//!
-//! This is the canonical pinning implementation used directly by main.rs
-//! (pin/unpin/pins built-in commands). The install driver's pinning.rs
-//! re-exports from here.
-//!
-//! Storage: /overlayer/zexlib/registry/pinned.toml
+//! pinning.rs: Core package pinning for the zex multicall binary.
 
 use anyhow::{Result, bail};
 
@@ -73,7 +67,6 @@ pub fn get_pin(name: &str) -> Option<PinnedPackage> {
 
 /// Pin a package at its currently installed version.
 pub fn pin(name: &str, reason: Option<&str>) -> Result<()> {
-    // Read version from receipt
     let receipt = std::path::Path::new(INSTALLED_DIR).join(format!("{}.toml", name.to_lowercase()));
     if !receipt.exists() {
         bail!(
@@ -98,17 +91,13 @@ pub fn pin(name: &str, reason: Option<&str>) -> Result<()> {
         .unwrap_or_else(|_| "root".into());
 
     let now = {
-        // Simple ISO 8601 without external dep in core crate
-        // Format: 2026-06-25T23:00:00Z using only std
         use std::time::{SystemTime, UNIX_EPOCH};
         let secs = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        // Convert unix timestamp to rough ISO string
         let s = secs;
         let days = s / 86400;
-        // Good enough for a timestamp label — chrono is in install driver
         format!("unix-{days}T00:00:00Z")
     };
 

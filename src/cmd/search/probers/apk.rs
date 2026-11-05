@@ -1,5 +1,4 @@
-//! probers/apk.rs — APK index search (Alpine / Chimera).
-//! Parses APKINDEX.tar.gz exactly as the upgrade driver does.
+//! probers/apk.rs: APK index search (Alpine / Chimera).
 
 use anyhow::Result;
 use std::io::Read;
@@ -25,9 +24,6 @@ pub async fn probe_apk(
     let q_inner = q.clone();
     let origin_c = origin.clone();
     let results = tokio::task::spawn_blocking(move || -> Vec<SearchResult> {
-        // APKINDEX.tar.gz is a concatenation of multiple gzip members
-        // (signature tarball + index tarball) — a plain GzDecoder only
-        // reads the first member and silently truncates before APKINDEX.
         let dec = flate2::read::MultiGzDecoder::new(&bytes[..]);
         let mut archive = tar::Archive::new(dec);
         let mut text = String::new();

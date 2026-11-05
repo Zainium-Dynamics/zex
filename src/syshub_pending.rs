@@ -1,9 +1,4 @@
 //! Syshub upgrades are staged here and applied by quantra-ramfs at the next boot,
-//! before the overlay is mounted, so base files always land in the base layer (never in zexlib).
-//!
-//! `/overlayer/.syshub-pending/` (installed disk only, root 0700, immutable while waiting):
-//!   `root/<path>`  staged files        `manifest`  `f\tmode\tsha256\tpath` | `l\ttarget\tpath` | `d\tmode\tpath`
-//!   `READY`        txn id, last write  `ROLLBACK`  undo the last applied upgrade at next boot
 
 use std::fs::{self, File};
 use std::io::{Read, Write};
@@ -111,6 +106,7 @@ pub fn commit(label: &str) -> Result<String> {
         } else if meta.is_dir() {
             lines.push_str(&format!("d\t{mode:o}\t{rel_s}\n"));
         } else if meta.is_file() {
+            let mode = crate::setuid::staged_mode(&rel_s, mode);
             lines.push_str(&format!("f\t{mode:o}\t{}\t{rel_s}\n", sha256_file(p)?));
         }
     }

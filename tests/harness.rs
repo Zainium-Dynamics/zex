@@ -1,12 +1,5 @@
-//! tests/harness.rs — Shared test utilities for all zex tests.
-//!
-//! Provides:
-//!   • TempOverlayer — sandboxed /overlayer/ tree in tmpdir
-//!   • create_test_zex_package() — builds a real .zex in-memory
-//!   • create_test_manifest() — builds manifest.toml strings
-//!   • assert_file_contains / assert_file_exists / assert_dir_exists
+//! tests/harness.rs: Shared test utilities for all zex tests.
 
-// each test binary includes this module and uses only some of its helpers
 #![allow(dead_code)]
 
 use std::fs;
@@ -24,7 +17,6 @@ impl TempOverlayer {
         let root = tempfile::TempDir::new().expect("failed to create tmpdir");
         let r = root.path();
 
-        // Create standard Zainium directories
         let dirs = [
             "overlayer/syshub/bin",
             "overlayer/syshub/lib",
@@ -55,7 +47,6 @@ impl TempOverlayer {
             fs::create_dir_all(r.join(d)).unwrap();
         }
 
-        // Write minimal syshub.toml
         fs::write(
             r.join("overlayer/syshub/engine/services/syshub.toml"),
             r#"[packages]
@@ -72,7 +63,6 @@ libc_target = "relibc"
         )
         .unwrap();
 
-        // Write zex_services.toml
         fs::write(
             r.join("overlayer/syshub/engine/services/zex_services.toml"),
             r#"[mirrors]
@@ -94,7 +84,6 @@ tier = 3
         )
         .unwrap();
 
-        // Write packages.toml (installed registry)
         fs::write(
             r.join("overlayer/zexlib/registry/packages.toml"),
             r#"[packages]
@@ -146,7 +135,6 @@ dirs = []
         )
         .unwrap();
 
-        // Also create the fake binary
         let bin_path = self.p(&format!("overlayer/zexlib/union/bin/{name}"));
         fs::write(&bin_path, format!("#!/bin/sh\necho {name}\n")).unwrap();
     }
@@ -194,8 +182,6 @@ packages = ["test-pkg"]
     }
 }
 
-// ── Assertion helpers ─────────────────────────────────────────────────────────
-
 pub fn assert_file_exists(path: &Path) {
     assert!(path.exists(), "expected file to exist: {}", path.display());
 }
@@ -239,8 +225,6 @@ pub fn assert_toml_has_key(path: &Path, key: &str) {
     }
 }
 
-// ── Package builder ───────────────────────────────────────────────────────────
-
 /// Build a minimal canonical `.zex` package (tar + zexc / ZEX1) in a tmpdir.
 /// Includes `manifest.toml`, `signature.b3`, and `payload/` matching packer layout.
 /// Returns the path to the created `.zex` file.
@@ -264,7 +248,6 @@ files = ["/overlayer/zexlib/union/bin/{name}"]
 "#
     );
 
-    // signature.b3 = Blake3(manifest ++ payload_blake3) — same as packer.rs
     let mut payload_hasher = blake3::Hasher::new();
     payload_hasher.update(payload_rel.as_bytes());
     payload_hasher.update(&payload_bytes);

@@ -1,5 +1,4 @@
-//! xbps.rs — Native resolver for Void Linux
-//! Parses `<arch>-repodata` (zstd compressed plist archives).
+//! xbps.rs: Native resolver for Void Linux
 
 use super::backend::{
     BackendConfig, MetadataManager, MirrorConfig, PackageFormat, PackageInfo, dynamic_metadata,
@@ -9,7 +8,7 @@ use anyhow::{Context, Result};
 /// Strips a version constraint from an XBPS dependency/provides token.
 ///
 /// Two forms exist:
-///   - Relational: "libarchive>=3.5.1_2", "foo<1.0", "foo=1.0" — split at
+///   - Relational: "libarchive>=3.5.1_2", "foo<1.0", "foo=1.0": split at
 ///     the first operator.
 ///   - Exact pkgver pin with no operator at all: "xtools-minimal-0.70_1"
 ///     (full "name-version_revision"). Void version segments always start
@@ -52,15 +51,10 @@ pub async fn resolve_xbps(
     let index_url = mirror.index_url.replace("{arch}", &arch);
     let base_url = mirror.base_url.replace("{arch}", &arch);
 
-    // Fetch <arch>-musl-repodata
     let (bytes, _) = mm
         .fetch(&index_url, client, super::installer::reinstalling())
         .await?;
 
-    // Unpack zstd -> tar -> plist in memory. index-meta.plist self-declares
-    // the repo's RSA signing key (real field, confirmed against a live
-    // repodata fetch) — pinned via TOFU so every package downloaded from
-    // this mirror can later be checked against it in native_sig::verify_xbps.
     let mirror_id_for_pin = mirror.id.clone();
     let plist_dict = tokio::task::spawn_blocking(move || -> Result<plist::Dictionary> {
         use std::io::Read;
@@ -124,14 +118,7 @@ pub async fn resolve_xbps(
     .await
     .context("XBPS repodata decompression task panicked")??;
 
-    // IMPORTANT: the current Void repodata schema keys the dictionary by
-    // the *package name itself* (e.g. "xbps") — there is no separate
-    // "pkgname" field inside the value, and no plain "version" field
-    // either (only combined "pkgver" = "name-version_revision"). Size and
-    // checksum are "filename-size" / "filename-sha256", not
-    // "repository-filesize" / "repository-sha256".
     let target_lower = strip_constraint(name).to_ascii_lowercase();
-    // "so:libfoo.so.1" matches the package whose shlib-provides lists that library
     let wanted_lib = target_lower.strip_prefix("so:").map(str::to_string);
 
     for (pkg_key, metadata_val) in &plist_dict {
@@ -156,7 +143,6 @@ pub async fn resolve_xbps(
             .get("pkgver")
             .and_then(|v| v.as_string())
             .unwrap_or(pkg_key);
-        // pkgver = "{pkgname}-{version}_{revision}" — strip the "name-" prefix.
         let version = pkgver
             .strip_prefix(&format!("{pkg_key}-"))
             .unwrap_or(pkgver)

@@ -1,24 +1,3 @@
-// zex/src/daemon.rs
-//
-// Daemon Mode: Long-Lived Background Service
-// ──────────────────────────────────────────
-//
-// Listens on Unix socket: /run/zx.sock (or /run/user/{uid}/zx.sock)
-//
-// Benefits:
-//   • Pre-loaded environment checks
-//   • Warm cache from previous operations
-//   • Single removal: 300ms → 50ms (IPC overhead instead of spawn)
-//   • Multiple clients share single daemon (if desired)
-//
-// Protocol: Simple JSON over Unix socket
-// Request:  {"cmd": "remove", "packages": ["firefox", "chromium"], "flags": {"recursive": true}}
-// Response: {"ok": true, "freed_mb": 456.2} or {"ok": false, "err": "message"}
-//
-// Usage:
-//   elevate zex remove daemon              # Start daemon
-//   elevate zex remove --daemon-client remove firefox   # Use daemon
-
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -56,12 +35,10 @@ pub struct DaemonResponse {
 
 /// Start daemon listening on Unix socket.
 pub async fn start_daemon() -> Result<()> {
-    // Ensure socket directory exists
     if let Some(parent) = Path::new(DAEMON_SOCKET).parent() {
         std::fs::create_dir_all(parent)?;
     }
 
-    // Remove old socket if it exists
     if Path::new(DAEMON_SOCKET).exists() {
         std::fs::remove_file(DAEMON_SOCKET)?;
     }
@@ -79,13 +56,12 @@ pub async fn start_daemon() -> Result<()> {
 ///
 /// Each request must be a single JSON object followed by a newline ('\n').
 /// The response is a JSON object followed by a newline.
-/// Maximum request size is 1 MiB — requests exceeding this are rejected.
+/// Maximum request size is 1 MiB: requests exceeding this are rejected.
 async fn handle_client(socket: UnixStream) -> Result<()> {
     let (reader_half, mut writer_half) = socket.into_split();
     let reader = BufReader::new(reader_half);
     let mut line = String::new();
 
-    // Read one newline-delimited JSON line (up to 1 MiB)
     const MAX_REQUEST_BYTES: usize = 1024 * 1024;
     reader
         .take(MAX_REQUEST_BYTES as u64)
@@ -105,14 +81,13 @@ async fn handle_client(socket: UnixStream) -> Result<()> {
         },
     };
 
-    // Write response as a single newline-terminated JSON line
     let mut response_json = serde_json::to_string(&response)?;
     response_json.push('\n');
     writer_half.write_all(response_json.as_bytes()).await?;
     Ok(())
 }
 
-/// Process daemon request — delegates to the real removal engine.
+/// Process daemon request: delegates to the real removal engine.
 async fn handle_request(req: DaemonRequest) -> DaemonResponse {
     match req.cmd.as_str() {
         "remove" => {
@@ -124,7 +99,6 @@ async fn handle_request(req: DaemonRequest) -> DaemonResponse {
                 };
             }
 
-            // Validate all package names before proceeding.
             for pkg in &req.packages {
                 if let Err(e) = validate_package_name(pkg) {
                     return DaemonResponse {
@@ -144,7 +118,6 @@ async fn handle_request(req: DaemonRequest) -> DaemonResponse {
                 verbose: req.flags.verbose,
             };
 
-            // Run headless removal: detect backend and execute for each package.
             let mut total_freed = 0.0f64;
             let mut errors: Vec<String> = Vec::new();
 
@@ -186,7 +159,6 @@ fn validate_package_name(name: &str) -> Result<()> {
     if name.len() > 256 {
         return Err(anyhow::anyhow!("package name too long (max 256)"));
     }
-    // Allow only characters valid in real package names across apt/flatpak/snap.
     let ok = name.bytes().all(|b| {
         b.is_ascii_alphanumeric()
             || b == b'.'
@@ -205,7 +177,7 @@ fn validate_package_name(name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Remove a single package without any UI output — suitable for daemon mode.
+/// Remove a single package without any UI output: suitable for daemon mode.
 /// Returns the amount of disk space freed in MB.
 async fn remove_headless(name: &str, opts: &super::common::RunOpts) -> Result<f64> {
     use super::backend;
@@ -221,7 +193,6 @@ async fn remove_headless(name: &str, opts: &super::common::RunOpts) -> Result<f6
         .map(|m| m.version.clone())
         .unwrap_or_else(|| "unknown".to_string());
 
-    // Execute the removal using structured subprocess invocations (no sh -c).
     let success = pkg_backend.execute_removal(name, opts.recursive).await;
 
     if !success {
@@ -241,14 +212,11 @@ pub async fn daemon_client(req: DaemonRequest) -> Result<DaemonResponse> {
     let socket = UnixStream::connect(DAEMON_SOCKET).await?;
     let (reader_half, mut writer_half) = socket.into_split();
 
-    // Send request as newline-terminated JSON
     let mut request_json = serde_json::to_string(&req)?;
     request_json.push('\n');
     writer_half.write_all(request_json.as_bytes()).await?;
-    // Signal EOF to the server so it knows the request is complete
     writer_half.shutdown().await?;
 
-    // Read one newline-terminated response line
     let mut reader = BufReader::new(reader_half);
     let mut response_line = String::new();
     reader.read_line(&mut response_line).await?;

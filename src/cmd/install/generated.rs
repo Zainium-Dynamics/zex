@@ -1,8 +1,4 @@
 //! Files built from every installed package: Info's `dir` index, icon, MIME,
-//! desktop and schema caches, font indexes. A package's own copy would replace
-//! the system's and collide with every other package that ships one (nano's
-//! `share/info/dir` against the base's), so they are dropped when a package is
-//! staged; `crate::triggers` rebuilds the caches after installing.
 
 use std::path::Path;
 
@@ -19,7 +15,6 @@ pub fn is_generated(rel: &Path) -> bool {
         || path == "share/applications/mimeinfo.cache"
         || path == "share/glib-2.0/schemas/gschemas.compiled"
         || (under("share/icons/") && name == "icon-theme.cache")
-        // everything in the MIME database except the source definitions
         || (under("share/mime/") && !under("share/mime/packages/"))
         || (under("lib/gio/modules/") && name == "giomodule.cache")
         || (under("lib/gdk-pixbuf-2.0/") && name == "loaders.cache")

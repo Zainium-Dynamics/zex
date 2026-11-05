@@ -1,15 +1,7 @@
-//! main.rs — CLI entry-point for the `install` Zex Centric Driver.
-//!
-//! Invoked by the `zex` front-end dispatcher as:
-//!   elevate zex install <pkg> [<pkg> …]
-//!
-//! This file owns nothing but argument parsing and the tokio runtime bootstrap.
-//! All business logic lives in the modules below.
+//! main.rs: CLI entry-point for the `install` Zex Centric Driver.
 
 use super::{infuse, ui};
 use clap::Parser;
-
-// ─── CLI definition ───────────────────────────────────────────────────────────
 
 /// Universal package installer for Zainium OS.
 ///
@@ -34,13 +26,13 @@ struct Cli {
     packages: Vec<String>,
 
     /// Write a reproducible-install lockfile after a successful install
-    /// (single-package installs only) — records the exact resolved
+    /// (single-package installs only): records the exact resolved
     /// versions/mirrors/hashes so the same install can be repeated later.
     #[arg(long = "lock-out", value_name = "PATH")]
     lock_out: Option<std::path::PathBuf>,
 
     /// Install from a previously-generated lockfile instead of resolving
-    /// by name — guarantees the exact same versions/mirrors/hashes as when
+    /// by name: guarantees the exact same versions/mirrors/hashes as when
     /// the lockfile was written, bypassing live dependency resolution.
     #[arg(long = "from-lock", value_name = "PATH", conflicts_with = "packages")]
     from_lock: Option<std::path::PathBuf>,
@@ -62,7 +54,7 @@ struct Cli {
     #[arg(long = "report-gates", default_value_t = false)]
     report_gates: bool,
 
-    /// Offline mode — install from local cache only, no network.
+    /// Offline mode: install from local cache only, no network.
     #[arg(long = "cache-only", default_value_t = false)]
     cache_only: bool,
 
@@ -75,8 +67,6 @@ struct Cli {
     reinstall: bool,
 }
 
-// ─── Entry-point ──────────────────────────────────────────────────────────────
-
 /// `true` when the effective UID is 0 (root).
 fn is_root() -> bool {
     // SAFETY: geteuid() is always safe — it never fails or has side-effects.
@@ -84,9 +74,6 @@ fn is_root() -> bool {
 }
 
 pub async fn run(raw_args: Vec<String>) {
-    // Root gate — install operations modify system files and require elevated
-    // privileges.  Refuse immediately with a clear message rather than failing
-    // deep in the stack with a cryptic permission-denied error.
     if !is_root() {
         ui::print_root_required();
         std::process::exit(1);
@@ -163,9 +150,7 @@ pub async fn run(raw_args: Vec<String>) {
         return;
     }
 
-    // Normalise to lower-case so "VLC" and "vlc" are treated identically.
     let packages: Vec<String> = cli.packages.iter().map(|p| p.to_lowercase()).collect();
-    // the resolver reads "<repository>/<name>" as "only from that repository"
     let packages: Vec<String> = match &repository {
         Some(repo) => packages
             .into_iter()

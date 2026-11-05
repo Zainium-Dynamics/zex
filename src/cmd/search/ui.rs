@@ -1,5 +1,4 @@
-//! ui.rs — Terminal UI for the search driver.
-//! Same palette as install/upgrade/remove drivers.
+//! ui.rs: Terminal UI for the search driver.
 
 use super::models::SearchResult;
 
@@ -25,10 +24,8 @@ pub fn print_result_row(r: &SearchResult) {
     let origin_col = r.origin.color();
     let origin_lbl = r.origin.label();
 
-    // Column widths matching spec:
-    //   name 22, version 14, origin 16, [installed]/blank 14, description
     let installed = if r.installed { INST_BADGE } else { "" };
-    let installed_pad = if r.installed { "" } else { "              " }; // 14 spaces
+    let installed_pad = if r.installed { "" } else { "              " };
 
     println!(
         "  {DIM}•{RST} {P}{name:<22}{RST} {B}{ver:<14}{RST} {origin_col}{orig:<16}{RST} \

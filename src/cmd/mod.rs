@@ -1,7 +1,4 @@
-//! cmd/mod.rs — all zex sub-command modules.
-//! Each module exposes:
-//!   pub async fn run(raw_args: Vec<String>) — for async commands
-//!   pub fn run(raw_args: Vec<String>)       — for sync commands
+//! cmd/mod.rs: all zex sub-command modules.
 
 pub mod depends;
 pub mod doctor;

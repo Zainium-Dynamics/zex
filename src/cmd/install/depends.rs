@@ -1,18 +1,10 @@
-//! depends.rs — Dependency resolution engine for the Zex install driver.
-//!
-//! Given a resolved `PackageInfo` (which now carries a `depends` list),
-//! this module:
-//!   1. Checks which deps are already installed (via TOML registry or Syshub)
-//!   2. Recursively resolves transitive deps dynamically via the global resolver
-//!   3. Returns a topologically-sorted install plan (leaves first)
+//! depends.rs: Dependency resolution engine for the Zex install driver.
 
 use anyhow::Result;
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use super::backend::{BackendConfig, MetadataManager, PackageInfo};
 use crate::cmd::upgrade::vercmp::Version;
-
-// ─── Public API ──────────────────────────────────────────────────────────────
 
 /// A fully resolved dependency plan ready for download + install.
 #[derive(Debug)]
@@ -22,8 +14,8 @@ pub struct DepPlan {
     /// Deps that were skipped because they're already installed.
     pub already_installed: Vec<String>,
     /// (dependency_token, provider_name) pairs for deps skipped because
-    /// syshub already provides them — either file-detected or explicitly
-    /// blocked (`blocked.rs`) — surfaced separately from
+    /// syshub already provides them: either file-detected or explicitly
+    /// blocked (`blocked.rs`): surfaced separately from
     /// `already_installed` so the UI can say *why* instead of silently
     /// dropping the dependency with no explanation.
     pub syshub_provided: Vec<(String, String)>,
@@ -32,19 +24,19 @@ pub struct DepPlan {
     /// Total download size of all deps in bytes.
     pub total_size: u64,
     /// (package_being_installed, already_installed_package) pairs that
-    /// declared themselves incompatible with each other — checked
+    /// declared themselves incompatible with each other: checked
     /// bidirectionally, since real indexes only declare it from one side.
     pub conflicts: Vec<(String, String)>,
     /// (package_name, reason) pairs for dependency tokens carrying a
     /// version constraint (e.g. "libfoo>=2.0") whose resolved candidate
-    /// violates it — either a freshly-resolved transitive dep, or an
+    /// violates it: either a freshly-resolved transitive dep, or an
     /// already-installed direct dep whose installed version doesn't satisfy
     /// what the root package actually requires.
     pub version_conflicts: Vec<(String, String)>,
     /// (dependency_name, preferred_mirror_id, actual_mirror_used) for every
     /// dependency that couldn't be satisfied from the *same* mirror the
     /// root package itself came from and had to fall back to a different
-    /// one — surfaced as a warning, not an error, since a real cross-tier
+    /// one: surfaced as a warning, not an error, since a real cross-tier
     /// dependency is sometimes genuinely correct (e.g. a shared library
     /// only one tier packages), but silently substituting tiers is exactly
     /// the "dependency hell" this makes visible instead of hidden.
@@ -57,7 +49,7 @@ pub struct DepPlan {
 /// Whether a dependency token (which may carry an embedded version
 /// constraint, e.g. "vim-common=9.2.0747-r0") refers to a package that's
 /// already installed or provided by Syshub. Matching must strip the
-/// constraint first — `installed_set`/`is_in_syshub` only know bare names,
+/// constraint first: `installed_set`/`is_in_syshub` only know bare names,
 /// so an exact-string match against a versioned token would always miss.
 fn dep_already_present(token: &str, installed_set: &HashSet<String>) -> bool {
     let base = super::apk::strip_constraint(token).to_ascii_lowercase();
@@ -68,7 +60,7 @@ fn dep_already_present(token: &str, installed_set: &HashSet<String>) -> bool {
 }
 
 /// For a library dependency ("so:libpcre2-8.so.0"), the loader directory that
-/// already has it — whatever package put it there, so a repository's own copy
+/// already has it: whatever package put it there, so a repository's own copy
 /// is never installed over the base's.
 fn library_dir(token: &str) -> Option<&'static str> {
     let lib = super::apk::strip_constraint(token).trim();
@@ -79,7 +71,7 @@ fn library_dir(token: &str) -> Option<&'static str> {
 }
 
 /// If `token` is skipped because syshub (not zex's own registry) already
-/// provides it — either file-detected (`is_in_syshub`) or explicitly
+/// provides it: either file-detected (`is_in_syshub`) or explicitly
 /// hand-listed (`blocked::provided_by`, for cases with no file-level
 /// overlap to detect, e.g. `coreutils` vs Zainium's own `userutils`) —
 /// returns what provides it, for a "provided by the immutable base"
@@ -179,10 +171,8 @@ pub async fn resolve_dependencies(
         });
     }
 
-    // Step 1: Check what's already installed on the system
     let installed_set = get_installed_packages().await;
 
-    // Step 2: BFS to resolve all transitive deps using the dynamic resolver
     let mut resolved: HashMap<String, PackageInfo> = HashMap::new();
     let mut unresolvable: Vec<String> = Vec::new();
     let mut visited: HashSet<String> = HashSet::new();
@@ -191,7 +181,6 @@ pub async fn resolve_dependencies(
     let mut cross_tier_fallbacks: Vec<(String, String, String)> = Vec::new();
     let preferred_mirror = root.source_mirror.as_deref();
 
-    // Seed the queue with direct deps
     for dep in &root.depends {
         if !dep_already_present(dep, &installed_set) && !visited.contains(dep) && dep != &root.name
         {
@@ -200,13 +189,6 @@ pub async fn resolve_dependencies(
         }
     }
 
-    // BFS, resolved one *level* at a time instead of one name at a time —
-    // everything currently queued has no dependency on anything else in
-    // the same wave (that's what makes it BFS), so resolving a whole wave
-    // concurrently is safe and doesn't change the result, just how long
-    // it takes to get there. A package with a deep/wide dependency tree
-    // (confirmed live: tmux's chain was 6 packages deep) was previously
-    // paying one full round-trip per dependency, serialized.
     while !queue.is_empty() {
         let wave: Vec<String> = queue.drain(..).collect();
         let wave_results = futures_util::future::join_all(wave.iter().map(|dep_name| {
@@ -238,16 +220,12 @@ pub async fn resolve_dependencies(
                         version_conflicts.push((info.name.clone(), reason));
                     }
 
-                    // Two different dep tokens (e.g. a virtual "so:libfoo.so"
-                    // capability and its real package name) can resolve to the
-                    // same underlying package — don't queue it twice.
                     if resolved.values().any(|r: &PackageInfo| r.name == info.name) {
                         continue;
                     }
                     let sub_deps = info.depends.clone();
                     resolved.insert(dep_name.clone(), info);
 
-                    // Enqueue transitive deps for the next wave.
                     for sub_dep in sub_deps {
                         if !dep_already_present(&sub_dep, &installed_set)
                             && !visited.contains(&sub_dep)
@@ -269,7 +247,6 @@ pub async fn resolve_dependencies(
         }
     }
 
-    // Step 3: Topological sort (leaves first)
     let sorted = topological_sort(&resolved, &installed_set);
 
     let total_size: u64 = sorted.iter().map(|p| p.size).sum();
@@ -285,9 +262,6 @@ pub async fn resolve_dependencies(
         .filter_map(|d| syshub_provider(d, &installed_set).map(|provider| (d.clone(), provider)))
         .collect();
 
-    // A dep that's already installed still has to satisfy whatever
-    // constraint the root package declared for it — e.g. root needs
-    // "libfoo>=2.0" but the copy already on disk is 1.5.
     for dep_token in &already_installed {
         let base = super::apk::strip_constraint(dep_token);
         if let Some(rec) = super::registry::lookup(base) {
@@ -313,8 +287,6 @@ pub async fn resolve_dependencies(
     })
 }
 
-// ─── System Package Detection ────────────────────────────────────────────────
-
 /// Get the set of packages already installed BY ZEX.
 ///
 /// Only packages that Zex itself installed (tracked in the TOML registry)
@@ -323,8 +295,6 @@ async fn get_installed_packages() -> HashSet<String> {
     super::registry::get_installed_set()
 }
 
-// ─── Topological Sort ────────────────────────────────────────────────────────
-
 /// Sort resolved packages so that dependencies are installed before dependants.
 fn topological_sort(
     resolved: &HashMap<String, PackageInfo>,
@@ -332,16 +302,11 @@ fn topological_sort(
 ) -> Vec<PackageInfo> {
     let names: HashSet<&String> = resolved.keys().collect();
 
-    // A dependency token (e.g. "vim-common=9.2.0747-r0") rarely matches the
-    // exact key a package got queued/resolved under — two packages can each
-    // reference the same dependency via a differently-versioned token. Edges
-    // must be matched by canonical resolved name, not raw token string.
     let key_by_name: HashMap<String, &String> = resolved
         .iter()
         .map(|(key, info)| (info.name.to_ascii_lowercase(), key))
         .collect();
 
-    // Build in-degree map
     let mut in_degree: HashMap<&String, usize> = HashMap::new();
     let mut adj: HashMap<&String, Vec<&String>> = HashMap::new();
 
@@ -365,7 +330,6 @@ fn topological_sort(
         }
     }
 
-    // Kahn's algorithm
     let mut queue: VecDeque<&String> = VecDeque::new();
     for (name, degree) in &in_degree {
         if *degree == 0 {
@@ -394,7 +358,6 @@ fn topological_sort(
         }
     }
 
-    // If we have a cycle, just append remaining in arbitrary order
     if visited_count < names.len() {
         for (name, info) in resolved {
             if !sorted.iter().any(|p| p.name == *name) {

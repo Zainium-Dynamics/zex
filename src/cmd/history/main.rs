@@ -1,11 +1,4 @@
 //! elevate zex history [--package <name>] [-n <count>]
-//!
-//! Single, unified, cross-tier timeline of every install/remove/upgrade
-//! recorded via `cmd::install::history` — previously a well-designed
-//! module that existed but was never actually called from anywhere, so
-//! this command had nothing to show. Complements (doesn't replace) the
-//! tier-specific audit logs (`upgrade-audit.toml`, `remove-audit.toml`):
-//! this is the one place that shows all of them together in one timeline.
 
 use anyhow::Result;
 use clap::Parser;
@@ -43,7 +36,6 @@ pub fn run(raw_args: Vec<String>) -> Result<()> {
         None => history::last_n(usize::MAX),
     };
 
-    // Most recent first.
     entries.sort_by(|a, b| b.id.cmp(&a.id));
     entries.truncate(cli.limit);
 

@@ -1,14 +1,4 @@
-//! native_sig.rs — Real cryptographic signature verification for the
-//! non-native package formats (Alpine `.apk` v2, Chimera's apk-tools v3
-//! "ADB" format, Void `.xbps`).
-//!
-//! Each scheme below was derived by reading the real upstream C
-//! implementations (`apk-tools`' `extract_v2.c`/`adb.c` and `xbps`'
-//! `verifysig.c`) and then independently confirmed byte-for-byte against
-//! live packages fetched from the real repositories — not guessed. The
-//! trust anchors in `trust_keys/` are the real public keys published by
-//! each project (Alpine's `alpine-keys` package, Chimera's
-//! `repo.chimera-linux.org/apk/keys/`).
+//! native_sig.rs: Real cryptographic signature verification for the
 
 use anyhow::{Context, Result, bail};
 use rsa::RsaPublicKey;
@@ -49,15 +39,6 @@ fn verify_pkcs1v15(pubkey: &RsaPublicKey, alg: HashAlg, message: &[u8], sig: &[u
     result.map_err(|e| anyhow::anyhow!("RSA signature verification failed: {e}"))
 }
 
-// ─── Embedded trust anchors ───────────────────────────────────────────────
-//
-// These are the real, currently-published public keys for each project —
-// copied verbatim from the `alpine-keys` apk package (extracted from a live
-// `alpine-keys-*.apk` fetched from dl-cdn.alpinelinux.org) and from
-// https://repo.chimera-linux.org/apk/keys/current/. Not fabricated
-// placeholders — every key here successfully verified a real signature
-// fetched from the corresponding repository during development.
-
 macro_rules! keyset {
     ($($file:literal),+ $(,)?) => {
         &[$(($file, include_str!(concat!("trust_keys/", $file)))),+]
@@ -96,8 +77,6 @@ const CHIMERA_KEYS: &[(&str, &str)] = keyset!(
     "chimera/x86_64@chimera-linux.org-669d70ff.rsa.pub",
 );
 
-// ─── Alpine apk v2 (Tier 2 and legacy Tier 4 mirrors) ─────────────────────
-
 fn gzip_member_boundaries(data: &[u8], max_members: usize) -> Result<Vec<usize>> {
     let mut offsets = vec![0usize];
     let mut pos = 0usize;
@@ -127,7 +106,7 @@ fn gzip_member_boundaries(data: &[u8], max_members: usize) -> Result<Vec<usize>>
 /// tarball][control tarball][data tarball]`. Empirically confirmed against
 /// live packages (not just read from source): the signature covers the
 /// *compressed* bytes of the control member, not its decompressed tar
-/// content — a real quirk of apk-tools' own signing implementation.  The
+/// content: a real quirk of apk-tools' own signing implementation.  The
 /// hash algorithm is encoded in the signature entry's filename inside the
 /// first gzip member (`.SIGN.RSA/RSA256/RSA512.<keyname>`).
 pub fn verify_apk_v2(data: &[u8]) -> Result<()> {
@@ -189,8 +168,6 @@ pub fn verify_apk_v2(data: &[u8]) -> Result<()> {
     bail!("apk package has no signature by a trusted Alpine key (unsigned or untrusted)")
 }
 
-// ─── Chimera ADB v3 (Tier 4) ───────────────────────────────────────────────
-
 fn chimera_key_id(pem: &str) -> Result<[u8; 16]> {
     let pubkey = parse_pubkey(pem)?;
     let der = pubkey
@@ -212,7 +189,7 @@ fn chimera_key_id(pem: &str) -> Result<[u8; 16]> {
 /// RSA-PKCS1v15-SHA512 over `LE32(schema) || sign_ver || hash_alg ||
 /// key_id[16] || digest` (mirrors `adb_trust_verify_signature` in
 /// apk-tools' `adb.c`). The 16-byte key id is the first 16 bytes of
-/// SHA-512 over the trust anchor's PKCS#1 DER encoding — matching
+/// SHA-512 over the trust anchor's PKCS#1 DER encoding: matching
 /// `apk_pkey_init`'s `i2d_PublicKey` + SHA-512 in `crypto_openssl.c`.
 pub fn verify_adb_v3(data: &[u8]) -> Result<()> {
     let decoded = super::adb::decode_envelope(data)?;
@@ -272,8 +249,6 @@ pub fn verify_adb_v3(data: &[u8]) -> Result<()> {
                 continue;
             }
             let pubkey = parse_pubkey(pem)?;
-            // The outer signature hash is always SHA-512 regardless of the
-            // inner `hash_alg` used for the object-graph digest itself.
             if verify_pkcs1v15(&pubkey, HashAlg::Sha512, &msg, sig_bytes).is_ok() {
                 return Ok(());
             }
@@ -283,15 +258,13 @@ pub fn verify_adb_v3(data: &[u8]) -> Result<()> {
     bail!("adb package signature did not verify against a trusted Chimera key")
 }
 
-// ─── Void xbps (Tier 3) ────────────────────────────────────────────────────
-
 const VOID_TRUST_DIR: &str = "/overlayer/zexlib/registry/trust/void";
 
 /// Trust-on-first-use pin for a Void repo's signing key.
 ///
 /// This matches xbps' own trust model exactly: the repodata itself
 /// self-declares its signing key (`index-meta.plist`'s `public-key` /
-/// `signature-by` fields — confirmed against a live
+/// `signature-by` fields: confirmed against a live
 /// `repo-default.voidlinux.org` repodata fetch), and real xbps pins it
 /// locally the first time a repo is seen, then requires an exact match on
 /// every subsequent fetch. It can't authenticate the very first contact
@@ -326,7 +299,7 @@ pub fn tofu_pin_void_key(mirror_id: &str, pem: &[u8], signed_by: &str) -> Result
 ///
 /// Confirmed against a real `busybox` package + `.sig2` fetched from
 /// `repo-default.voidlinux.org`: this is plain RSA-PKCS1v15-SHA256 over
-/// the SHA-256 digest of the *entire* `.xbps` file — matching
+/// the SHA-256 digest of the *entire* `.xbps` file: matching
 /// `RSA_verify(NID_sha256, ...)` in xbps' own `verifysig.c` exactly.
 pub fn verify_xbps(pkg_bytes: &[u8], sig2_bytes: &[u8], pinned_pubkey_pem: &[u8]) -> Result<()> {
     let pem =

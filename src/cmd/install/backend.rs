@@ -1,19 +1,4 @@
-//! backend.rs — Dual-Engine resolution backends.
-//!
-//! Architecture
-//! ────────────
-//! Two independent resolution backends are tried in strict priority order:
-//!
-//!   Tier 1 — Zainium (.zex)         Native Zainium packages.
-//!   Tier 2 — Alpine  (.apk)         APK compat (Alpine/Chimera).
-//!   Tier 3 — Void    (.xbps)        XBPS compat (Void Linux).
-//!   Tier 4 — Chimera (.apk)         APK compat (Chimera Linux).
-//!
-//! Backend names are *never* surfaced to the user.
-//! Resolution is fully dynamic and configured via /etc/zex/equip.toml or env vars.
-//!
-//! NOTE: Zex native repo (repo.zainiumdynamics.tech) is currently offline.
-//! Re-enable when the repo goes live. Arch tier has been permanently removed.
+//! backend.rs: Dual-Engine resolution backends.
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -21,8 +6,6 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-
-// ─── Configuration ───────────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize, Clone)]
 #[non_exhaustive]
@@ -51,8 +34,6 @@ struct CoreConfigFile {
     debug_logging: Option<bool>,
 }
 
-// NOTE: ArchConfigFile removed — Arch tier permanently disabled.
-
 #[derive(Debug, Deserialize, Default)]
 struct NetworkConfigFile {
     http_timeout_secs: Option<u64>,
@@ -67,7 +48,6 @@ struct ZexConfigFile {
 #[derive(Debug, Deserialize, Default)]
 #[non_exhaustive]
 struct BackendConfigFile {
-    // Flat legacy keys
     cache_dir: Option<String>,
     zex_repo_base: Option<String>,
     zex_index_url: Option<String>,
@@ -89,7 +69,6 @@ struct BackendConfigFile {
     crash_cleanup_on_start: Option<bool>,
     debug_logging: Option<bool>,
 
-    // Nested modern keys
     core: Option<CoreConfigFile>,
     zex: Option<ZexConfigFile>,
     network: Option<NetworkConfigFile>,
@@ -155,7 +134,7 @@ impl BackendConfig {
             signature_verification_mode: "strict".to_string(),
             max_log_size_mb: 50,
             max_log_files: 5,
-            txn_retention_hours: 168, // 7 days
+            txn_retention_hours: 168,
             stale_lock_ttl_minutes: 60,
             crash_cleanup_on_start: true,
             debug_logging: false,
@@ -311,9 +290,6 @@ impl BackendConfig {
             break;
         }
 
-        // Environment overrides
-        // NOTE: ZEX_ARCH_MIRROR / ZEX_ARCH_API env vars removed — Arch tier disabled
-        // NOTE: ZEX_RPM_REPO_BASE / ZEX_RPM_REPOMD env vars removed — RPM tier disabled
         if let Ok(c) = std::env::var("ZEX_CACHE_DIR") {
             config.cache_dir = c;
         }
@@ -392,8 +368,6 @@ impl BackendConfig {
         if config.mirrors.is_empty() {
             anyhow::bail!("equip config has no mirrors configured");
         }
-        // NOTE: Arch tier permanently removed — no arch_mirror/arch_api validation
-        // NOTE: RPM tier permanently removed
         if config.install_concurrency == 0 {
             config.install_concurrency = 1;
         }
@@ -442,8 +416,6 @@ impl BackendConfig {
             Ok(())
         };
 
-        // URL validation: only require a valid scheme (http or https).
-        // Mirrors use separate SHA256 integrity verification so HTTP is acceptable.
         let ensure_valid_url = |label: &str, url: &str| -> Result<()> {
             let trimmed = url.trim();
             if trimmed.is_empty() {
@@ -460,12 +432,10 @@ impl BackendConfig {
             Ok(())
         };
 
-        // Mirrors: allow HTTP — integrity verified separately via SHA256
         for (idx, mirror) in config.mirrors.iter().enumerate() {
             ensure_valid_url(&format!("mirrors[{}].base_url", idx), &mirror.base_url)?;
         }
 
-        // Clamp timeout to sane range: 30s minimum, 600s maximum
         if config.http_timeout_secs < 30 {
             config.http_timeout_secs = 30;
         }
@@ -476,8 +446,6 @@ impl BackendConfig {
         Ok(config)
     }
 }
-
-// ─── Metadata Management ─────────────────────────────────────────────────────
 
 /// High-performance metadata manager with disk and memory caching.
 /// Ensures large index files (like Packages.gz) are only fetched once.
@@ -502,7 +470,6 @@ impl MetadataManager {
         client: &reqwest::Client,
         force: bool,
     ) -> Result<(Arc<Vec<u8>>, bool)> {
-        // 1. Check memory cache (only if not forcing)
         if !force {
             let mem = self.memory.lock().await;
             if let Some(data) = mem.get(url) {
@@ -510,14 +477,12 @@ impl MetadataManager {
             }
         }
 
-        // 2. Check disk cache
         let safe_name = url.replace(|c: char| !c.is_alphanumeric(), "_");
         let cache_path = self.cache_dir.join(safe_name);
 
         if !force {
             if let Ok(meta) = std::fs::metadata(&cache_path) {
                 let elapsed = meta.modified()?.elapsed()?.as_secs();
-                // Intelligent Blocking (2 Hours TTL)
                 if elapsed < 7200 {
                     if let Ok(data) = std::fs::read(&cache_path) {
                         let arc_data = Arc::new(data);
@@ -531,13 +496,11 @@ impl MetadataManager {
             }
         }
 
-        // Cache > 2 Hours Old (or missing): Block & Fetch
         log::info!("Refreshing index from {}", url);
         let resp = client.get(url).send().await?;
         let bytes = resp.bytes().await?.to_vec();
         let arc_data = Arc::new(bytes);
 
-        // 4. Save to disk and memory
         let _ = std::fs::write(&cache_path, &*arc_data);
         self.memory
             .lock()
@@ -547,8 +510,6 @@ impl MetadataManager {
         Ok((arc_data, true))
     }
 }
-
-// ─── Shared data types ────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PackageFormat {
@@ -591,7 +552,7 @@ pub struct PackageInfo {
     #[serde(default)]
     pub provides: Vec<String>,
     /// Packages this one is incompatible with (Alpine's "D:!pkgname"
-    /// negative-dependency convention — real data most backends silently
+    /// negative-dependency convention: real data most backends silently
     /// discarded before). Installing this package while any of these is
     /// already installed (or installing one of these while this package
     /// is installed) is refused, not silently allowed.
@@ -622,7 +583,7 @@ pub struct PackageInfo {
     /// libc family: "musl" | "gnu" (glibc) | "freestanding"
     #[serde(default)]
     pub libc_target: Option<String>,
-    /// Package edition (Rust-style) — None means latest/default
+    /// Package edition (Rust-style): None means latest/default
     #[serde(default)]
     pub edition: Option<String>,
     /// Ed25519 signature from the ledger
@@ -662,8 +623,6 @@ pub struct DbEntry {
     pub blake3: Option<String>,
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
 pub fn capitalise(s: &str) -> String {
     let mut c = s.chars();
     match c.next() {
@@ -688,31 +647,18 @@ pub fn dynamic_metadata(name: &str, description: Option<&str>) -> (String, Strin
     (display_name, launch_cmd)
 }
 
-// ─── Syshub Core Manifest ───────────────────────────────────────────────────────
-
 /// The real on-disk shape: `[packages]` holds plain `name = "version"`
 /// entries *and* a nested `[packages.provides]` sub-table of virtual-name
-/// aliases (`libc = "musl"`, `openssl = "libressl"`, ...) — confirmed
+/// aliases (`libc = "musl"`, `openssl = "libressl"`, ...): confirmed
 /// against the actual `syshub.toml` on this OS. The old struct declared
 /// `provides` as a *top-level* field (expecting `[provides]`), which never
-/// matches this file's real `[packages.provides]` nesting — `provides` was
+/// matches this file's real `[packages.provides]` nesting: `provides` was
 /// silently always empty. `#[serde(flatten)]` correctly splits the two:
 /// serde extracts the named `provides` field first, and flatten captures
 /// every remaining `[packages]` key into `versions`.
 #[derive(Debug, Deserialize)]
 #[non_exhaustive]
 struct SyshubManifest {
-    // Real syshub.toml is `[packages.<name>]` sub-tables (version, file,
-    // size_bytes, depends, provides, build_type, libc_target — a genuine
-    // TOML table), not `packages.<name> = "1.2.3"` flat strings. The old
-    // `HashMap<String, String>` shape here made every `toml::from_str`
-    // call fail with a type-mismatch error, which the caller's `let Ok(..)
-    // else { return false }` swallowed silently — `is_in_syshub` always
-    // returned false for every name, no matter what. Confirmed live: `zex
-    // install jq` (Alpine) tried to also install `musl` as a plain
-    // dependency and hit a real file conflict against syshub's own
-    // ld-musl-x86_64.so.1, because the "musl is already provided by the
-    // base OS" check never actually worked.
     packages: Option<HashMap<String, toml::Value>>,
 }
 
@@ -723,10 +669,6 @@ struct SyshubManifest {
 fn normalize_dep_token(name: &str) -> String {
     let lower = name.to_ascii_lowercase();
     let stripped = lower.strip_prefix("so:").unwrap_or(&lower);
-    // musl's soname always embeds the architecture triple
-    // (libc.musl-x86_64.so.1, libc.musl-aarch64.so.1, ...) — nobody would
-    // author that exact versioned string as a manifest alias key, so
-    // recognize the family directly rather than requiring an exact match.
     if stripped.starts_with("libc.musl") {
         return "libc".to_string();
     }
@@ -749,16 +691,10 @@ pub fn is_in_syshub(name: &str) -> bool {
     let lower_name = name.to_ascii_lowercase();
     let normalized = normalize_dep_token(name);
 
-    // Direct package-name match (e.g. a plain "curl" or "musl" token).
     if pkgs.keys().any(|k| k.eq_ignore_ascii_case(&lower_name)) {
         return true;
     }
 
-    // Virtual-name alias match (e.g. "so:libz.so.1" -> normalized
-    // "libz.so.1") against each package's own `provides` array — real
-    // syshub.toml entries carry `provides` per-package
-    // (`[packages.bash] provides = ["bash", "sh"]`), not as one flat
-    // top-level alias table.
     pkgs.values().any(|v| {
         v.as_table()
             .and_then(|t| t.get("provides"))
@@ -772,11 +708,6 @@ pub fn is_in_syshub(name: &str) -> bool {
             })
     })
 }
-
-// ─── Package Database (TOML Registry) ─────────────────────────────────────────
-//
-// Backed by /overlayer/zexlib/registry/installed/*.toml
-// One file per package — no SQLite, no JSON, no dpkg.
 
 pub fn load_db() -> Vec<DbEntry> {
     super::registry::load_all()

@@ -1,18 +1,4 @@
-//! infuse.rs — Core installation orchestrator.
-//!
-//! This module wires together every other module in the pipeline:
-//!
-//!   ui  ←  infuse  →  resolver  →  backend (3 tiers)
-//!                   →  downloader
-//!                   →  installer  →  backend (extraction + DB)
-//!
-//! There are two public code-paths:
-//!
-//!   `run_single`   — one package: sequential resolve → download → install
-//!   `run_parallel` — N packages: parallel resolves + parallel downloads,
-//!                    then configurable concurrent installs
-//!
-//! The router `run()` dispatches to the appropriate path.
+//! infuse.rs: Core installation orchestrator.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -113,7 +99,7 @@ fn build_client() -> Result<reqwest::Client> {
 /// trust key for a Void package, so `installer::install` (otherwise fully
 /// synchronous) can verify it without needing network access itself.
 /// Returns `None` for any non-Xbps package, or best-effort `None` if
-/// either fetch fails — `verify_signature` treats a missing result as a
+/// either fetch fails: `verify_signature` treats a missing result as a
 /// verification failure, respecting whatever `signature_mode` is set.
 async fn fetch_xbps_verify_data(
     info: &super::backend::PackageInfo,
@@ -208,12 +194,12 @@ pub async fn run_dry_resolve(packages: Vec<String>) -> Result<()> {
 }
 
 /// Installs exactly the packages a lockfile pins, in the order it records
-/// them (root's dependencies first, then root) — bypassing live dependency
+/// them (root's dependencies first, then root): bypassing live dependency
 /// resolution entirely, so the result matches what the lockfile recorded
 /// even if upstream indices have since changed. Reuses the same
 /// download → verify → install pipeline every other install path uses
 /// (`downloader::download` + `installer::install`), so a lockfile install
-/// gets exactly the same signature/hash verification as a normal one — it
+/// gets exactly the same signature/hash verification as a normal one: it
 /// only skips *resolving* names to packages, not any safety check.
 pub async fn run_from_lockfile(path: std::path::PathBuf) -> Result<()> {
     let client = build_client()?;
@@ -229,8 +215,6 @@ pub async fn run_from_lockfile(path: std::path::PathBuf) -> Result<()> {
     let mp = MultiProgress::new();
     let tmp = TempDir::new()?;
 
-    // Dependencies first (the lockfile already records them in the
-    // topological order resolved at generation time), then the root.
     for pkg in lock.dependencies.iter().chain(std::iter::once(&lock.root)) {
         let existing = super::backend::lookup_installed(&pkg.name);
         if let Some(ref inst) = existing {
@@ -290,7 +274,6 @@ async fn run_single(
 
     ui::print_resolving_single(name);
 
-    // Syshub Core Protection (Collision Block)
     if let Some(err_msg) = base_refusal(name) {
         if let Some(t) = txn.as_mut() {
             t.mark_failed(&err_msg);
@@ -322,14 +305,9 @@ async fn run_single(
         persist_txn_lock_graph(&config, t, vec![&info]);
     }
 
-    // Skips redundant reinstalls when the package is already present.
-    // Also captures the existing DbEntry for the atomic installer's snapshot.
     let existing_entry = super::backend::lookup_installed(&info.name);
     if let Some(ref installed) = existing_entry {
         if installed.version == info.version {
-            // Health check: verify critical binaries actually exist AND their
-            // symlink targets resolve.  This catches ghost "installed" state where
-            // the DB says installed but the OverlayFS union or symlinks are broken.
             let bin_files: Vec<&String> = installed
                 .installed_files
                 .iter()
@@ -340,7 +318,6 @@ async fn run_single(
             let healthy = bin_files.is_empty()
                 || bin_files.iter().any(|f| {
                     let p = std::path::Path::new(f.as_str());
-                    // Path::exists() follows symlinks — returns false for dangling symlinks
                     p.exists()
                 });
 
@@ -350,7 +327,6 @@ async fn run_single(
                 ui::print_already_installed(&info.display_name, &info.version);
                 return Ok(());
             } else {
-                // Broken install detected — fall through to reinstall
                 log::warn!(
                     "Package '{}' v{} is in DB but binaries are missing — reinstalling",
                     info.name,
@@ -362,7 +338,6 @@ async fn run_single(
         }
     }
 
-    // ─── Dependency Resolution
     let dep_plan = super::depends::resolve_dependencies(&info, &client, &config, &mm).await?;
     lib_ctx.plan(dep_plan.packages.iter().chain(std::iter::once(&info)));
 
@@ -416,9 +391,7 @@ async fn run_single(
     }
 
     if let Some(syshub_req) = &info.requires_syshub {
-        // TODO: Full base OS version parsing. For now, we enforce that this package is syshub-aware.
         log::debug!("Package requires syshub compatibility: {}", syshub_req);
-        // We will implement actual version comparison in a dedicated syshub module later.
     }
 
     let dep_count = dep_plan.packages.len();
@@ -426,13 +399,6 @@ async fn run_single(
         ui::print_dependency_summary(dep_count, dep_plan.total_size);
     }
 
-    // ─── Snapshot + Immutable Core (whole batch, before touching anything) ───
-    //
-    // The main package and every dependency it needs are one atomic unit:
-    // if any of them fails to install, everything that already succeeded
-    // in this batch must roll back too — not just the package that
-    // happened to fail. So the snapshot covers the full batch and is
-    // taken up front, before any download or install begins.
     let batch_names: Vec<String> = std::iter::once(info.name.clone())
         .chain(dep_plan.packages.iter().map(|d| d.name.clone()))
         .collect();
@@ -441,12 +407,8 @@ async fn run_single(
     let snap_manifest = super::immutable::create_snapshot(&snap_label, &batch_names)?;
     let snap_id = format!("{}-{}", snap_manifest.id, snap_manifest.label);
 
-    // Zex Transaction Engine hook (drives `zex rollback <tx-id>`)
     let _ = super::transaction::create_snapshot(&batch_names, "install");
 
-    // Unlock immutable system paths for the whole batch. The guard
-    // re-locks automatically on drop (RAII), covering every early-return
-    // rollback path below too.
     let mut _immutable_guard = super::immutable::unlock_system()?;
 
     let batch_rollback = |reason: &str| {
@@ -464,12 +426,10 @@ async fn run_single(
         }
     };
 
-    // ─── Download + Install Dependencies
     if !dep_plan.packages.is_empty() {
         let dep_tmp = TempDir::new()?;
         let mp = MultiProgress::new();
 
-        // Download all deps in parallel
         let mut dep_dl_handles = Vec::new();
         for dep_info in &dep_plan.packages {
             let pkg_path = dep_tmp.path().join(&dep_info.filename);
@@ -487,10 +447,6 @@ async fn run_single(
 
         let dep_dl_results = join_all(dep_dl_handles).await;
 
-        // Install deps in order (they're already topologically sorted).
-        // The whole batch is one atomic transaction: the first failure
-        // aborts and rolls back everything installed so far in this run,
-        // rather than limping on with a partially-broken dependency graph.
         let mut deps_installed = 0usize;
         for (idx, result) in dep_dl_results.into_iter().enumerate() {
             let dep_info = &dep_plan.packages[idx];
@@ -547,16 +503,13 @@ async fn run_single(
         }
     }
 
-    // ─── Transaction Summary ─────────────────────────────────────────────────
     let total_new = if existing_entry.is_some() { 0 } else { 1 } + dep_count;
     let total_upgraded = if existing_entry.is_some() { 1 } else { 0 };
     let download_mb = info.size as f64 / 1_000_000.0 + dep_plan.total_size as f64 / 1_000_000.0;
     ui::print_transaction_summary(total_new, total_upgraded, download_mb * 3.0, download_mb);
 
-    // ─── Starting Installation
     ui::print_starting_installation();
 
-    // ─── Download Main Package
     ui::print_downloading_single();
 
     let tmp = TempDir::new()?;
@@ -616,7 +569,6 @@ async fn run_single(
     {
         Ok(t) => t,
         Err(e) => {
-            // Immutable guard drops here → system re-locked automatically
             if let Some(t) = txn.as_mut() {
                 t.mark_failed(&format!("install failed: {}", e));
             }
@@ -637,7 +589,6 @@ async fn run_single(
         }
     };
 
-    // Re-lock immutable core explicitly after successful install
     _immutable_guard.relock();
 
     ui::print_stage_telemetry(
@@ -665,10 +616,8 @@ async fn run_single(
         t.mark_done("installation completed");
     }
 
-    // Update boot fallback — marks this state as "last known good"
     let _ = super::immutable::update_boot_fallback();
 
-    // Use the detected binary name if available, otherwise fall back to package name
     let launch_name = install_telemetry
         .detected_launch_cmd
         .as_deref()
@@ -769,7 +718,6 @@ async fn run_parallel(
     let resolved = batch.resolved;
     let not_found = batch.not_found;
 
-    // nothing resolved because no mirror could be reached: the network, not the names
     if resolved.is_empty()
         && not_found.is_empty()
         && !batch.infra_failed.is_empty()
@@ -834,7 +782,6 @@ async fn run_parallel(
         return Err(InstallFailed.into());
     }
 
-    // Same dependency check run_single does, per requested package; deps go ahead of the roots
     let mut deps: Vec<super::backend::PackageInfo> = Vec::new();
     let mut roots: Vec<super::backend::PackageInfo> = Vec::new();
     for info in resolved {
@@ -897,12 +844,10 @@ async fn run_parallel(
         }
     }
 
-    // ─── Transaction Summary ─────────────────────────────────────────────────
     let total_download: f64 = resolved.iter().map(|i| i.size as f64 / 1_000_000.0).sum();
     let total_new_pkgs = resolved.len();
     ui::print_transaction_summary(total_new_pkgs, 0, total_download * 3.0, total_download);
 
-    // ─── Starting Installation ────────────────────────────────────────────────
     ui::print_starting_parallel_installation();
 
     ui::print_downloading_parallel();
@@ -1074,7 +1019,6 @@ async fn run_parallel(
         .zip(install_results)
         .zip(retry_inputs)
     {
-        // held back for missing libraries: install their providers, then this package, one at a time
         let r = match r {
             Ok(Ok(Ok(t))) if t.held_back => {
                 let existing = super::backend::lookup_installed(&retry_info.name);
@@ -1163,8 +1107,6 @@ async fn run_parallel(
     }
 }
 
-// ── Library completeness ──────────────────────────────────────────────────────
-
 /// What installing library providers needs from the surrounding install run.
 struct LibContext<'a> {
     client: &'a reqwest::Client,
@@ -1243,7 +1185,6 @@ fn install_checked<'a>(
         if !t.held_back {
             return Ok(t);
         }
-        // a package later in this same install brings them
         let missing = ctx.not_planned(&t.missing_libs);
         if missing.is_empty() {
             return attempt(true);
@@ -1279,7 +1220,7 @@ async fn install_library_providers(missing: &[String], ctx: &LibContext<'_>, dep
     let Ok(tmp) = TempDir::new() else { return };
     for lib in super::libcheck::still_missing(missing) {
         if super::libcheck::still_missing(std::slice::from_ref(&lib)).is_empty() {
-            continue; // an earlier provider in this loop brought it in
+            continue;
         }
         for request in super::libcheck::provider_requests(&lib) {
             let Ok(provider) = resolver::resolve(&request, ctx.client, ctx.config, ctx.mm).await
@@ -1296,7 +1237,7 @@ async fn install_library_providers(missing: &[String], ctx: &LibContext<'_>, dep
                 .as_ref()
                 .is_some_and(|e| e.version == provider.version)
             {
-                continue; // installed already and still doesn't provide it
+                continue;
             }
             ui::print_library_provider(&lib, &provider.name, &provider.version);
             let path = tmp.path().join(&provider.filename);

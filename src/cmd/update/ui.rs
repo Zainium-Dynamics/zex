@@ -1,5 +1,4 @@
-//! ui.rs — Visual output for elevate zex update.
-//! Same palette as all other drivers.
+//! ui.rs: Visual output for elevate zex update.
 
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::time::Duration;
@@ -15,7 +14,6 @@ pub const RST: &str = "\x1b[0m";
 
 const BAR_W: usize = 22;
 
-// ── Phase / step bar ──────────────────────────────────────────────────────────
 /// Phases are reported after their work (downloads applied each package), so the line is final.
 pub fn print_phase(label: &str) {
     let dots = 44usize.saturating_sub(label.len() + 1);
@@ -25,14 +23,9 @@ pub fn print_phase(label: &str) {
     );
 }
 
-// ── Download bars ─────────────────────────────────────────────────────────────
 pub fn make_pkg_bar(mp: &MultiProgress, total: u64, label: &str) -> ProgressBar {
-    // Name on its own line above the bar — matches the same fix in
-    // cmd::upgrade::ui::make_pkg_bar (crammed onto the bar's own line, the
-    // name was the first thing squeezed out on a normal-width terminal).
     let lbl = format!("  {DIM}•{RST} {P}{label:<36}{RST}");
     let pb = make_pkg_bar_inner(mp, total, &lbl);
-    // finish_pkg_bar turns the bar into one line with this label
     pb.set_prefix(label.to_string());
     pb
 }
@@ -73,7 +66,7 @@ pub fn finish_pkg_bar(pb: &ProgressBar) {
     pb.finish_and_clear();
 }
 
-/// `total_bytes` — driven by cumulative bytes downloaded across every
+/// `total_bytes`: driven by cumulative bytes downloaded across every
 /// package, not component-completion count. A count-driven bar sits frozen
 /// at the same percentage for the entire duration of the largest file in a
 /// batch (confirmed live in the syshub upgrade path this fixes the same
@@ -94,7 +87,6 @@ pub fn make_overall_bar(mp: &MultiProgress, total_bytes: u64) -> ProgressBar {
     pb
 }
 
-// ── Static output ─────────────────────────────────────────────────────────────
 pub fn print_checking() {
     println!("\n {G}→{RST} Checking for updates...\n");
 }

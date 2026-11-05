@@ -1,10 +1,4 @@
 //! Real-data regression tests for native_sig.rs's signature verification.
-//!
-//! The fixtures here are real, unmodified packages downloaded from the
-//! actual Alpine (dl-cdn.alpinelinux.org), Chimera (repo.chimera-linux.org)
-//! and Void (repo-default.voidlinux.org) repositories — not synthesized —
-//! so a passing test here proves the verifier works against genuine
-//! upstream signatures, not just a self-consistent round-trip.
 
 use zex::cmd::install::native_sig;
 
@@ -22,9 +16,6 @@ fn verifies_real_alpine_busybox_package() {
 
 #[test]
 fn rejects_tampered_alpine_package() {
-    // apk-tools only signs the control member (offset 722..1246 in this
-    // fixture) — tamper a byte inside that exact range to prove the
-    // verifier actually checks it, rather than e.g. always passing.
     let mut data = std::fs::read("tests/fixtures/alpine-musl-1.2.6-r2.apk").unwrap();
     data[800] ^= 0xFF;
     assert!(

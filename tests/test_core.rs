@@ -1,13 +1,8 @@
-//! tests/test_core.rs — Tests for core zex modules:
-//!   aliases, pinning, extract, local_install, main dispatch
+//! tests/test_core.rs: Tests for core zex modules:
 
 mod harness;
 use harness::*;
 use std::fs;
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  ALIASES — 15 tests
-// ══════════════════════════════════════════════════════════════════════════════
 
 mod aliases {
     use zex::aliases;
@@ -38,7 +33,6 @@ mod aliases {
 
     #[test]
     fn resolve_upgrade_not_a_command() {
-        // Upgrade is only via syshub / uland — bare `upgrade` is not exposed.
         assert!(aliases::resolve("upgrade").is_none());
     }
 
@@ -108,10 +102,6 @@ mod aliases {
     }
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-//  EXTRACT — 12 tests
-// ══════════════════════════════════════════════════════════════════════════════
-
 mod extract {
     use super::*;
     use std::path::Path;
@@ -155,7 +145,6 @@ mod extract {
     fn detect_tar_gz_format_by_extension() {
         let tmp = tempfile::TempDir::new().unwrap();
         let path = tmp.path().join("test.tar.gz");
-        // Write gzip magic bytes — extension takes priority anyway
         fs::write(&path, &[0x1F, 0x8B, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00]).unwrap();
         let fmt = extract::detect_format(&path).unwrap();
         assert_eq!(fmt, extract::PackageFormat::TarGz);
@@ -164,7 +153,6 @@ mod extract {
     #[test]
     fn detect_tar_xz_format_by_extension() {
         let tmp = tempfile::TempDir::new().unwrap();
-        // detect_format uses extension first — write xz magic as file content
         let path = tmp.path().join("test.tar.xz");
         fs::write(&path, &[0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00, 0x00, 0x00]).unwrap();
         let fmt = extract::detect_format(&path).unwrap();
@@ -206,7 +194,6 @@ mod extract {
         let pkg = create_test_zex_package("counter", "1.0.0", tmp.path());
         let out = tmp.path().join("out");
         let result = extract::extract(&pkg, &out).unwrap();
-        // manifest.toml + payload/bin/counter = at least 2 files
         assert!(
             result.files_extracted >= 2,
             "expected >= 2 files, got {}",
@@ -219,7 +206,6 @@ mod extract {
         let tmp = tempfile::TempDir::new().unwrap();
         let pkg = create_test_zex_package("autocreate", "1.0.0", tmp.path());
         let out = tmp.path().join("deeply/nested/output");
-        // out doesn't exist yet
         assert!(!out.exists());
         extract::extract(&pkg, &out).unwrap();
         assert!(out.exists());
@@ -240,15 +226,10 @@ mod extract {
         let out = tmp.path().join("out");
 
         extract::extract(&pkg, &out).unwrap();
-        // Extract again — should not fail
         let r2 = extract::extract(&pkg, &out);
         assert!(r2.is_ok());
     }
 }
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  PINNING — 14 tests
-// ══════════════════════════════════════════════════════════════════════════════
 
 mod pinning {
     use super::*;
@@ -267,7 +248,6 @@ mod pinning {
             reason: Some("kernel build".into()),
         };
 
-        // Serialize
         #[derive(serde::Serialize, serde::Deserialize)]
         struct PF {
             pinned: Vec<pinning::PinnedPackage>,
@@ -279,7 +259,6 @@ mod pinning {
         let text = toml::to_string_pretty(&pf).unwrap();
         fs::write(&path, &text).unwrap();
 
-        // Deserialize
         let raw = fs::read_to_string(&path).unwrap();
         let parsed: PF = toml::from_str(&raw).unwrap();
         assert_eq!(parsed.pinned.len(), 1);
@@ -317,11 +296,9 @@ mod pinning {
 
     #[test]
     fn empty_pinned_list() {
-        // load_pinned on nonexistent file returns empty vec
-        // (it reads from hardcoded path, so this just tests the internal logic)
         let pins: Vec<pinning::PinnedPackage> = Vec::new();
         assert!(pins.is_empty());
-        pinning::print_pins(&pins); // should not panic
+        pinning::print_pins(&pins);
     }
 
     #[test]
@@ -342,7 +319,6 @@ mod pinning {
                 reason: None,
             },
         ];
-        // Just verify it doesn't panic — output goes to stdout
         pinning::print_pins(&pins);
     }
 
@@ -397,10 +373,6 @@ mod pinning {
         assert_eq!(parsed.pinned[1].reason, Some("critical".into()));
     }
 }
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  TEMP OVERLAYER HARNESS — 8 tests
-// ══════════════════════════════════════════════════════════════════════════════
 
 mod overlayer {
     use super::*;

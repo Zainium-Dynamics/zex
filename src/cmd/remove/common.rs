@@ -1,4 +1,4 @@
-//! common.rs — Shared remove driver types.
+//! common.rs: Shared remove driver types.
 
 use serde::{Deserialize, Serialize};
 

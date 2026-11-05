@@ -1,4 +1,4 @@
-//! config.rs — Loads zex_services.toml for search mirror routing.
+//! config.rs: Loads zex_services.toml for search mirror routing.
 
 use serde::Deserialize;
 

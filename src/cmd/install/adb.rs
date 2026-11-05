@@ -1,36 +1,4 @@
-//! adb.rs — Native decoder for apk-tools v3's "ADB" binary container format.
-//!
-//! Chimera Linux has migrated off the legacy Alpine `APKINDEX.tar.gz` /
-//! gzip-tar `.apk` format onto this structured binary format (both its
-//! index, `Packages.adb`, and individual `.apk` package files). This
-//! module was written directly against apk-tools' own C sources
-//! (`src/adb.c`, `src/adb.h`, `src/apk_adb.h`, `src/extract_v3.c` in the
-//! upstream `alpinelinux/apk-tools` repo) — not reverse-engineered by
-//! guesswork — so the field indices and block layout below match the
-//! real format exactly.
-//!
-//! # Envelope
-//! `"ADB."` (raw) | `"ADBd"` + raw deflate | `"ADBc"` + `{alg:u8,level:u8}` + body
-//! (alg: 0=none, 1=deflate, 2=zstd)
-//!
-//! # Body
-//! `file_header{magic:u32="ADB.", schema:u32}` then a sequence of
-//! 8-byte-aligned **blocks**. Each block's leading `u32` packs the type
-//! into its top 2 bits; type 3 ("EXT") means the real type/size follow in
-//! an extended 16-byte header instead, for blocks too big for 30 bits.
-//! Block type 0 = the object graph ("ADB block"), 1 = signature, 2 = a
-//! file's raw data (schema `pckg` only, one block per non-inline file).
-//!
-//! # Object graph (block type 0)
-//! `adb_hdr{compat_ver:u8, ver:u8, reserved:u16, root:adb_val_t}` followed
-//! by a pool of values referenced by byte offset. Every `adb_val_t` is a
-//! `u32`: top 4 bits = type tag, low 28 bits = either an inline small int
-//! or a byte offset (from the start of this block) to the real data.
-//! Objects/arrays are `[u32 count][u32 slot_1]..[u32 slot_{count-1}]`,
-//! where `count` includes itself, so `count-1` real slots follow — for an
-//! OBJECT, slot *i* is schema field *i* (1-based); for an ARRAY, slot *i*
-//! is item *i*. Blobs are `[len-prefix][bytes]` with the prefix width
-//! (1/2/4 bytes) chosen by the BLOB_8/16/32 tag.
+//! adb.rs: Native decoder for apk-tools v3's "ADB" binary container format.
 
 use anyhow::{Context, Result, bail};
 
@@ -38,7 +6,6 @@ use super::backend::{
     BackendConfig, MetadataManager, MirrorConfig, PackageFormat, PackageInfo, dynamic_metadata,
 };
 
-// ── adb_val_t type tags (top 4 bits) ──────────────────────────────────────────
 const TYPE_INT: u32 = 0x1;
 const TYPE_INT32: u32 = 0x2;
 const TYPE_INT64: u32 = 0x3;
@@ -55,12 +22,9 @@ fn val_value(v: u32) -> u32 {
     v & 0x0fff_ffff
 }
 
-// ── Schema field indices (from apk_adb.h — ADBI_* constants) ──────────────────
-#[allow(dead_code)] // kept for schema completeness even where not all fields are read yet
+#[allow(dead_code)]
 mod field {
-    // Dependency (schema_dependency): name / version / match-op
     pub const DEP_NAME: usize = 1;
-    // Package info (schema_pkginfo)
     pub const PI_NAME: usize = 1;
     pub const PI_VERSION: usize = 2;
     pub const PI_DESCRIPTION: usize = 4;
@@ -69,26 +33,21 @@ mod field {
     pub const PI_FILE_SIZE: usize = 13;
     pub const PI_DEPENDS: usize = 15;
     pub const PI_PROVIDES: usize = 16;
-    // ACL (schema_acl)
     pub const ACL_MODE: usize = 1;
-    // File info (schema_file)
     pub const FI_NAME: usize = 1;
     pub const FI_ACL: usize = 2;
     pub const FI_SIZE: usize = 3;
     pub const FI_TARGET: usize = 6;
-    // Directory info (schema_dir)
     pub const DI_NAME: usize = 1;
     pub const DI_ACL: usize = 2;
     pub const DI_FILES: usize = 3;
-    // Package (schema_package, root object of a .apk file)
     pub const PKG_PKGINFO: usize = 1;
     pub const PKG_PATHS: usize = 2;
-    // Index (schema_index, root object of Packages.adb)
     pub const NDX_PACKAGES: usize = 2;
 }
 
-const SCHEMA_INDEX: u32 = 0x78646e69; // "indx"
-const SCHEMA_PACKAGE: u32 = 0x676b6370; // "pckg"
+const SCHEMA_INDEX: u32 = 0x78646e69;
+const SCHEMA_PACKAGE: u32 = 0x676b6370;
 
 const S_IFDIR: u32 = 0o040000;
 const S_IFLNK: u32 = 0o120000;
@@ -96,8 +55,6 @@ const S_IFREG: u32 = 0o100000;
 const S_IFBLK: u32 = 0o060000;
 const S_IFCHR: u32 = 0o020000;
 const S_IFIFO: u32 = 0o010000;
-
-// ── Low-level byte access ─────────────────────────────────────────────────────
 
 fn u32_at(buf: &[u8], off: usize) -> Option<u32> {
     buf.get(off..off + 4)
@@ -148,7 +105,7 @@ fn read_blob<'a>(buf: &'a [u8], v: u32) -> &'a [u8] {
 struct ObjView<'a> {
     buf: &'a [u8],
     off: usize,
-    num: usize, // total slots including the count slot itself
+    num: usize,
 }
 
 fn read_obj<'a>(buf: &'a [u8], v: u32) -> Option<ObjView<'a>> {
@@ -159,7 +116,7 @@ fn read_obj<'a>(buf: &'a [u8], v: u32) -> Option<ObjView<'a>> {
             if num == 0 {
                 return None;
             }
-            buf.get(off..off + num * 4)?; // bounds check the whole slot table
+            buf.get(off..off + num * 4)?;
             Some(ObjView { buf, off, num })
         }
         _ => None,
@@ -170,7 +127,7 @@ impl<'a> ObjView<'a> {
     fn val(&self, i: usize) -> u32 {
         if i >= self.num {
             return 0;
-        } // 0 == ADB_NULL
+        }
         u32_at(self.buf, self.off + i * 4).unwrap_or(0)
     }
     fn int(&self, i: usize) -> u64 {
@@ -201,8 +158,6 @@ fn read_root<'a>(block0: &'a [u8]) -> Result<ObjView<'a>> {
     let root_val = u32_at(block0, 4).context("adb: truncated root value")?;
     read_obj(block0, root_val).ok_or_else(|| anyhow::anyhow!("adb: root is not an object"))
 }
-
-// ── Envelope (outer compression wrapper) ──────────────────────────────────────
 
 pub(crate) fn decode_envelope(bytes: &[u8]) -> Result<Vec<u8>> {
     if bytes.len() < 4 || &bytes[0..3] != b"ADB" {
@@ -236,8 +191,6 @@ fn deflate_decode(body: &[u8]) -> Result<Vec<u8>> {
         .context("adb: deflate decompression failed")?;
     Ok(out)
 }
-
-// ── Block framing ─────────────────────────────────────────────────────────────
 
 pub(crate) struct RawBlock<'a> {
     pub(crate) block_type: u32,
@@ -304,7 +257,7 @@ fn parse(bytes: &[u8]) -> Result<AdbFile> {
         match blk.block_type {
             0 => adb_block = Some(blk.payload.to_vec()),
             2 => data_blocks.push(blk.payload.to_vec()),
-            _ => {} // SIG (1) and anything unknown: not needed for our purposes
+            _ => {}
         }
     }
     let adb_block = adb_block.ok_or_else(|| anyhow::anyhow!("adb: missing object-graph block"))?;
@@ -314,8 +267,6 @@ fn parse(bytes: &[u8]) -> Result<AdbFile> {
         data_blocks,
     })
 }
-
-// ── Package metadata (shared by index entries and standalone .apk files) ─────
 
 #[derive(Debug, Clone, Default)]
 pub struct AdbPkgInfo {
@@ -371,7 +322,7 @@ pub fn parse_index(bytes: &[u8]) -> Result<Vec<AdbPkgInfo>> {
 
 /// Resolves `target` against a parsed package list two ways: direct name
 /// match (after stripping any version constraint), then falling back to a
-/// "provides" match — mirrors apk.rs's resolution for the legacy format,
+/// "provides" match: mirrors apk.rs's resolution for the legacy format,
 /// since Chimera dependency strings use the exact same conventions
 /// (version-pinned names, `so:`/`cmd:` virtual capabilities).
 fn find_record<'a>(records: &'a [AdbPkgInfo], target: &str) -> Option<&'a AdbPkgInfo> {
@@ -387,8 +338,6 @@ fn find_record<'a>(records: &'a [AdbPkgInfo], target: &str) -> Option<&'a AdbPkg
             })
         })
 }
-
-// ── Public resolver (search + install use this) ───────────────────────────────
 
 pub async fn resolve_adb(
     name: &str,
@@ -442,8 +391,6 @@ pub async fn resolve_adb(
         ..Default::default()
     }))
 }
-
-// ── Package extraction (install driver uses this) ─────────────────────────────
 
 pub struct ExtractedEntry {
     pub rel_path: String,
@@ -512,8 +459,6 @@ pub fn extract_entries(bytes: &[u8]) -> Result<Vec<ExtractedEntry>> {
                 let rest = &target[2..];
                 match mode_flag {
                     m if m == S_IFLNK || m == S_IFREG => {
-                        // S_IFREG here means a hardlink (target = path of the
-                        // already-extracted file to link to), not inline data.
                         out.push(ExtractedEntry {
                             rel_path,
                             mode: mode_flag | file_mode,
@@ -522,9 +467,6 @@ pub fn extract_entries(bytes: &[u8]) -> Result<Vec<ExtractedEntry>> {
                         });
                     }
                     m if m == S_IFBLK || m == S_IFCHR || m == S_IFIFO => {
-                        // Device/FIFO node — meaningless inside the union
-                        // userland tree; skip, matching how xbps/apk device
-                        // entries are already dropped elsewhere.
                     }
                     other => bail!("adb: unknown target mode {other:#o} for '{rel_path}'"),
                 }

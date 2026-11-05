@@ -1,6 +1,4 @@
-//! ui.rs — Terminal UI for the remove driver.
-//! Same palette and conventions as install/upgrade drivers.
-//! Zero hardcoded values — all data comes from receipt/registry at runtime.
+//! ui.rs: Terminal UI for the remove driver.
 
 pub const G: &str = "\x1b[92m";
 pub const P: &str = "\x1b[95m";
@@ -14,7 +12,6 @@ pub const RST: &str = "\x1b[0m";
 const BAR_W: usize = 22;
 const STEP_W: usize = 50;
 
-// ── Animated phase bar ────────────────────────────────────────────────────────
 pub fn print_remove_step(label: &str) {
     crate::steps::start_bar(
         &format!("{G}{label}{RST}"),
@@ -24,7 +21,6 @@ pub fn print_remove_step(label: &str) {
     );
 }
 
-// ── Single removal header ─────────────────────────────────────────────────────
 pub fn print_single_header(name: &str, scope: &str) {
     println!("\n {G}Removing package:{RST} {P}{name}{RST} {DIM}({scope}){RST}\n");
 }
@@ -34,7 +30,6 @@ pub fn print_multi_header(names: &[String], scope: &str) {
     println!("\n {G}Removing packages:{RST} {P}{joined}{RST} {DIM}({scope}){RST}\n");
 }
 
-// ── Dependency resolution lines ───────────────────────────────────────────────
 pub fn print_resolving_reverse_deps() {
     println!(" {G}→{RST} Resolving reverse dependencies...");
 }
@@ -43,7 +38,6 @@ pub fn print_preparing_removal(scope_path: &str) {
     println!(" {G}→{RST} Preparing safe removal from {B}{scope_path}{RST}...\n");
 }
 
-// ── Package list ──────────────────────────────────────────────────────────────
 pub fn print_still_needed_by(name: &str, users: &[&str]) {
     println!(
         " {Y}⚠{RST}  {P}{name}{RST} is used by {B}{}{RST}; they may stop working without it.\n",
@@ -82,12 +76,10 @@ pub fn print_removing_item(name: &str, version: Option<&str>) {
     }
 }
 
-// ── Phase lines (arrow style — matches spec exactly) ─────────────────────────
 pub fn print_arrow_phase(msg: &str) {
     println!(" {G}→{RST} {msg}");
 }
 
-// ── Success ───────────────────────────────────────────────────────────────────
 pub fn print_success_single(count: usize, freed_mb: f64, secs: f64, scope: &str) {
     println!("\n {G}\u{2713} Package removal completed successfully{RST}\n");
     println!("{G}Removal Summary{RST}");
@@ -101,13 +93,11 @@ pub fn print_success_single(count: usize, freed_mb: f64, secs: f64, scope: &str)
     );
 }
 
-// ── Not installed ─────────────────────────────────────────────────────────────
 pub fn print_not_installed(name: &str) {
     println!("\n {R}Error:{RST} Package {P}'{name}'{RST} is not installed.\n");
     println!("{DIM}Nothing to remove.{RST}\n");
 }
 
-// ── Syshub protected block ────────────────────────────────────────────────────
 pub fn print_syshub_protected(name: &str) {
     println!("\n {R}Error:{RST} Cannot remove {P}'{name}'{RST}\n");
     println!("This is a protected {Y}System Hub{RST} {DIM}(immutable core){RST} package.");
@@ -117,7 +107,6 @@ pub fn print_syshub_protected(name: &str) {
     );
 }
 
-// ── Partial not installed (multi-remove) ─────────────────────────────────────
 pub fn print_partial_not_installed(missing: &[&str], removing: &[&str]) {
     println!("\n {Y}Warning:{RST} Some packages are not installed:");
     for n in missing {
@@ -132,7 +121,6 @@ pub fn print_partial_not_installed(missing: &[&str], removing: &[&str]) {
     }
 }
 
-// ── Dry run ───────────────────────────────────────────────────────────────────
 pub fn print_dry_run(names: &[&str], total_mb: f64) {
     println!("\n {Y}\u{26a0}{RST}  {BLD}Dry run — no changes will be made{RST}\n");
     println!("{G}Would remove:{RST}");
@@ -143,7 +131,6 @@ pub fn print_dry_run(names: &[&str], total_mb: f64) {
     println!("  Use {DIM}--yes{RST} to actually remove.\n");
 }
 
-// ── General error ─────────────────────────────────────────────────────────────
 pub fn print_error(msg: &str) {
     println!("\n {R}Error:{RST} {msg}\n");
 }

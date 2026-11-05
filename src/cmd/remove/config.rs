@@ -1,25 +1,3 @@
-// zex/src/config.rs
-//
-// Configuration File Support
-// ──────────────────────────
-// Reads config from:
-//   1. ~/.config/zx/zai-remove.toml    (user config)
-//   2. /overlayer/syshub/etc/zx/zai-remove.toml  (system config)
-//
-// Schema:
-// [defaults]
-// recursive = true
-// yes = false
-// verbose = false
-//
-// [backends]
-// enable_apt = true
-// enable_flatpak = true
-// enable_snap = true
-//
-// [cache]
-// ttl_minutes = 30
-
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -72,16 +50,13 @@ impl Config {
     /// Load config from standard locations (user → system).
     /// Returns Default if no config files found.
     pub fn load() -> Result<Self> {
-        // Try user config first
         let user_config = Self::from_path(Self::user_config_path());
 
         if user_config.is_ok() {
             return user_config;
         }
 
-        // Try system config
         Self::from_path(Self::system_config_path()).or_else(|_| {
-            // Return default if both fail
             Ok(Config::default())
         })
     }

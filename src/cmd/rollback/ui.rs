@@ -1,4 +1,4 @@
-//! ui.rs — Terminal UI for rollback driver. Same palette as all drivers.
+//! ui.rs: Terminal UI for rollback driver. Same palette as all drivers.
 
 pub const G: &str = "\x1b[92m";
 pub const P: &str = "\x1b[95m";
@@ -22,7 +22,6 @@ pub fn print_step(label: &str) {
     println!("  {G}{label}{RST} {DIM}{dots}{RST} {G}[{filled}]{RST} {G}done{RST}");
 }
 
-// ── Userland rollback ─────────────────────────────────────────────────────────
 pub fn print_uland_header(tx_id: &str, operation: &str, target: &str, version: &str) {
     println!("\n {G}{BLD}Rolling back Userland Transaction{RST}\n");
     println!(" {DIM}Transaction ID     :{RST} {B}{tx_id}{RST}");
@@ -51,7 +50,6 @@ pub fn print_uland_success(
     println!("{G}Userland has been successfully rolled back to previous state.{RST}\n");
 }
 
-// ── Syshub rollback ───────────────────────────────────────────────────────────
 pub fn print_syshub_header(tx_id: &str, operation: &str) {
     println!("\n {G}{BLD}Rolling back System Hub (Immutable Core){RST}\n");
     println!(" {DIM}Transaction ID     :{RST} {B}{tx_id}{RST}");
@@ -69,7 +67,6 @@ pub fn print_syshub_success(tx_id: &str, components: usize, secs: f64) {
     println!("{Y}Reboot is required to complete the rollback.{RST}\n");
 }
 
-// ── Not found ─────────────────────────────────────────────────────────────────
 pub fn print_not_found(tx_id: &str, recent: &[TxSummary]) {
     println!("\n {R}Error:{RST} Transaction {P}'{tx_id}'{RST} does not exist.\n");
     if !recent.is_empty() {

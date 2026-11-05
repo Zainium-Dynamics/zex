@@ -1,5 +1,4 @@
-//! probers/xbps.rs — XBPS repodata search (Void Linux).
-//! Parses zstd-compressed tar → index.plist.
+//! probers/xbps.rs: XBPS repodata search (Void Linux).
 
 use anyhow::Result;
 use std::io::Read;
@@ -66,9 +65,6 @@ pub async fn probe_xbps(
                 continue;
             };
 
-            // The current Void repodata schema keys the dictionary by the
-            // package name itself; there's no separate "pkgname" field and
-            // no plain "version" field (only combined "pkgver").
             let name = key.clone();
             let pkgver = meta
                 .get("pkgver")

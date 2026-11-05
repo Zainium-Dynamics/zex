@@ -1,7 +1,4 @@
-//! audit.rs — All health check functions for the doctor driver.
-//!
-//! Scans both syshub (immutable base) and userland (zexlib/union).
-//! Each check returns an AuditResult with counts and affected paths.
+//! audit.rs: All health check functions for the doctor driver.
 
 use anyhow::Result;
 use serde::Deserialize;
@@ -14,9 +11,7 @@ use walkdir::WalkDir;
 
 use super::layout::*;
 use crate::cmd::install::registry::PkgRecord;
-// MUSL_SYSROOT_X86, MUSL_LIB_X86, MUSL_CRITICAL, MUSL_BIN_X86 from layout
 
-// ── Result types ──────────────────────────────────────────────────────────────
 
 #[derive(Debug, Default)]
 pub struct AuditResult {
@@ -28,7 +23,7 @@ pub struct AuditResult {
     pub syshub_clean: usize,
     pub orphaned_packages: Vec<String>,
     pub orphaned_libs: Vec<String>,
-    pub unsatisfied_deps: Vec<(String, String)>, // (pkg, missing_dep)
+    pub unsatisfied_deps: Vec<(String, String)>,
     pub missing_syshub_dirs: Vec<String>,
     pub missing_musl_files: Vec<String>,
     /// Empty when glibc isn't installed.
@@ -74,18 +69,13 @@ struct SyshubManifest {
     packages: HashMap<String, toml::Value>,
 }
 
-// ── Main audit runner ─────────────────────────────────────────────────────────
-
 pub fn run_full_audit() -> Result<AuditResult> {
     let mut r = AuditResult::default();
 
-    // 1. Load syshub manifest
     let (syshub_pkgs, syshub_provides) = load_syshub(&mut r);
 
-    // 2. Load all receipts
     let receipts = load_receipts(&mut r);
 
-    // 3. Build capability set (installed packages + provides)
     let mut capabilities: HashSet<String> = HashSet::new();
     for rcpt in &receipts {
         capabilities.insert(rcpt.name.to_ascii_lowercase());
@@ -94,40 +84,30 @@ pub fn run_full_audit() -> Result<AuditResult> {
         }
     }
 
-    // 4. Dangling symlinks (syshub + union)
     check_dangling_symlinks(SYSHUB, &mut r);
     check_dangling_symlinks(UNION, &mut r);
 
-    // 5. Unsatisfied dependencies
     check_deps(&receipts, &capabilities, &syshub_provides, &mut r);
 
-    // 6. libc boundary violations — check userland .so files
     check_libc_boundaries(&mut r);
 
-    // 7. Syshub structure integrity
     check_syshub_dirs(&mut r);
     check_musl_sysroot(&mut r);
     check_glibc(&mut r);
 
-    // 8. Syshub package count
     r.syshub_total = syshub_pkgs;
-    r.syshub_clean = syshub_pkgs; // verified if no corrupted files found
+    r.syshub_clean = syshub_pkgs;
     r.syshub_ok = r.missing_syshub_dirs.is_empty() && r.missing_musl_files.is_empty();
-    // syshub total reflects known installed packages
     if r.syshub_ok {
         r.syshub_clean = r.syshub_total;
     }
 
-    // 9. Orphaned packages (receipt exists but no files on disk)
     check_orphaned_packages(&receipts, &mut r);
 
-    // 10. Orphaned libs in union/lib
     check_orphaned_libs(&receipts, &mut r);
 
     Ok(r)
 }
-
-// ── Individual checks ─────────────────────────────────────────────────────────
 
 fn load_syshub(_r: &mut AuditResult) -> (usize, HashSet<String>) {
     let mut provides = HashSet::new();
@@ -145,7 +125,6 @@ fn load_syshub(_r: &mut AuditResult) -> (usize, HashSet<String>) {
     let count = manifest.packages.len();
     for (name, val) in &manifest.packages {
         provides.insert(name.to_ascii_lowercase());
-        // Also index provides arrays
         if let Some(arr) = val.as_table().and_then(|t| t.get("provides")) {
             if let Some(list) = arr.as_array() {
                 for v in list {
@@ -193,7 +172,6 @@ fn check_dangling_symlinks(base: &str, r: &mut AuditResult) {
     }
     for entry in WalkDir::new(p).into_iter().filter_map(|e| e.ok()) {
         let path = entry.path();
-        // a union link may point at a base file: resolve it through the merged view
         if path.is_symlink()
             && !crate::archive_safety::live_path(path).exists()
             && !is_unit_link(path)
@@ -228,9 +206,6 @@ fn check_deps(
 ) {
     for rcpt in receipts {
         for dep in &rcpt.dependencies {
-            // Dependency tokens can carry version constraints or be
-            // virtual so:/cmd: capabilities — normalize the same way the
-            // resolver does before checking satisfaction.
             let base = crate::cmd::install::apk::strip_constraint(dep);
             let d = base.to_ascii_lowercase();
             if !caps.contains(&d) && !syshub.contains(&d) {
@@ -275,24 +250,17 @@ fn check_syshub_dirs(r: &mut AuditResult) {
 }
 
 fn check_musl_sysroot(r: &mut AuditResult) {
-    // Check sysroot root dir
     if !Path::new(MUSL_SYSROOT_X86).exists() {
         r.missing_musl_files.push(MUSL_SYSROOT_X86.to_string());
-        return; // no point checking internals if root missing
+        return;
     }
-    // Check critical files inside the sysroot
     for f in MUSL_CRITICAL {
         if !Path::new(f).exists() {
             r.missing_musl_files.push(f.to_string());
         }
     }
-    // Warn if libgcc_s.so.1 exists (it should — this is GCC musl cross)
-    // but also check it's not a glibc variant (wrong ABI)
     let lgcc = Path::new(MUSL_LIB_X86).join("libgcc_s.so.1");
     if lgcc.exists() {
-        // libgcc_s inside the musl sysroot is fine — it's the musl-linked one
-        // Only flag if we see it floating loose in /overlayer/zexlib/union/lib
-        // (that check happens in check_libc_boundaries)
     }
 }
 

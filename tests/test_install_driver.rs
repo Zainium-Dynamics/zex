@@ -1,21 +1,13 @@
-//! tests/test_install_driver.rs — Comprehensive install driver unit tests.
-//!
-//! Tests the install driver's sub-modules in isolation using the
-//! TempOverlayer harness to avoid touching the real filesystem.
+//! tests/test_install_driver.rs: Comprehensive install driver unit tests.
 
 mod harness;
 use harness::*;
 use std::{collections::HashSet, fs};
 
-// ══════════════════════════════════════════════════════════════════════════════
-//  REGISTRY — register / lookup / unregister (25 tests)
-// ══════════════════════════════════════════════════════════════════════════════
-
 mod registry {
     use super::*;
     use zex::cmd::install::registry::PkgRecord;
 
-    // Fixture: build a PkgRecord with sensible defaults
     fn rec(name: &str, version: &str) -> PkgRecord {
         PkgRecord {
             name: name.to_string(),
@@ -175,7 +167,6 @@ mod registry {
     #[test]
     fn blake3_sha256_distinct() {
         let r = rec("test", "1.0");
-        // In our fixture they're different chars so they differ
         assert_ne!(r.blake3, r.sha256);
     }
 
@@ -184,7 +175,6 @@ mod registry {
         let r = rec("bare", "1.0");
         assert!(r.provides.is_empty());
         let text = toml::to_string_pretty(&r).unwrap();
-        // empty array should not cause parse error
         let _: PkgRecord = toml::from_str(&text).unwrap();
     }
 
@@ -195,13 +185,9 @@ mod registry {
         assert!(text.contains("2026-06-27T00:00:00Z"));
     }
 
-    // ── Filesystem-based tests (using TempOverlayer) ─────────────────────────
-    // These tests write to temp dirs, not the real system
-
     #[test]
     fn is_installed_false_when_no_file() {
         let env = TempOverlayer::new();
-        // Read directly — don't rely on global REGISTRY_DIR
         let path = env.p("overlayer/zexlib/registry/installed/nonexistent.toml");
         assert!(!path.exists());
     }
@@ -233,7 +219,6 @@ mod registry {
         let path = env.p("overlayer/zexlib/registry/installed/atomic.toml");
         let tmp = env.p("overlayer/zexlib/registry/installed/atomic.toml.tmp");
 
-        // Simulate atomic write: write to .tmp then rename
         fs::write(&tmp, b"name = \"atomic\"\nversion = \"1.0\"").unwrap();
         assert!(tmp.exists());
         assert!(!path.exists());
@@ -310,10 +295,6 @@ mod registry {
     }
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-//  BACKEND — helpers + PackageInfo (20 tests)
-// ══════════════════════════════════════════════════════════════════════════════
-
 mod backend {
     use zex::cmd::install::backend::{PackageFormat, PackageInfo, capitalise, dynamic_metadata};
 
@@ -367,7 +348,6 @@ mod backend {
     fn dynamic_metadata_long_desc_falls_back() {
         let long = "A".repeat(50);
         let (display, _) = dynamic_metadata("pkg", Some(&long));
-        // Long description should fall back to capitalise(name)
         assert_eq!(display, "Pkg");
     }
 
@@ -459,10 +439,6 @@ mod backend {
     }
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-//  TRANSACTION — snapshot + prune (15 tests)
-// ══════════════════════════════════════════════════════════════════════════════
-
 mod transaction {
     use super::*;
 
@@ -525,7 +501,6 @@ mod transaction {
         let dir = env.p("overlayer/zexlib/transactions");
         assert_eq!(fs::read_dir(&dir).unwrap().count(), 10);
 
-        // Simulate pruning: keep newest 5
         let keep = 5;
         let mut entries: Vec<_> = fs::read_dir(&dir)
             .unwrap()
@@ -550,11 +525,8 @@ mod transaction {
         write_tx(&env, "tx-002", 2000, "install", "pkg");
         let dir = env.p("overlayer/zexlib/transactions");
 
-        // Keep 10, only 2 exist — should keep both
         let count_before = fs::read_dir(&dir).unwrap().count();
-        // No-op: count_before < keep
         assert_eq!(count_before, 2);
-        // Don't delete anything
         assert_eq!(fs::read_dir(&dir).unwrap().count(), 2);
     }
 
@@ -628,7 +600,6 @@ mod transaction {
         let tx_dir = env.p("overlayer/zexlib/transactions");
         write_tx(&env, "tx-del", 1000, "install", "pkg");
         fs::remove_dir_all(tx_dir.join("tx-del")).unwrap();
-        // Parent dir must still exist
         assert_dir_exists(&tx_dir);
         assert_eq!(fs::read_dir(&tx_dir).unwrap().count(), 0);
     }
@@ -647,7 +618,6 @@ mod transaction {
             .filter(|e| e.path().is_dir())
             .collect();
         entries.sort_by_key(|e| e.file_name().to_string_lossy().to_string());
-        // tx-0 through tx-4 all present
         assert_eq!(entries.len(), 5);
     }
 
@@ -661,10 +631,6 @@ mod transaction {
         assert_eq!(val["packages"].as_array().map(|a| a.len()).unwrap_or(0), 0);
     }
 }
-
-// ══════════════════════════════════════════════════════════════════════════════
-//  ZEX_MANIFEST — read / extract_payload / write_receipt (20 tests)
-// ══════════════════════════════════════════════════════════════════════════════
 
 mod zex_manifest {
     use super::*;
@@ -793,7 +759,6 @@ mod zex_manifest {
     fn no_usr_paths_in_defaults() {
         let m = minimal_manifest("clean", "1.0");
         let text = toml::to_string_pretty(&m).unwrap();
-        // Host FHS paths must not appear; /overlayer/…/bin is intentional.
         assert!(!text.contains("/usr/"));
         assert!(!text.contains("/usr/bin/"));
         assert!(!text.contains("/lib64/ld-linux"));
@@ -820,7 +785,7 @@ mod zex_manifest {
     #[test]
     fn ed25519_sig_optional() {
         let mut m = minimal_manifest("signed", "1.0");
-        m.package.ed25519_sig = Some("A".repeat(88)); // base64 Ed25519 sig
+        m.package.ed25519_sig = Some("A".repeat(88));
         let text = toml::to_string_pretty(&m).unwrap();
         let parsed: ZexManifest = toml::from_str(&text).unwrap();
         assert_eq!(parsed.package.ed25519_sig.as_ref().unwrap().len(), 88);
@@ -869,7 +834,6 @@ mod zex_manifest {
         let tmp = tempfile::TempDir::new().unwrap();
         let pkg = create_test_zex_package("readsample", "2.0.0", tmp.path());
 
-        // Extract to tmpdir and read manifest
         let out = tmp.path().join("out");
         zex::extract::extract(&pkg, &out).unwrap();
         let raw = fs::read_to_string(out.join("manifest.toml")).unwrap();
@@ -924,17 +888,11 @@ mod zex_manifest {
     }
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-//  INSTALLER — conflict detection (10 tests)
-// ══════════════════════════════════════════════════════════════════════════════
-
 mod conflicts {
 
     #[test]
     fn no_conflict_empty_db() {
-        // With no installed packages, there are no conflicts
         let files = vec!["/overlayer/zexlib/union/bin/myapp".to_string()];
-        // We simulate the logic directly since check_file_conflicts reads live DB
         let db: Vec<(String, Vec<String>)> = vec![];
         let conflicts: Vec<_> = db
             .iter()
@@ -1005,7 +963,6 @@ mod conflicts {
                 vec!["/overlayer/zexlib/union/bin/nvim".to_string()],
             ),
         ];
-        // Skip the package itself
         let conflicts: Vec<_> = db
             .iter()
             .filter(|(name, _)| !name.eq_ignore_ascii_case(pkg_name))
@@ -1050,7 +1007,6 @@ mod conflicts {
     fn force_flag_allows_conflict() {
         let force = true;
         let has_conflict = true;
-        // With force=true, conflict should not block install
         let should_proceed = !has_conflict || force;
         assert!(should_proceed);
     }
@@ -1065,7 +1021,6 @@ mod conflicts {
 
     #[test]
     fn conflict_path_under_overlayer() {
-        // All conflict paths must be under /overlayer — never /usr/bin
         let paths = vec![
             "/overlayer/zexlib/union/bin/test",
             "/overlayer/zexlib/union/lib/libtest.so",

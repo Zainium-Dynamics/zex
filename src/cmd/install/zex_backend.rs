@@ -14,7 +14,7 @@ pub struct ZexIndexEntry {
     pub size: Option<u64>,
     pub file: Option<String>,
     pub blake3: Option<String>,
-    pub ed25519_sig: Option<String>, // "sig:ed25519:<hex>"
+    pub ed25519_sig: Option<String>,
     pub depends: Vec<String>,
     pub provides: Vec<String>,
     pub requires_syshub: Option<String>,
@@ -22,16 +22,16 @@ pub struct ZexIndexEntry {
     pub license: Option<String>,
     pub maintainer: Option<String>,
     pub tags: Vec<String>,
-    pub build_type: Option<String>,  // "static"|"dynamic"|"firmware"
-    pub libc_target: Option<String>, // "musl"|"gnu" (glibc)|"freestanding"
-    pub edition: Option<String>,     // package edition (e.g. Rust "2021")
+    pub build_type: Option<String>,
+    pub libc_target: Option<String>,
+    pub edition: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct ZexIndex {
     entries: HashMap<String, ZexIndexEntry>,
     capabilities: HashMap<String, String>,
-    /// Base URL for downloading packages — filled in by fetch_index from mirror config.
+    /// Base URL for downloading packages: filled in by fetch_index from mirror config.
     pub base_url: String,
 }
 
@@ -44,7 +44,6 @@ impl ZexIndex {
         if let Some(pkg_name) = self.capabilities.get(&lower) {
             return self.entries.get(pkg_name);
         }
-        // "so:libfoo.so.1": Zainium's provides list libraries without the prefix
         if let Some(pkg_name) = lower
             .strip_prefix("so:")
             .and_then(|lib| self.capabilities.get(lib))
@@ -64,8 +63,6 @@ pub async fn fetch_index(
     config: &BackendConfig,
     mm: &MetadataManager,
 ) -> Result<ZexIndex> {
-    // Find the Tier 1 Zainium native mirror from zex_services.toml mirrors list.
-    // The mirror with id "zainium-userland-zexlib" carries the .toml ledger.
     let mirror = config
         .mirrors
         .iter()
@@ -84,19 +81,16 @@ pub async fn fetch_index(
     let bytes = arc_bytes.as_slice();
     let url_lower = index_url.trim().to_ascii_lowercase();
 
-    // Parse TOML ledger (zex_ledger-x86_64.toml)
     if url_lower.ends_with(".toml") {
         let text = std::str::from_utf8(bytes)
             .with_context(|| format!("failed to decode zex index at {}", index_url))?;
         let value: TomlValue = toml::from_str(text)
             .with_context(|| format!("failed to parse zex index TOML at {}", index_url))?;
         let mut index = parse_index_toml(value)?;
-        // Inject base_url so package_info_from_entry can build full download URLs.
         index.base_url = base_url;
         return Ok(index);
     }
 
-    // JSON fallback
     if url_lower.ends_with(".json") {
         let value: JsonValue = serde_json::from_slice(bytes)
             .with_context(|| format!("failed to parse zex index JSON at {}", index_url))?;
@@ -105,7 +99,6 @@ pub async fn fetch_index(
         return Ok(index);
     }
 
-    // Auto-detect: try TOML first
     if let Ok(text) = std::str::from_utf8(bytes) {
         if let Ok(value) = toml::from_str::<TomlValue>(text) {
             if let Ok(mut index) = parse_index_toml(value) {
@@ -405,9 +398,6 @@ fn parse_entry_toml(name_hint: Option<&str>, value: &TomlValue) -> Option<ZexInd
     let provides = parse_depends_toml(obj.get("provides"));
     let requires_syshub = pick_string_toml(obj, &["requires_syshub", "syshub", "base_os"]);
 
-    // zex_ledger-x86_64.toml/syshub.toml are the only formats actually
-    // published (see zex-server's ledger.rs) — no JSON index exists in
-    // production, so this is the path that matters for these fields.
     let ed25519_sig = pick_string_toml(obj, &["ed25519_sig", "sig", "signature"]);
     let description = pick_string_toml(obj, &["description", "desc", "summary"]);
     let license = pick_string_toml(obj, &["license", "spdx"]);
@@ -575,7 +565,6 @@ fn push_dep(out: &mut Vec<String>, raw: &str) {
     if trimmed.is_empty() {
         return;
     }
-    // Strip version constraints like "foo >= 1.2" or "foo (>= 1.2)".
     let name = trimmed
         .split_whitespace()
         .next()

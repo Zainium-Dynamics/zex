@@ -1,23 +1,8 @@
-//! ui.rs — Terminal UI for the install driver.
-//!
-//! Single source of truth for ALL output.
-//! Colors:
-//!   G  (#92) green  — success, arrows, progress, version
-//!   P  (#95) purple — package names, titles
-//!   B  (#96) cyan   — sizes, speeds, repository, version numbers
-//!   Y  (#93) yellow — warnings
-//!   R  (#91) red    — errors
-//!   DIM (2m)        — secondary text, dots, separators
-//!
-//! Design rules:
-//!   • No backend names (deb/apt/rpm) in user-visible strings
-//!   • Only █ / ░ for progress bars
-//!   • All paths use Zainium overlayer layout
+//! ui.rs: Terminal UI for the install driver.
 
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::time::Duration;
 
-// ── Palette ───────────────────────────────────────────────────────────────────
 pub const G: &str = "\x1b[92m";
 pub const P: &str = "\x1b[95m";
 pub const B: &str = "\x1b[96m";
@@ -30,15 +15,9 @@ pub const RST: &str = "\x1b[0m";
 const BAR_W: usize = 22;
 const STEP_W: usize = 46;
 
-// ── Progress bar factory ──────────────────────────────────────────────────────
-
 /// Per-package download bar.
 /// "  vim                 28.4/28.4 MB   [██████████████████████] 100%   45.2 MB/s   0s"
 pub fn make_download_bar(mp: &MultiProgress, total_bytes: u64, label: &str) -> ProgressBar {
-    // Name on its own line above the bar — matches the same fix in
-    // cmd::upgrade::ui::make_pkg_bar / cmd::update::ui::make_pkg_bar
-    // (crammed onto the bar's own line, the name was the first thing
-    // squeezed out on a normal-width terminal).
     let lbl = format!("  {P}{label:<36}{RST}");
     if total_bytes == 0 {
         let pb = mp.add(ProgressBar::new_spinner());
@@ -101,8 +80,6 @@ pub fn print_install_step(label: &str) {
     );
 }
 
-// ── Header / resolve ──────────────────────────────────────────────────────────
-
 pub fn print_nice_choice(_n: usize) {
     println!("\n {G}Resolving dependencies...{RST}\n");
 }
@@ -125,9 +102,7 @@ pub fn print_resolved_info(display_name: &str, version: &str) {
     );
 }
 
-pub fn print_resolved_names(_names: &[&str]) {} // absorbed into resolving_multiple
-
-// ── Dependency list ───────────────────────────────────────────────────────────
+pub fn print_resolved_names(_names: &[&str]) {}
 
 pub fn print_dep_list_header() {
     println!("\n{G}The following packages dependencies will be installed:{RST}");
@@ -140,8 +115,6 @@ pub fn print_dep_list_multi_header() {
 pub fn print_dep_item(name: &str) {
     println!("  {DIM}•{RST} {P}{name}{RST}");
 }
-
-// ── Transaction summary ───────────────────────────────────────────────────────
 
 pub fn print_transaction_summary(
     new_count: usize,
@@ -176,8 +149,6 @@ pub fn print_parallel_transaction_summary(
     println!("  Disk space needed : {B}{disk_mb:.0} MB{RST}\n");
 }
 
-// ── Proceed prompt ────────────────────────────────────────────────────────────
-
 pub fn print_proceed_prompt() -> bool {
     print!("{G}Proceed with installation?{RST} {DIM}[Y/n]{RST} ");
     flush();
@@ -195,8 +166,6 @@ pub fn print_proceed_partial_prompt() -> bool {
     let t = s.trim().to_ascii_lowercase();
     t.is_empty() || t == "y" || t == "yes"
 }
-
-// ── Missing libraries ─────────────────────────────────────────────────────────
 
 pub fn print_missing_libs(name: &str, libs: &[String]) {
     println!(
@@ -225,8 +194,6 @@ pub fn confirm_unprovided_libs(name: &str, libs: &[String]) -> bool {
     matches!(s.trim().to_ascii_lowercase().as_str(), "y" | "yes")
 }
 
-// ── Starting banners ──────────────────────────────────────────────────────────
-
 pub fn print_starting_installation() {
     println!("\n {G}Starting installation...{RST}\n");
     println!("{DIM}Downloading packages...{RST}");
@@ -236,12 +203,11 @@ pub fn print_starting_parallel_installation() {
     println!("\n {G}Starting parallel installation...{RST}\n");
 }
 
-pub fn print_downloading_single() {} // absorbed into starting_installation
+pub fn print_downloading_single() {}
 
 pub fn print_downloading_parallel() {
     println!(
         "{DIM}Downloading packages ({} in parallel)...{RST}\n",
-        // actual concurrency printed by caller
         3
     );
 }
@@ -250,12 +216,8 @@ pub fn print_downloading_parallel_n(n: usize) {
     println!("{DIM}Downloading packages ({n} in parallel)...{RST}\n");
 }
 
-// ── Download done ─────────────────────────────────────────────────────────────
-
-pub fn print_download_done_single(_size_mb: f64, _secs: f64) {} // summary shown at end
+pub fn print_download_done_single(_size_mb: f64, _secs: f64) {}
 pub fn print_download_done_parallel(_total_mb: f64, _secs: f64) {}
-
-// ── Install headers ───────────────────────────────────────────────────────────
 
 pub fn print_install_header_single() {
     println!();
@@ -265,11 +227,7 @@ pub fn print_install_header_parallel() {
     println!();
 }
 
-pub fn print_parallel_pkg_steps(_name: &str) {} // per-package bars handle this
-
-// ── Phase bars (called explicitly) ───────────────────────────────────────────
-
-// ── Already installed ─────────────────────────────────────────────────────────
+pub fn print_parallel_pkg_steps(_name: &str) {}
 
 pub fn print_reinstalling(name: &str, version: &str) {
     println!(" {B}→{RST} Reinstalling {P}{name}{RST} {version} (fresh download)");
@@ -287,8 +245,6 @@ pub fn print_already_installed(name: &str, version: &str) {
 pub fn print_upgrading(name: &str, from: &str, to: &str) {
     println!("  {B}↑{RST} {P}{name}{RST}  {DIM}{from}{RST} {G}→{RST} {G}{to}{RST}");
 }
-
-// ── Success blocks ─────────────────────────────────────────────────────────────
 
 pub fn print_success_single(
     display_name: &str,
@@ -310,7 +266,6 @@ pub fn print_success_single(
     );
     println!("  Time taken            : {B}{secs:.1} seconds{RST}");
 
-    // Installed locations
     let union = "/overlayer/zexlib/union";
     println!("\nInstalled locations:");
     println!("  {DIM}•{RST} {DIM}Binary            :{RST} {B}{union}/bin/{launch}{RST}");
@@ -360,8 +315,6 @@ pub fn print_success_partial(installed: &[String], skipped: &[String], total_mb:
     println!("\n{G}userland packages installation successful for available packages.{RST}\n");
 }
 
-// ── Dependency helpers ────────────────────────────────────────────────────────
-
 pub fn print_dependency_summary(count: usize, total_bytes: u64) {
     let mb = total_bytes as f64 / 1_000_000.0;
     println!(
@@ -379,7 +332,7 @@ pub fn print_dep_satisfied_by_syshub(name: &str) {
     );
 }
 
-/// Same message, but before any download is even attempted — used when
+/// Same message, but before any download is even attempted: used when
 /// dependency *resolution* (not the later file-conflict check) already
 /// knows `name` is satisfied by syshub, either auto-detected
 /// (`backend::is_in_syshub`) or explicitly hand-listed (`blocked.rs`,
@@ -389,8 +342,6 @@ pub fn print_dep_provided_by(name: &str, provider: &str) {
         "  {DIM}•{RST}  {P}{name}{RST} {DIM}already provided by the immutable base ({provider}) — skipped{RST}"
     );
 }
-
-// ── Error blocks ──────────────────────────────────────────────────────────────
 
 pub fn print_not_found(name: &str) {
     println!("\n {R}Error:{RST} Package {P}'{name}'{RST} not found in any repository.\n");
@@ -533,8 +484,6 @@ pub fn print_partial_infra_failures(failures: &[String]) {
     }
     println!("  {DIM}Continuing with packages that resolved successfully.{RST}\n");
 }
-
-// ── Other existing call-sites (keep signatures, update output) ────────────────
 
 pub fn print_root_required() {
     println!("\n {R}Error:{RST} Root privileges required.\n");
@@ -744,14 +693,10 @@ pub fn print_installed_locations(locations: &[(&str, &str)]) {
     println!();
 }
 
-// ── Internals ──────────────────────────────────────────────────────────────────
-
 fn flush() {
     use std::io::Write;
     std::io::stdout().flush().ok();
 }
-
-// ── render_ variants (used by tests in original) ──────────────────────────────
 
 pub fn render_dry_resolve_item(
     name: &str,
@@ -816,8 +761,6 @@ pub fn render_success_parallel(count: usize, total_mb: f64, secs: f64) -> String
     Time taken          : {secs:.1} seconds\n"
     )
 }
-
-// ── Tests (keep originals passing) ───────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {

@@ -1,7 +1,4 @@
-//! postmortem.rs — Pre-install evaluation engine.
-//!
-//! Evaluates an incoming package request against the TOML registry
-//! *before* any network or disk extraction happens.
+//! postmortem.rs: Pre-install evaluation engine.
 
 use anyhow::Result;
 
@@ -28,8 +25,6 @@ pub fn evaluate(name: &str, incoming_version: &str) -> Result<PostmortemVerdict>
                 existing_version: record.version,
             })
         } else {
-            // Any version difference is treated as an upgrade candidate.
-            // The resolver already picks the best available version from mirrors.
             Ok(PostmortemVerdict::Upgrade {
                 old_version: record.version,
             })

@@ -1,18 +1,4 @@
-//! Zainium package trust gate — Ed25519 verification for .zex archives.
-//!
-//! There is no fixed publisher signing key any more. `substrate pack`
-//! generates a fresh, never-persisted Ed25519 keypair on every single
-//! build and embeds the *verifying* key directly in the package's own
-//! `manifest.toml` (`package.ed25519_pubkey`). This module therefore no
-//! longer checks against an external trust anchor — it checks a package's
-//! signature against the pubkey the package itself carries.
-//!
-//! What this proves: the manifest + payload bytes are exactly what was
-//! signed at pack time (tamper-evidence). What it does NOT prove: that
-//! the package came from any particular known publisher — nothing durable
-//! ties a pubkey to an identity under this model. Reconciling that with a
-//! real publisher-trust layer is server-side work (see `zex-server`,
-//! handled separately).
+//! Zainium package trust gate: Ed25519 verification for .zex archives.
 
 use std::fs;
 use std::io::Read;
@@ -46,14 +32,14 @@ struct ParsedZexForVerify {
     manifest_raw: String,
     sig_b3: String,
     /// (archive path, bytes, symlink target). `target` is `Some(..)` for
-    /// symlink entries — `bytes` is always empty for those (tar carries no
+    /// symlink entries: `bytes` is always empty for those (tar carries no
     /// body for a symlink), matching Substrate's `core/verifier.rs` exactly.
     payload_files: Vec<(String, Vec<u8>, Option<String>)>,
 }
 
 /// Decompress + tar-walk a `.zex` archive, pulling out `manifest.toml`,
 /// `signature.b3`, and every `payload/` entry's bytes (sorted by path for
-/// deterministic hashing). Does not verify anything — call
+/// deterministic hashing). Does not verify anything: call
 /// [`verify_embedded`] on the result.
 fn parse_for_verification(data: Vec<u8>) -> Result<ParsedZexForVerify> {
     let dec = crate::zex_codec::decompress(&data).context("zexc decompress failed")?;
@@ -75,10 +61,6 @@ fn parse_for_verification(data: Vec<u8>) -> Result<ParsedZexForVerify> {
             bail!("SECURITY: path traversal in package: {path}");
         }
 
-        // Symlink entries carry no body in the tar — their contribution to
-        // the payload hash is the link TARGET string instead, exactly as
-        // `substrate pack`'s packer.rs computed it at sign time. Reading
-        // link_name() must happen before read_to_end() consumes the entry.
         let is_symlink = entry.header().entry_type().is_symlink();
         let link_target = if is_symlink {
             entry
@@ -153,7 +135,7 @@ fn verify_embedded(parsed: &ParsedZexForVerify, key: &VerifyingKey) -> Result<bo
         .as_deref()
         .unwrap_or_default();
     if computed_blake3 != expected_blake3 {
-        return Ok(false); // payload tampered
+        return Ok(false);
     }
 
     if let Some(ref sig_hex) = parsed.manifest.package.ed25519_sig {
@@ -161,7 +143,7 @@ fn verify_embedded(parsed: &ParsedZexForVerify, key: &VerifyingKey) -> Result<bo
         let sig = ed25519_dalek::Signature::from_slice(&sig_bytes)
             .context("parsing ed25519_sig bytes")?;
         if key.verify_strict(computed_blake3.as_bytes(), &sig).is_err() {
-            return Ok(false); // signature invalid
+            return Ok(false);
         }
     }
 
@@ -171,7 +153,7 @@ fn verify_embedded(parsed: &ParsedZexForVerify, key: &VerifyingKey) -> Result<bo
     let computed_sig_b3 = sig_hasher.finalize().to_hex().to_string();
 
     if computed_sig_b3 != parsed.sig_b3 {
-        return Ok(false); // manifest tampered after signing
+        return Ok(false);
     }
 
     Ok(true)
@@ -360,20 +342,20 @@ mod tests {
     #[test]
     fn tampered_payload_fails_blake3_check() {
         let (mut parsed, key) = build_valid();
-        parsed.payload_files[0].1.push(b'!'); // payload changed after signing
+        parsed.payload_files[0].1.push(b'!');
         assert!(!verify_embedded(&parsed, &key).unwrap());
     }
 
     #[test]
     fn tampered_manifest_fails_sig_b3_check() {
         let (mut parsed, key) = build_valid();
-        parsed.manifest_raw.push_str("\n# tampered\n"); // manifest bytes changed after signing
+        parsed.manifest_raw.push_str("\n# tampered\n");
         assert!(!verify_embedded(&parsed, &key).unwrap());
     }
 
     /// Builds a real tar+zexc `.zex` archive end-to-end (matching
     /// `substrate pack`'s own layout) and drives it through the public
-    /// `verify_zex_archive` entry point — proves the whole pipeline, not
+    /// `verify_zex_archive` entry point: proves the whole pipeline, not
     /// just the inner crypto check.
     fn write_real_archive(path: &std::path::Path, signed: bool) {
         let payload_files: Vec<(&str, &[u8])> = vec![("payload/bin/hello", b"hello world")];

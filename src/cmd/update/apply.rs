@@ -1,4 +1,4 @@
-//! apply.rs — Download and apply upgrades for userland and syshub.
+//! apply.rs: Download and apply upgrades for userland and syshub.
 
 use anyhow::{Context, Result};
 use futures_util::{StreamExt, stream};
@@ -25,11 +25,6 @@ pub async fn apply_uland(
 ) -> Result<u64> {
     let mut total_bytes = 0u64;
 
-    // Sliding-window concurrency (`buffer_unordered`), not fixed pairs —
-    // a fixed `chunks(2)` held both slots of a pair open until BOTH
-    // finished, so a package that finished early just sat at 100% instead
-    // of immediately picking up the next one while its chunk-mate kept
-    // streaming (same fix as cmd::upgrade::syscore/userland).
     let mut in_flight = stream::iter(upgrades.iter())
         .map(|pkg| {
             let label = format!("{:<22} → {}", pkg.name, pkg.new_ver);
@@ -48,25 +43,14 @@ pub async fn apply_uland(
         })
         .buffer_unordered(2);
 
-    // `buffer_unordered` completes futures in COMPLETION order, not
-    // submission order — each result carries its own package identity
-    // (name/new_ver) rather than being matched back up by position, unlike
-    // the old chunked loop where `chunk.iter().zip(handles)` could get
-    // away with positional pairing.
     while let Some((name, new_ver, zex_path, result)) = in_flight.next().await {
         if let Ok(bytes) = result {
             total_bytes += bytes;
-            // Ed25519 signature check — against the pubkey embedded in
-            // the package's own manifest.toml.
             crate::trust::verify_zex_archive(&zex_path, sig_mode)?;
-            // through the merged mount, so the update is visible right away
             let written = extract_into(
                 &zex_path,
                 &crate::archive_safety::live_path(Path::new(UNION_PATH)),
             )?;
-            // No separate staging root here (UNION_PATH is live), so this
-            // is the only "just written" window there is — same reasoning
-            // as cmd::upgrade::userland's identical extract_*_into fix.
             crate::cmd::install::elfpatch::patch_staged_elfs(&written)?;
             crate::cmd::install::pcpatch::patch_staged_pkgconfig(
                 &written,
@@ -91,13 +75,11 @@ pub async fn apply_syshub(
     syshub_path: &str,
     remote_manifest: &str,
 ) -> Result<u64> {
-    // staged outside zexlib; quantra-ramfs puts it into the base layer at the next boot
     let staging = crate::syshub_pending::begin()?;
 
     let mut total_bytes = 0u64;
     let mut staged_files: Vec<PathBuf> = Vec::new();
 
-    // Sliding-window concurrency — same fix as apply_uland above.
     let mut in_flight = stream::iter(upgrades.iter())
         .map(|pkg| {
             let label = format!("{:<22} → {}", pkg.name, pkg.new_ver);
@@ -117,9 +99,6 @@ pub async fn apply_syshub(
     while let Some((zex_path, result)) = in_flight.next().await {
         if let Ok(bytes) = result {
             total_bytes += bytes;
-            // Syshub core is always Strict, regardless of the userland
-            // `require_signatures` config — same invariant as
-            // `cmd::upgrade::syscore`.
             crate::trust::verify_zex_archive(
                 &zex_path,
                 crate::trust::SignatureVerificationMode::Strict,
@@ -128,10 +107,6 @@ pub async fn apply_syshub(
         }
     }
 
-    // Patch while still in `staging`, mutable, before the atomic overwrite
-    // below commits these files onto the live (and, once remounted ro at
-    // the end, immutable) syshub base — same timing constraint as
-    // `cmd::upgrade::syscore`'s identical staged elfpatch/pcpatch pass.
     crate::cmd::install::elfpatch::patch_staged_elfs(&staged_files)?;
     crate::cmd::install::pcpatch::patch_staged_pkgconfig(&staged_files, syshub_path)?;
     crate::cmd::install::shebangpatch::patch_staged_scripts(&staged_files)?;
@@ -147,15 +122,13 @@ pub async fn apply_syshub(
     Ok(total_bytes)
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
 /// Retries the whole download from byte 0 on failure (not a range-resume)
-/// — `cmd::install::downloader::download` already retries exactly this
+///: `cmd::install::downloader::download` already retries exactly this
 /// failure mode (3 retries, backoff); this `zex update` downloader never
 /// did, so a single mid-stream hiccup (confirmed live, repeatedly, in this
 /// environment) hard-failed the whole update instead of just costing a
 /// short delay. `overall`'s position may briefly over-count by a failed
-/// attempt's partial bytes on a retry — an acceptable trade-off against
+/// attempt's partial bytes on a retry: an acceptable trade-off against
 /// aborting outright.
 async fn download_with_bar(
     client: &reqwest::Client,
@@ -209,12 +182,12 @@ async fn download_once(
 ///
 /// Uses the same `archive_safety` sanitization every other extractor in
 /// this codebase does (`cmd::install::installer`, `local_install`,
-/// `extract`) — this one previously joined raw, unsanitized archive paths
+/// `extract`): this one previously joined raw, unsanitized archive paths
 /// and symlink targets directly onto `dest` with no `..`/absolute-path
 /// checks at all, a real path-traversal gap for a function that can write
 /// into the live syshub base or userland union tree.
 /// Returns the regular files it wrote (dirs/symlinks excluded) so callers
-/// can run `elfpatch`/`pcpatch` over them — this extractor previously
+/// can run `elfpatch`/`pcpatch` over them: this extractor previously
 /// never did either, unlike `installer.rs`/`local_install.rs`/
 /// `cmd::upgrade::userland`'s equivalents, so a package upgraded through
 /// `zex update` (as opposed to freshly installed via `zex install`) kept
@@ -285,14 +258,14 @@ fn extract_into(zex_path: &Path, dest: &Path) -> Result<Vec<PathBuf>> {
 /// Bumps a package's registered version after a successful update.
 ///
 /// Previously did its own raw-text "find the word 'version' and patch that
-/// line" surgery — the same fragile pattern already found and removed from
+/// line" surgery: the same fragile pattern already found and removed from
 /// `cmd::upgrade::userland` this session (it can corrupt an unrelated line
 /// if any other field name/string value happens to contain "version", and
 /// duplicates the master-index sync `registry::update_version` already
 /// does safely). `registry::update_version` preserves every other field
 /// (installed_files, dependencies, conflicts, etc.) and keeps
 /// `packages.toml` in sync as a side effect, so the old separate
-/// `update_packages_toml` raw-text patcher is gone too — redundant now.
+/// `update_packages_toml` raw-text patcher is gone too: redundant now.
 fn update_receipt(name: &str, new_ver: &str) -> Result<()> {
     if crate::cmd::install::registry::lookup(name).is_none() {
         return Ok(());

@@ -1,6 +1,4 @@
 //! elevate zex depends <package>
-//!
-//! Shows the full recursive dependency tree of a package.
 
 use anyhow::Result;
 use clap::Parser;
@@ -52,7 +50,7 @@ struct PkgEntry {
 
 /// Resolves a raw dependency token (possibly version-pinned, e.g.
 /// "xxd=9.2.0747-r0", or a virtual so:/cmd: capability) to the lowercase
-/// key it's actually stored under in `pkgmap` — a direct name match first,
+/// key it's actually stored under in `pkgmap`: a direct name match first,
 /// then a "provides" match, mirroring how the real resolver treats these
 /// same token conventions.
 fn resolve_key(
@@ -76,11 +74,9 @@ pub fn run(raw_args: Vec<String>) -> Result<()> {
     let cli = Cli::parse_from(&raw_args);
     let query = cli.package.to_ascii_lowercase();
 
-    // ── Build package map ─────────────────────────────────────────────────────
     let mut pkgmap: HashMap<String, PkgEntry> = HashMap::new();
     let mut syshub_set: HashSet<String> = HashSet::new();
 
-    // 1. Installed receipts
     if let Ok(dir) = fs::read_dir(INSTALLED_DIR) {
         for entry in dir.flatten() {
             let fname = entry.file_name().to_string_lossy().to_string();
@@ -90,11 +86,6 @@ pub fn run(raw_args: Vec<String>) -> Result<()> {
             let Ok(raw) = fs::read_to_string(entry.path()) else {
                 continue;
             };
-            // Matches the real registry::PkgRecord schema — the field is
-            // `dependencies`, not `depends` (that name belongs only to the
-            // separate T1 zex_ledger format parsed below), and there is no
-            // `description`/`libc_target`/`origin` on an installed receipt;
-            // `display_name`/`format` are the closest real equivalents.
             if let Ok(r) = toml::from_str::<crate::cmd::install::registry::PkgRecord>(&raw) {
                 pkgmap.insert(
                     r.name.to_ascii_lowercase(),
@@ -110,10 +101,6 @@ pub fn run(raw_args: Vec<String>) -> Result<()> {
         }
     }
 
-    // Index virtual so:/cmd: capabilities → the real package that
-    // provides them, so version-pinned or virtual dependency tokens
-    // (e.g. "xxd=9.2.0747-r0", "so:libncursesw.so.6") resolve to the
-    // actual installed package instead of always showing "not installed".
     let mut provides_index: HashMap<String, String> = HashMap::new();
     for (key, entry) in &pkgmap {
         for p in &entry.provides {
@@ -121,7 +108,6 @@ pub fn run(raw_args: Vec<String>) -> Result<()> {
         }
     }
 
-    // 2. Syshub manifest
     if let Ok(raw) = fs::read_to_string(SYSHUB_MANIFEST) {
         if let Ok(m) = toml::from_str::<SyshubManifest>(&raw) {
             for (name, val) in m.packages {
@@ -145,7 +131,6 @@ pub fn run(raw_args: Vec<String>) -> Result<()> {
         }
     }
 
-    // 3. Cached zex ledger
     for ledger_name in ["zex_ledger-x86_64.toml", "zex_ledger-aarch64.toml"] {
         let p = Path::new(LEDGER_CACHE).join(ledger_name);
         if !p.exists() {
@@ -164,11 +149,9 @@ pub fn run(raw_args: Vec<String>) -> Result<()> {
         }
     }
 
-    // ── Header ────────────────────────────────────────────────────────────────
     println!("\n {G}Zainium{RST} {DIM}|{RST} {G}Depends{RST} — Dependency Tree\n");
     println!(" {G}→{RST} {DIM}Package  :{RST} {P}{}{RST}", cli.package);
 
-    // ── Find root ─────────────────────────────────────────────────────────────
     let Some(root) = pkgmap.get(&query) else {
         println!(" {G}→{RST} {DIM}Status   :{RST} {R}Not found{RST}\n");
         println!(
@@ -224,7 +207,6 @@ pub fn run(raw_args: Vec<String>) -> Result<()> {
     println!(" {G}→{RST} {DIM}Mode     :{RST} {DIM}{mode}{RST}\n");
     println!("{G}Dependency tree:{RST}\n");
 
-    // ── Tree ──────────────────────────────────────────────────────────────────
     let mut visited = HashSet::new();
     let is_last_arr: Vec<bool> = Vec::new();
     print_tree(
@@ -239,7 +221,6 @@ pub fn run(raw_args: Vec<String>) -> Result<()> {
         true,
     );
 
-    // ── Summary ───────────────────────────────────────────────────────────────
     println!();
     let total_unique = visited.len();
     let syshub_count = visited.iter().filter(|n| syshub_set.contains(*n)).count();
@@ -254,9 +235,6 @@ pub fn run(raw_args: Vec<String>) -> Result<()> {
     if syshub_count > 0 {
         println!("  Syshub (protected)  : {Y}{syshub_count}{RST}");
     }
-    // `installed_count` and `syshub_count` can overlap in principle (a
-    // syshub-provided package the user also separately zex-installed), so
-    // don't just subtract both — subtract the union's size.
     let accounted = visited
         .iter()
         .filter(|n| {
@@ -285,7 +263,6 @@ fn print_tree(
 ) {
     let key = resolve_key(name, pkgmap, provides_index);
 
-    // Build tree prefix from parent is_last array
     let mut prefix = String::new();
     for (i, &last) in is_last_arr.iter().enumerate() {
         if i == is_last_arr.len() - 1 {
@@ -299,7 +276,6 @@ fn print_tree(
         }
     }
 
-    // Badges
     let in_syshub = syshub_set.contains(&key);
     let installed = Path::new(INSTALLED_DIR)
         .join(format!("{key}.toml"))
@@ -339,7 +315,6 @@ fn print_tree(
         return;
     }
 
-    // Mark visited before recursing to catch cycles
     visited.insert(key.clone());
 
     let Some(entry) = pkgmap.get(&key) else {

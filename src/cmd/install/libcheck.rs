@@ -1,11 +1,4 @@
 //! Shared-library completeness for installed packages.
-//!
-//! A package can install "successfully" and still not run: wget2 shipped
-//! `libwget.so.4.0.0` without the `libwget.so.4` link its binary loads, and its
-//! manifest listed none of gpgme, libassuan or libgpg-error. Every program and
-//! library a package installs is checked against what it links (ELF NEEDED):
-//! missing SONAME links inside the package are added, and libraries nothing
-//! provides are reported so the install can pull in the packages that do.
 
 use std::collections::HashSet;
 use std::io::Read;
@@ -102,8 +95,6 @@ pub fn missing_libraries(staged: &[PathBuf]) -> Vec<String> {
         if let Ok(Some(soname)) = elf.soname() {
             provided.insert(soname);
         }
-        // glibc programs and libraries load from glibc's own directory, which
-        // its package fills; the musl libraries packages provide can't serve them
         if super::elfpatch::is_glibc_elf(&elf) {
             continue;
         }
@@ -136,7 +127,6 @@ pub fn still_missing(sonames: &[String]) -> Vec<String> {
 pub fn provider_requests(soname: &str) -> Vec<String> {
     let base = soname.split(".so").next().unwrap_or(soname).to_lowercase();
     let stem = base.strip_prefix("lib").unwrap_or(&base).to_string();
-    // libpcre2-8 -> pcre2, libgtk-3 -> gtk
     let unversioned = match stem.rsplit_once('-') {
         Some((head, tail)) if !head.is_empty() && tail.chars().all(|c| c.is_ascii_digit()) => {
             head.to_string()
@@ -222,7 +212,6 @@ mod tests {
     #[test]
     fn soname_link_is_added_for_versioned_library() {
         let dir = tempfile::tempdir().unwrap();
-        // any shared object with a SONAME different from its file name works; use a system one
         let candidates = [
             "/usr/lib64/libz.so.1",
             "/usr/lib/libz.so.1",

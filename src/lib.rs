@@ -1,5 +1,4 @@
-//! lib.rs — Zex library exports.
-//! The cmd modules are exposed here for internal cross-module use.
+//! lib.rs: Zex library exports.
 
 pub mod aliases;
 pub mod archive_safety;
