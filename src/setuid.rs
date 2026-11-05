@@ -7,12 +7,20 @@ use std::path::Path;
 
 /// Paths relative to the syshub root.
 pub const HELPERS: &[&str] = &[
+    "bin/elev",
+    "bin/elevate",
     "bin/fusermount3",
     "bin/fusermount",
     "bin/pkexec",
     "lib/polkit-1/polkit-agent-helper-1",
     "lib/security/unix_chkpwd",
 ];
+
+/// The mode a staged base file must keep: extraction and staging drop setuid, and the base
+/// cannot be changed after quantra-ramfs applies the upgrade.
+pub fn staged_mode(rel: &str, mode: u32) -> u32 {
+    if HELPERS.contains(&rel) { 0o4755 } else { mode }
+}
 
 /// Makes the helper at `path` root-owned 4755; untouched when already right (no copy-up).
 pub fn restore(path: &Path) -> std::io::Result<bool> {
@@ -27,4 +35,16 @@ pub fn restore(path: &Path) -> std::io::Result<bool> {
     // chown clears setuid, so the mode goes last
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o4755))?;
     Ok(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::staged_mode;
+
+    #[test]
+    fn only_helpers_stay_setuid() {
+        assert_eq!(staged_mode("lib/security/unix_chkpwd", 0o755), 0o4755);
+        assert_eq!(staged_mode("bin/elevate", 0o755), 0o4755);
+        assert_eq!(staged_mode("bin/ls", 0o755), 0o755);
+    }
 }

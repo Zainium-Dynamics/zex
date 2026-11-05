@@ -111,6 +111,7 @@ pub fn commit(label: &str) -> Result<String> {
         } else if meta.is_dir() {
             lines.push_str(&format!("d\t{mode:o}\t{rel_s}\n"));
         } else if meta.is_file() {
+            let mode = crate::setuid::staged_mode(&rel_s, mode);
             lines.push_str(&format!("f\t{mode:o}\t{}\t{rel_s}\n", sha256_file(p)?));
         }
     }
