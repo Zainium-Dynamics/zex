@@ -1,4 +1,4 @@
-//! probers/zex.rs — Tier 1 Zainium native index search (TOML ledger).
+//! probers/zex.rs: Tier 1 Zainium native index search (TOML ledger).
 
 use anyhow::Result;
 use serde::Deserialize;
@@ -69,7 +69,6 @@ pub async fn probe_zex(
         }
     }
 
-    // Sort: exact name match first, then prefix match, then substring
     results.sort_by(|a, b| {
         let a_exact = a.name.to_ascii_lowercase() == q;
         let b_exact = b.name.to_ascii_lowercase() == q;

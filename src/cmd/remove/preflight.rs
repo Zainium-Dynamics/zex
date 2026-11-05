@@ -1,5 +1,4 @@
-//! preflight.rs — Pre-removal environment validation.
-//! Checks Zainium-specific conditions — no apt/flatpak/snap.
+//! preflight.rs: Pre-removal environment validation.
 
 use super::ui;
 

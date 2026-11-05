@@ -1,7 +1,4 @@
-//! inspect.rs — Package deep inspection for Zainium OS.
-//!
-//! Reads from installed receipts — not dpkg, not rpm, not pacman.
-//! Uses readelf to detect shared library deps from actual binaries.
+//! inspect.rs: Package deep inspection for Zainium OS.
 
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
@@ -25,14 +22,11 @@ struct SyshubManifest {
     packages: std::collections::HashMap<String, toml::Value>,
 }
 
-// ── Entry point ───────────────────────────────────────────────────────────────
 pub async fn run(name: &str) -> Result<()> {
     let key = name.to_ascii_lowercase();
 
-    // Try installed receipt first
     let receipt_path = Path::new(INSTALLED_DIR).join(format!("{key}.toml"));
 
-    // Also check syshub
     let syshub_entry = syshub_lookup(&key);
     let in_syshub = syshub_entry.is_some();
 
@@ -43,7 +37,6 @@ pub async fn run(name: &str) -> Result<()> {
         );
     }
 
-    // ── Header ────────────────────────────────────────────────────────────────
     println!("\n {G}{BLD}Zainium{RST}{G} | Package Inspection{RST}\n");
     println!(" {G}→{RST} {DIM}Inspecting:{RST} {P}{name}{RST}\n");
 
@@ -56,7 +49,6 @@ pub async fn run(name: &str) -> Result<()> {
     Ok(())
 }
 
-// ── Receipt-based inspection (userland packages) ──────────────────────────────
 async fn inspect_from_receipt(_name: &str, path: &Path) -> Result<()> {
     use crate::cmd::install::registry::{PkgRecord, derive_origin};
 
@@ -100,8 +92,6 @@ async fn inspect_from_receipt(_name: &str, path: &Path) -> Result<()> {
         );
     }
 
-    // Classify the flat installed_files list by actual on-disk type —
-    // the registry doesn't distinguish files/symlinks/dirs up front.
     let mut files: Vec<&String> = Vec::new();
     let mut symlinks: Vec<&String> = Vec::new();
     for f in &receipt.installed_files {
@@ -112,7 +102,6 @@ async fn inspect_from_receipt(_name: &str, path: &Path) -> Result<()> {
         }
     }
 
-    // ── Disk usage ────────────────────────────────────────────────────────────
     let total_size: u64 = files
         .iter()
         .map(|f| fs::metadata(f).map(|m| m.len()).unwrap_or(0))
@@ -127,7 +116,6 @@ async fn inspect_from_receipt(_name: &str, path: &Path) -> Result<()> {
         human_bytes(total_size)
     );
 
-    // ── Installed locations ───────────────────────────────────────────────────
     if !files.is_empty() {
         println!("\n{G}Installed Locations{RST}");
         for f in files.iter().take(12) {
@@ -143,7 +131,6 @@ async fn inspect_from_receipt(_name: &str, path: &Path) -> Result<()> {
         }
     }
 
-    // ── Symlinks ──────────────────────────────────────────────────────────────
     if !symlinks.is_empty() {
         println!("\n{G}Symlinks{RST}");
         for link in &symlinks {
@@ -158,7 +145,6 @@ async fn inspect_from_receipt(_name: &str, path: &Path) -> Result<()> {
         }
     }
 
-    // ── Dependencies / provides ────────────────────────────────────────────────
     if !receipt.dependencies.is_empty() {
         println!("\n{G}Dependencies{RST}");
         println!("  {DIM}{}{RST}", receipt.dependencies.join(", "));
@@ -168,7 +154,6 @@ async fn inspect_from_receipt(_name: &str, path: &Path) -> Result<()> {
         println!("  {DIM}{}{RST}", receipt.provides.join(", "));
     }
 
-    // ── Shared library deps (from binaries) ───────────────────────────────────
     let file_owned: Vec<String> = files.iter().map(|s| s.to_string()).collect();
     let libs = detect_shared_libs(&file_owned);
     if !libs.is_empty() {
@@ -179,7 +164,6 @@ async fn inspect_from_receipt(_name: &str, path: &Path) -> Result<()> {
         }
     }
 
-    // ── Integrity check ───────────────────────────────────────────────────────
     let missing: Vec<&String> = files
         .iter()
         .filter(|f| !Path::new(f).exists())
@@ -203,7 +187,6 @@ async fn inspect_from_receipt(_name: &str, path: &Path) -> Result<()> {
     Ok(())
 }
 
-// ── Syshub manifest entry inspection ─────────────────────────────────────────
 fn inspect_syshub_entry(name: &str, entry: &toml::Value) {
     println!("{G}Package Information{RST}");
     println!("  {DIM}Name         :{RST} {P}{name}{RST}");
@@ -238,7 +221,6 @@ fn inspect_syshub_entry(name: &str, entry: &toml::Value) {
     println!("  {DIM}Status       :{RST} {Y}syshub (protected){RST}");
     println!("  {DIM}Scope        :{RST} {Y}[syshub — immutable base]{RST}");
 
-    // Find files in syshub
     let syshub_files = find_syshub_files(name);
     if !syshub_files.is_empty() {
         println!("\n{G}Installed Locations  {DIM}(syshub){RST}");
@@ -252,8 +234,6 @@ fn inspect_syshub_entry(name: &str, entry: &toml::Value) {
     }
     println!();
 }
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn syshub_lookup(name: &str) -> Option<toml::Value> {
     let raw = fs::read_to_string(SYSHUB_MANIFEST).ok()?;
@@ -293,7 +273,6 @@ fn detect_shared_libs(files: &[String]) -> Vec<String> {
     let mut libs: HashSet<String> = HashSet::new();
     for f in files {
         let path = Path::new(f);
-        // Only check ELF files (binaries and .so)
         if !is_elf(path) {
             continue;
         }
@@ -324,7 +303,6 @@ fn is_elf(path: &Path) -> bool {
 }
 
 fn extract_needed(line: &str) -> Option<String> {
-    // Format: "  0x... (NEEDED) Shared library: [libfoo.so.1]"
     let start = line.find('[')? + 1;
     let end = line.find(']')?;
     Some(line[start..end].to_string())

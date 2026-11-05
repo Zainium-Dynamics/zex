@@ -1,4 +1,4 @@
-//! stats.rs — Removal timing/size stats.
+//! stats.rs: Removal timing/size stats.
 use std::time::Duration;
 
 pub struct RemoveStats {

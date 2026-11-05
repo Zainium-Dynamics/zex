@@ -1,9 +1,4 @@
-//! main.rs — Zex Rollback Engine.
-//!
-//! Usage:
-//!   elevate zex rollback tx-2026-05-29-1432          → userland rollback
-//!   elevate zex rollback syshub-tx-2026-05-28-0915   → syshub rollback
-//!   elevate zex rollback --list                      → show available transactions
+//! main.rs: Zex Rollback Engine.
 
 use clap::Parser;
 
@@ -31,7 +26,6 @@ struct Cli {
 pub fn run(raw_args: Vec<String>) {
     let cli = Cli::parse_from(&raw_args);
 
-    // Root check
     #[cfg(unix)]
     if unsafe { libc::geteuid() } != 0 {
         ui::print_error("Root privileges required. Run with: elevate zex rollback <TX_ID>");
@@ -62,7 +56,6 @@ pub fn run(raw_args: Vec<String>) {
         std::process::exit(1);
     };
 
-    // Dispatch by prefix
     if tx_id.starts_with("syshub-") {
         if let Err(e) = transaction::rollback_syshub(&tx_id) {
             ui::print_error(e.to_string().as_str());

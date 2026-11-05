@@ -1,4 +1,4 @@
-//! diff.rs — Compare installed vs remote for both userland and syshub.
+//! diff.rs: Compare installed vs remote for both userland and syshub.
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
@@ -6,7 +6,6 @@ use std::{collections::HashMap, fs};
 
 use super::vercmp::is_upgrade;
 
-// ── zex_services schema ───────────────────────────────────────────────────────
 #[derive(Debug, Deserialize)]
 pub struct ZexServices {
     #[serde(default)]
@@ -43,7 +42,6 @@ impl ZexServices {
     }
 }
 
-// ── Upgrade record ────────────────────────────────────────────────────────────
 #[derive(Debug, Clone)]
 pub struct UpgradePkg {
     pub name: String,
@@ -54,7 +52,6 @@ pub struct UpgradePkg {
     pub size_bytes: u64,
 }
 
-// ── Userland diff ─────────────────────────────────────────────────────────────
 pub async fn diff_userland(
     services: &ZexServices,
     client: &reqwest::Client,
@@ -81,7 +78,6 @@ pub async fn diff_userland(
     }
     let ledger: Ledger = toml::from_str(&raw)?;
 
-    // Read all installed receipts
     let mut installed: HashMap<String, String> = HashMap::new();
     if let Ok(dir) = fs::read_dir(installed_dir) {
         for entry in dir.flatten() {
@@ -131,7 +127,6 @@ pub async fn diff_userland(
     Ok(upgrades)
 }
 
-// ── Syshub diff ───────────────────────────────────────────────────────────────
 pub async fn diff_syshub(
     services: &ZexServices,
     client: &reqwest::Client,

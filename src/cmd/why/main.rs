@@ -1,7 +1,4 @@
 //! elevate zex why <package>
-//!
-//! Shows which installed packages depend on <package>.
-//! Reads all receipts from /overlayer/zexlib/registry/installed/.
 
 use anyhow::Result;
 use clap::Parser;
@@ -38,12 +35,10 @@ pub fn run(raw_args: Vec<String>) -> Result<()> {
     let cli = Cli::parse_from(&raw_args);
     let query = cli.package.to_ascii_lowercase();
 
-    // ── Header ────────────────────────────────────────────────────────────────
     println!("\n {G}Zainium{RST} {DIM}|{RST} {G}Why{RST} — Reverse Dependency Query\n");
     println!(" {G}→{RST} {DIM}Package  :{RST} {P}{}{RST}", cli.package);
 
-    // ── Load userland dependents ──────────────────────────────────────────────
-    let mut uland: Vec<(String, String, String)> = Vec::new(); // (name, ver, origin)
+    let mut uland: Vec<(String, String, String)> = Vec::new();
 
     if let Ok(dir) = fs::read_dir(INSTALLED_DIR) {
         for entry in dir.flatten() {
@@ -60,9 +55,6 @@ pub fn run(raw_args: Vec<String>) -> Result<()> {
             if r.name.to_ascii_lowercase() == query {
                 continue;
             }
-            // Dependency tokens can carry version constraints or be virtual
-            // so:/cmd: capabilities — normalize the same way the resolver
-            // does, matching how `install::depends` treats them.
             let matches = r.dependencies.iter().any(|d| {
                 crate::cmd::install::apk::strip_constraint(d).to_ascii_lowercase() == query
             });
@@ -76,8 +68,7 @@ pub fn run(raw_args: Vec<String>) -> Result<()> {
     }
     uland.sort_by(|a, b| a.0.cmp(&b.0));
 
-    // ── Load syshub dependents ────────────────────────────────────────────────
-    let mut syshub: Vec<(String, String)> = Vec::new(); // (name, ver)
+    let mut syshub: Vec<(String, String)> = Vec::new();
     if let Ok(raw) = fs::read_to_string(SYSHUB_MANIFEST) {
         if let Ok(m) = toml::from_str::<SyshubManifest>(&raw) {
             for (name, val) in &m.packages {
@@ -112,7 +103,6 @@ pub fn run(raw_args: Vec<String>) -> Result<()> {
     let total = uland.len() + syshub.len();
     println!(" {G}→{RST} {DIM}Dependents:{RST} {G}{total} found{RST}\n");
 
-    // ── Not found / not installed ─────────────────────────────────────────────
     let pkg_exists = Path::new(INSTALLED_DIR)
         .join(format!("{query}.toml"))
         .exists();
@@ -141,10 +131,8 @@ pub fn run(raw_args: Vec<String>) -> Result<()> {
         return Ok(());
     }
 
-    // ── Results header ────────────────────────────────────────────────────────
     println!("{G}Required by:{RST}\n");
 
-    // Userland block
     if !uland.is_empty() {
         println!("  {DIM}Userland  ({} packages){RST}", uland.len());
         for (name, ver, badge) in &uland {
@@ -159,7 +147,6 @@ pub fn run(raw_args: Vec<String>) -> Result<()> {
         println!("  {DIM}\u{2514}{RST}\n");
     }
 
-    // Syshub block
     if !syshub.is_empty() {
         println!(
             "  {Y}Syshub Core  ({} protected packages){RST}",
@@ -179,7 +166,6 @@ pub fn run(raw_args: Vec<String>) -> Result<()> {
         println!("  {DIM}\u{2514}{RST}\n");
     }
 
-    // ── Footer ────────────────────────────────────────────────────────────────
     if !syshub.is_empty() {
         println!(
             " {Y}\u{26a0}  Warning:{RST} {P}'{}'{RST} is a core system dependency.",

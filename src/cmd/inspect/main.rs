@@ -1,11 +1,4 @@
 //! elevate zex inspect <package>
-//!
-//! Deep inspection of an installed package:
-//!   • Version, status, libc target, origin tier
-//!   • All installed file locations (from receipt)
-//!   • Shared library dependencies (readelf -d)
-//!   • Symlinks created by this package
-//!   • Disk usage breakdown
 
 use clap::Parser;
 

@@ -1,22 +1,3 @@
-// zex/src/parallel.rs
-//
-// Multi-package removal path — themed to match the install driver.
-//
-// Visual spec (matches install driver):
-//
-// → Targets: vim, vlc, curl
-//
-// Starting removal...
-//   vim     → Scanning • Cleaning • Registry ............. ✓
-//   vlc     → Scanning • Cleaning • Registry ............. ✓
-//   curl    → Scanning • Cleaning • Registry ............. ✓
-//
-// Removal completed successfully ✓ (3 packages)
-//
-// Removal Summary:
-//    Packages removed : vim, vlc, curl
-//    Total space freed: ~0 MB
-
 use super::audit;
 use super::backend::{self, PackageBackend};
 use super::common::{PackageMeta, RunOpts, confirm_removal};
@@ -25,11 +6,7 @@ use futures::stream::{self, StreamExt};
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::sync::Arc;
 
-// ─── Constants ───────────────────────────────────────────────────────────────
-
 const STEP_WIDTH: usize = 52;
-
-// ─── Result of a single removal attempt ──────────────────────────────────────
 
 enum RemovalOutcome {
     Removed(PackageMeta, PackageBackend),
@@ -37,12 +14,9 @@ enum RemovalOutcome {
     DryRun(PackageMeta, PackageBackend),
 }
 
-// ─── Public API ──────────────────────────────────────────────────────────────
-
 pub async fn remove(names: &[String], opts: &RunOpts) {
     let count = names.len();
 
-    // ── Syshub Core Protection ───────────────────────────────────────────
     let mut valid_names = Vec::new();
     let mut blocked_names = Vec::new();
     for name in names {
@@ -73,14 +47,12 @@ pub async fn remove(names: &[String], opts: &RunOpts) {
         }
     }
 
-    // ── Opening line (matches install driver) ────────────────────────────
     let targets = valid_names.join(", ");
     println!(
         "\n{}",
         theme::line(&[(Tone::Green, "→ Targets: "), (Tone::Purple, &targets)])
     );
 
-    // ── Confirmation prompt ──────────────────────────────────────────────
     if !confirm_removal(&valid_names, opts) {
         println!(
             "\n{}",
@@ -91,19 +63,16 @@ pub async fn remove(names: &[String], opts: &RunOpts) {
     }
     println!();
 
-    // ── Dry-run preview ──────────────────────────────────────────────────
     if opts.dry_run {
         print_dry_run_table(&valid_names, opts).await;
         return;
     }
 
-    // ── Starting removal ─────────────────────────────────────────────────
     println!(
         "{}",
         theme::line(&[(Tone::Green, "Starting "), (Tone::Purple, "removal...")])
     );
 
-    // ── Progress bar (install driver style) ───────────────────────────────
     let mp = Arc::new(MultiProgress::new());
     let bar = mp.add(ProgressBar::new(count as u64));
     bar.set_style(
@@ -116,7 +85,6 @@ pub async fn remove(names: &[String], opts: &RunOpts) {
     let bar_clone = bar.clone();
     let opts_arc = Arc::new(opts.clone());
 
-    // buffer_unordered(5) – up to 5 parallel removals at once
     let outcomes: Vec<RemovalOutcome> = stream::iter(valid_names.to_owned())
         .map(|name| {
             let opts_ref = Arc::clone(&opts_arc);
@@ -134,7 +102,6 @@ pub async fn remove(names: &[String], opts: &RunOpts) {
     bar.finish_with_message("done");
     println!();
 
-    // ── Per-package visual output (after all removals complete) ───────────
     let mut removed: Vec<(PackageMeta, PackageBackend)> = Vec::new();
     let mut not_found: Vec<String> = Vec::new();
 
@@ -163,7 +130,6 @@ pub async fn remove(names: &[String], opts: &RunOpts) {
         }
     }
 
-    // ── Audit all successful removals ────────────────────────────────────
     for (meta, be) in &removed {
         audit::log_removal(
             &meta.display_name.to_lowercase(),
@@ -177,7 +143,6 @@ pub async fn remove(names: &[String], opts: &RunOpts) {
         super::stats::Stats::record_removal(meta.size_mb).await;
     }
 
-    // ── Summary ──────────────────────────────────────────────────────────
     if removed.is_empty() {
         println!(
             "\n{}",
@@ -222,15 +187,11 @@ pub async fn remove(names: &[String], opts: &RunOpts) {
     );
 }
 
-// ─── Remove a single package (parallel worker) ───────────────────────────────
-
 async fn remove_one_pkg(name: &str, opts: &RunOpts) -> RemovalOutcome {
-    // Backend probe
     let Some(pkg_backend) = backend::find_backend(name).await else {
         return RemovalOutcome::NotFound(name.to_string());
     };
 
-    // Metadata
     let meta = super::common::query_package(name).await.unwrap_or_else(|| {
         let display = capitalise(name);
         PackageMeta {
@@ -246,13 +207,10 @@ async fn remove_one_pkg(name: &str, opts: &RunOpts) -> RemovalOutcome {
         return RemovalOutcome::DryRun(meta, pkg_backend);
     }
 
-    // Execute removal via backend
     pkg_backend.execute_removal(name, opts.recursive).await;
 
     RemovalOutcome::Removed(meta, pkg_backend)
 }
-
-// ─── Per-package visual step output (matches install driver) ─────────────────
 
 fn print_pkg_steps(display_name: &str) {
     let steps = "Scanning • Cleaning • Registry";
@@ -267,8 +225,6 @@ fn print_pkg_steps(display_name: &str) {
         theme::paint(Tone::Green, "✓")
     );
 }
-
-// ─── Dry-run table ───────────────────────────────────────────────────────────
 
 async fn print_dry_run_table(names: &[String], _opts: &RunOpts) {
     println!(
@@ -339,8 +295,6 @@ async fn print_dry_run_table(names: &[String], _opts: &RunOpts) {
     );
     println!();
 }
-
-// ─── Helper ──────────────────────────────────────────────────────────────────
 
 fn capitalise(s: &str) -> String {
     let mut c = s.chars();

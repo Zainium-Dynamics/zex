@@ -1,4 +1,4 @@
-//! persist_cache.rs — File-backed backend detection cache.
+//! persist_cache.rs: File-backed backend detection cache.
 
 use std::collections::HashMap;
 use std::fs;

@@ -1,9 +1,4 @@
-//! refresh.rs — Fetch every tier's package index into the zex cache.
-//!
-//! One request per mirror in zex_services.toml (Zainium core and userland,
-//! Alpine, Void, Chimera), all at once. Each mirror prints OK with its size
-//! or the full error chain, so a stale TLS pin or broken DNS shows up here
-//! instead of as an empty search.
+//! refresh.rs: Fetch every tier's package index into the zex cache.
 
 use std::path::PathBuf;
 

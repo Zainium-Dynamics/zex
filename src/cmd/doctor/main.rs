@@ -1,8 +1,4 @@
-//! main.rs — CLI entry-point for the doctor driver.
-//!
-//! Usage:
-//!   elevate zex doctor            — full audit report
-//!   elevate zex doctor --fix      — audit + auto-repair
+//! main.rs: CLI entry-point for the doctor driver.
 
 use clap::Parser;
 
@@ -33,8 +29,6 @@ pub fn run(raw_args: Vec<String>) {
     }
 }
 
-// ── Audit mode ────────────────────────────────────────────────────────────────
-
 fn run_audit_mode() {
     ui::print_audit_header();
     ui::print_scanning("Loading system manifests");
@@ -51,7 +45,6 @@ fn run_audit_mode() {
 
     ui::print_audit_results_header();
 
-    // Dangling symlinks
     let sym_ok = result.dangling_symlinks.is_empty();
     let sym_detail = if sym_ok {
         "\u{2713} 0 detected".to_string()
@@ -60,7 +53,6 @@ fn run_audit_mode() {
     };
     ui::print_audit_row("Dangling Symlinks", sym_ok, &sym_detail);
 
-    // Broken receipts
     let rcpt_ok = result.broken_receipts.is_empty();
     let rcpt_detail = if rcpt_ok {
         "\u{2713} 0 detected".to_string()
@@ -69,7 +61,6 @@ fn run_audit_mode() {
     };
     ui::print_audit_row("Broken Receipts", rcpt_ok, &rcpt_detail);
 
-    // libc boundary
     let libc_ok = result.libc_violations.is_empty();
     let libc_detail = if libc_ok {
         "\u{2713} None".to_string()
@@ -81,7 +72,6 @@ fn run_audit_mode() {
     };
     ui::print_audit_row("libc Boundary Violations", libc_ok, &libc_detail);
 
-    // Syshub integrity
     let syshub_detail = if result.syshub_ok {
         format!(
             "\u{2713} Verified ({}/{} components clean)",
@@ -93,7 +83,6 @@ fn run_audit_mode() {
     };
     ui::print_audit_row("Syshub Integrity", result.syshub_ok, &syshub_detail);
 
-    // musl sysroot check (x86_64-zainium-linux-musl)
     let musl_ok = result.missing_musl_files.is_empty();
     let musl_det = if musl_ok {
         format!("✓ libc.so + ld-musl-x86_64.so.1 + libgcc_s + gcc")
@@ -102,7 +91,6 @@ fn run_audit_mode() {
     };
     ui::print_audit_row("musl (x86_64-zainium-linux-musl)", musl_ok, &musl_det);
 
-    // glibc, when installed (x86_64-zainium-linux-gnu)
     let glibc_ok = result.missing_glibc_files.is_empty();
     let glibc_det = if !std::path::Path::new(super::layout::GLIBC_DIR).exists() {
         "not installed".to_string()
@@ -113,7 +101,6 @@ fn run_audit_mode() {
     };
     ui::print_audit_row("glibc (x86_64-zainium-linux-gnu)", glibc_ok, &glibc_det);
 
-    // Orphaned packages
     let orp_ok = result.orphaned_packages.is_empty();
     let orp_detail = if orp_ok {
         "\u{2713} 0 detected".to_string()
@@ -122,7 +109,6 @@ fn run_audit_mode() {
     };
     ui::print_audit_row("Orphaned Packages", orp_ok, &orp_detail);
 
-    // Orphaned libs
     let lib_ok = result.orphaned_libs.is_empty();
     let lib_detail = if lib_ok {
         "\u{2713} 0 detected".to_string()
@@ -131,7 +117,6 @@ fn run_audit_mode() {
     };
     ui::print_audit_row("Orphaned Libraries", lib_ok, &lib_detail);
 
-    // Dependency satisfaction
     let dep_ok = result.unsatisfied_deps.is_empty();
     let dep_detail = if dep_ok {
         "\u{2713} 100% Satisfied".to_string()
@@ -140,7 +125,6 @@ fn run_audit_mode() {
     };
     ui::print_audit_row("Dependency Integrity", dep_ok, &dep_detail);
 
-    // Summary
     ui::print_audit_summary(
         result.registry_ok(),
         result.deps_ok(),
@@ -154,8 +138,6 @@ fn run_audit_mode() {
         ui::print_audit_fail();
     }
 }
-
-// ── Fix mode ──────────────────────────────────────────────────────────────────
 
 fn run_fix_mode() {
     ui::print_fix_header();

@@ -1,6 +1,4 @@
-//! probers/adb.rs — Chimera Linux search via apk-tools v3's binary "ADB"
-//! database format (`Packages.adb`). See `cmd::install::adb` for the
-//! format decoder itself — this just runs it against a search query.
+//! probers/adb.rs: Chimera Linux search via apk-tools v3's binary "ADB"
 
 use anyhow::Result;
 

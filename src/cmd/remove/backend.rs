@@ -1,16 +1,6 @@
-// zex/src/backend.rs
-//
-// Improvement #9 – Package Search Before Removal
-// ───────────────────────────────────────────────
-// Detects which package manager owns the named package (apt, flatpak, snap)
-// and returns the appropriate removal command.  This prevents running the
-// wrong tool and allows zex to work across all three backends transparently.
-
 use super::stats;
 use std::process::Stdio;
 use tokio::process::Command;
-
-// ─── Public types ─────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum PackageBackend {
@@ -34,7 +24,7 @@ impl PackageBackend {
 
     /// Build the removal shell command string (used by the visual StepRunner).
     ///
-    /// **Package names are validated before this is called** — see
+    /// **Package names are validated before this is called**: see
     /// `validate_package_name()` in `daemon.rs` and the CLI clap validation.
     /// The resulting string is executed via `sh -c` only inside StepRunner which
     /// is the UI layer; headless / daemon paths use `execute_removal` instead.
@@ -42,7 +32,6 @@ impl PackageBackend {
     pub fn remove_cmd(&self, name: &str, recursive: bool) -> String {
         match self {
             Self::ZexStore => {
-                // ZexStore removal is handled entirely in Rust
                 format!("echo 'ZexStore removal for {} handled internally'", name)
             }
             Self::Apt => {
@@ -69,11 +58,9 @@ impl PackageBackend {
     pub async fn execute_removal(&self, name: &str, recursive: bool) -> bool {
         match self {
             Self::ZexStore => {
-                // Remove Zex-installed package: clean symlinks, union hardlinks, store, DB
                 zex_store_removal(name).await
             }
             Self::Apt => {
-                // Step 1: remove
                 let mut remove_args = vec!["remove", "-y"];
                 if recursive {
                     remove_args.push("--auto-remove");
@@ -81,10 +68,8 @@ impl PackageBackend {
                 remove_args.push(name);
                 let ok1 = run_cmd("apt-get", &remove_args).await;
 
-                // Step 2: purge (best-effort)
                 let _ = run_cmd("apt-get", &["purge", "-y", name]).await;
 
-                // Step 3: autoremove (best-effort)
                 if recursive {
                     let _ = run_cmd("apt-get", &["autoremove", "-y"]).await;
                 }
@@ -105,13 +90,11 @@ async fn zex_store_removal(name: &str) -> bool {
 
     let registry_dir = std::path::Path::new("/overlayer/zexlib/registry");
 
-    // 1. Find and parse the TOML registry entry
     let (reg_path, content_hash) = match find_registry_toml(name) {
         Some(v) => v,
         None => return false,
     };
 
-    // 2. Walk store dir and remove system symlinks + union hardlinks
     let store_path = PathBuf::from(format!("/overlayer/zexlib/store/{}", content_hash));
     let union_path = PathBuf::from("/overlayer/zexlib/union");
 
@@ -122,7 +105,6 @@ async fn zex_store_removal(name: &str) -> bool {
         {
             if entry.file_type().is_file() || entry.file_type().is_symlink() {
                 if let Ok(rel) = entry.path().strip_prefix(&store_path) {
-                    // Remove system symlink
                     let system_path = std::path::Path::new("/").join(rel);
                     if system_path
                         .symlink_metadata()
@@ -131,7 +113,6 @@ async fn zex_store_removal(name: &str) -> bool {
                     {
                         let _ = std::fs::remove_file(&system_path);
                     }
-                    // Remove union hardlink
                     let union_file = crate::archive_safety::live_path(&union_path.join(rel));
                     if union_file.exists() || union_file.symlink_metadata().is_ok() {
                         let _ = crate::immutable::try_clear_immutable(&union_file);
@@ -142,20 +123,16 @@ async fn zex_store_removal(name: &str) -> bool {
         }
     }
 
-    // 3. Delete TOML registry entry
     let _ = std::fs::remove_file(&reg_path);
 
-    // 4. Remount OverlayFS (drop removed package from lower layers)
     let overlay = crate::cmd::install::union::UnionLayer::new();
     let _ = overlay.sync_fstab();
     let _ = overlay.apply_live_mounts();
 
-    // 5. Trigger GC — scan remaining TOML files for active hashes
     let mut active_refs = HashSet::new();
     if let Ok(entries) = std::fs::read_dir(registry_dir) {
         for dir_entry in entries.flatten() {
             if let Ok(content) = std::fs::read_to_string(dir_entry.path()) {
-                // Quick parse: extract content_hash from TOML
                 for line in content.lines() {
                     if let Some(hash) = line.strip_prefix("content_hash = \"") {
                         if let Some(hash) = hash.strip_suffix('"') {
@@ -185,12 +162,9 @@ async fn run_cmd(program: &str, args: &[&str]) -> bool {
     }
 }
 
-// ─── Detection ───────────────────────────────────────────────────────────────
-
 /// Probe each backend in priority order (zex-store → apt → flatpak → snap).
 /// Returns the first backend that recognises the package, or `None`.
 pub async fn find_backend(name: &str) -> Option<PackageBackend> {
-    // Try persistent cache first
     if let Ok(Some(cached)) = super::persist_cache::PersistCache::get(name) {
         stats::Stats::record_cache_hit().await;
         return Some(cached);
@@ -198,7 +172,6 @@ pub async fn find_backend(name: &str) -> Option<PackageBackend> {
 
     stats::Stats::record_cache_miss().await;
 
-    // Check Zex's own Content Store first (highest priority)
     let result = if zex_store_has(name) {
         Some(PackageBackend::ZexStore)
     } else if apt_has(name).await {
@@ -211,7 +184,6 @@ pub async fn find_backend(name: &str) -> Option<PackageBackend> {
         None
     };
 
-    // Store in persistent cache for future calls
     if let Some(ref be) = result {
         let _ = super::persist_cache::PersistCache::set(name, be.clone());
     }
@@ -225,7 +197,6 @@ fn find_registry_toml(name: &str) -> Option<(std::path::PathBuf, String)> {
         return None;
     }
 
-    // Try exact match
     let exact = registry_dir.join(format!("{}.toml", name));
     if exact.exists() {
         if let Some(hash) = extract_content_hash(&exact) {
@@ -233,7 +204,6 @@ fn find_registry_toml(name: &str) -> Option<(std::path::PathBuf, String)> {
         }
     }
 
-    // Case-insensitive scan
     if let Ok(entries) = std::fs::read_dir(registry_dir) {
         for dir_entry in entries.flatten() {
             let fname = dir_entry.file_name().to_string_lossy().to_string();
@@ -269,8 +239,6 @@ fn zex_store_has(name: &str) -> bool {
     find_registry_toml(name).is_some()
 }
 
-// ─── Per-backend probes ───────────────────────────────────────────────────────
-
 /// `true` when dpkg-query reports the package as installed.
 async fn apt_has(name: &str) -> bool {
     match Command::new("dpkg-query")
@@ -290,7 +258,6 @@ async fn apt_has(name: &str) -> bool {
 
 /// `true` when `flatpak list` contains the application name.
 async fn flatpak_has(name: &str) -> bool {
-    // Only probe if flatpak is available on this system.
     let available = Command::new("which")
         .arg("flatpak")
         .stdout(Stdio::null())

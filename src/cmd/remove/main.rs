@@ -1,9 +1,4 @@
-//! main.rs — CLI entry-point for the `remove` Zex driver.
-//!
-//! Usage:
-//!   elevate zex remove vim
-//!   elevate zex remove vim nano htop
-//!   elevate zex remove vim --dry-run
+//! main.rs: CLI entry-point for the `remove` Zex driver.
 
 use clap::Parser;
 
@@ -35,7 +30,6 @@ struct Cli {
 pub async fn run(raw_args: Vec<String>) {
     let cli = Cli::parse_from(&raw_args);
 
-    // Preflight checks
     let pre = preflight::validate();
     if !pre.is_ok() {
         pre.report_fatal();

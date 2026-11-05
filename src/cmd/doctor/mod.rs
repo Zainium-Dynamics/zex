@@ -1,4 +1,3 @@
-// cmd/doctor/mod.rs — re-exports the doctor driver entry point
 pub mod audit;
 pub mod fix;
 pub mod layout;

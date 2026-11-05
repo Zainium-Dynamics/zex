@@ -1,4 +1,4 @@
-//! audit.rs — Removal audit log.
+//! audit.rs: Removal audit log.
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::{fs, path::Path};

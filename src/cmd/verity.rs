@@ -1,13 +1,4 @@
-//! verity.rs — `elevate zex verity`: fs-verity for the userland, by the user's choice.
-//!
-//! quantra-ramfs seals the base and zaisys at every boot. The userland (union) is sealed
-//! only when the user turns it on: a sealed file can be replaced but never written, and
-//! some software updates its own files in place.
-//!
-//!   elevate zex verity                 is the userland sealed?
-//!   elevate zex verity --union on      seal it now, and at every boot from now on
-//!   elevate zex verity --union off     stop sealing it at boot (sealed files stay sealed
-//!                                      until an upgrade or reinstall replaces them)
+//! verity.rs: `elevate zex verity`: fs-verity for the userland, by the user's choice.
 
 use anyhow::{Context, Result, bail};
 use std::fs;

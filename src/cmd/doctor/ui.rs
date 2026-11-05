@@ -1,4 +1,4 @@
-//! ui.rs — Terminal UI for doctor driver. Same palette as all other drivers.
+//! ui.rs: Terminal UI for doctor driver. Same palette as all other drivers.
 
 pub const G: &str = "\x1b[92m";
 pub const P: &str = "\x1b[95m";
@@ -11,7 +11,6 @@ pub const RST: &str = "\x1b[0m";
 
 const BAR_W: usize = 22;
 
-// ── Animated step bar (shared with install/upgrade/remove) ───────────────────
 pub fn print_step(label: &str) {
     crate::steps::start_bar(
         &format!("{G}• {label}{RST}"),
@@ -21,7 +20,6 @@ pub fn print_step(label: &str) {
     );
 }
 
-// ── Headers ───────────────────────────────────────────────────────────────────
 pub fn print_audit_header() {
     println!("\n {G}{BLD}Zex Doctor{RST}{G} — System Health & Dependency Audit Engine{RST}\n");
 }
@@ -34,7 +32,6 @@ pub fn print_scanning(msg: &str) {
     println!(" {G}→{RST} {msg}...");
 }
 
-// ── Audit result row ──────────────────────────────────────────────────────────
 pub fn print_audit_row(label: &str, ok: bool, detail: &str) {
     let (mark, _col) = if ok {
         (format!("{G}\u{2713}{RST}"), G)
@@ -58,7 +55,6 @@ pub fn print_repair_results_header() {
     println!("\n{G}Repair Operations:{RST}\n");
 }
 
-// ── Audit summary table ───────────────────────────────────────────────────────
 pub fn print_audit_summary(registry_ok: bool, deps_ok: bool, fs_ok: bool, syshub_ok: bool) {
     println!("\n {G}Audit Summary{RST}");
     let tick = |ok: bool| {
@@ -101,7 +97,6 @@ pub fn print_audit_fail() {
     println!("  {DIM}•{RST} Manual cleanup recommended for orphaned libraries\n");
 }
 
-// ── Fix / repair ──────────────────────────────────────────────────────────────
 pub fn print_fix_healthy() {
     println!(" {G}→{RST} Starting automatic repair...");
     println!(" {G}→{RST} Scanning for issues...\n");

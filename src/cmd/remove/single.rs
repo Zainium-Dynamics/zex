@@ -1,10 +1,4 @@
-//! single.rs — Core remove logic for one or more packages.
-//!
-//! Reads the receipt from /overlayer/zexlib/registry/installed/<name>.toml
-//! written by the install driver's `PkgRecord` registry (registry.rs) —
-//! the same flat schema used for every format (zex/apk/xbps). Deletes
-//! exactly the files listed in `installed_files` — no glob scanning, no
-//! guessing. Calls ui.rs for all output — zero println! here.
+//! single.rs: Core remove logic for one or more packages.
 
 use anyhow::Result;
 use serde::Deserialize;
@@ -12,11 +6,9 @@ use std::{fs, path::Path, time::Instant};
 
 use super::ui;
 
-// ── Paths ──────────────────────────────────────────────────────────────────────
 const INSTALLED_DIR: &str = "/overlayer/zexlib/registry/installed";
 const SYSHUB_MANIFEST: &str = "/overlayer/syshub/engine/services/syshub.toml";
 
-// ── Receipt schema (matches PkgRecord written by cmd::install::registry) ─────
 #[derive(Debug, Deserialize)]
 struct Receipt {
     name: String,
@@ -31,29 +23,23 @@ struct Receipt {
     installed_files: Vec<String>,
 }
 
-// ── Syshub manifest schema (to check protected packages) ─────────────────────
 #[derive(Debug, Deserialize)]
 struct SyshubManifest {
     packages: std::collections::HashMap<String, toml::Value>,
 }
 
-// ── Public API ────────────────────────────────────────────────────────────────
-
 pub async fn remove_packages(names: &[String], dry_run: bool) -> Result<()> {
     let started = Instant::now();
 
-    // ── Determine scope label ─────────────────────────────────────────────────
     let scope = "Userland";
     let scope_path = "/overlayer/zexlib/union";
 
-    // ── Header ───────────────────────────────────────────────────────────────
     if names.len() == 1 {
         ui::print_single_header(&names[0], scope);
     } else {
         ui::print_multi_header(names, scope);
     }
 
-    // ── Check each package ────────────────────────────────────────────────────
     let mut not_found: Vec<&str> = Vec::new();
     let mut syshub_blocked: Vec<&str> = Vec::new();
     let mut to_remove: Vec<Receipt> = Vec::new();
@@ -61,7 +47,6 @@ pub async fn remove_packages(names: &[String], dry_run: bool) -> Result<()> {
     let syshub_pkgs = load_syshub_packages();
 
     for name in names {
-        // Syshub protection check
         if syshub_pkgs.contains(name.as_str()) {
             if names.len() == 1 {
                 ui::print_syshub_protected(name);
@@ -83,12 +68,10 @@ pub async fn remove_packages(names: &[String], dry_run: bool) -> Result<()> {
         }
     }
 
-    // Handle syshub blocks in multi-remove
     for name in &syshub_blocked {
         ui::print_syshub_protected(name);
     }
 
-    // Handle partial not-found in multi-remove
     if !not_found.is_empty() {
         let removing: Vec<&str> = to_remove.iter().map(|r| r.name.as_str()).collect();
         ui::print_partial_not_installed(&not_found, &removing);
@@ -97,12 +80,6 @@ pub async fn remove_packages(names: &[String], dry_run: bool) -> Result<()> {
         }
     }
 
-    // ── Compute orphaned dependencies (cascading) ─────────────────────────────
-    //
-    // Removing a package may leave its own now-unreferenced deps orphaned,
-    // and removing *those* may orphan a further layer (e.g. removing curl
-    // orphans libcurl; removing libcurl may then orphan libssl if nothing
-    // else needs it either) — iterate to a fixed point.
     let mut excluded_names: Vec<String> = to_remove.iter().map(|r| r.name.clone()).collect();
     let mut frontier_deps: Vec<String> = to_remove
         .iter()
@@ -124,7 +101,6 @@ pub async fn remove_packages(names: &[String], dry_run: bool) -> Result<()> {
         }
     }
 
-    // ── Packages that still need what the user removes: warn, the removal itself goes ahead ─
     let removing: Vec<String> = to_remove.iter().map(|r| r.name.clone()).collect();
     let others = load_all_receipts_except(&removing);
     for r in &to_remove {
@@ -139,7 +115,6 @@ pub async fn remove_packages(names: &[String], dry_run: bool) -> Result<()> {
         }
     }
 
-    // ── Dependencies nothing else uses: only removed if the user says yes ─────
     if !orphans.is_empty() && !dry_run {
         let names: Vec<&str> = orphans.iter().map(|o| o.name.as_str()).collect();
         if !ui::confirm_remove_unused_deps(&names) {
@@ -147,7 +122,6 @@ pub async fn remove_packages(names: &[String], dry_run: bool) -> Result<()> {
         }
     }
 
-    // ── Dry run ───────────────────────────────────────────────────────────────
     if dry_run {
         let name_refs: Vec<&str> = to_remove.iter().map(|r| r.name.as_str()).collect();
         let total_mb = estimate_freed_mb(&to_remove) + estimate_freed_mb(&orphans);
@@ -155,11 +129,9 @@ pub async fn remove_packages(names: &[String], dry_run: bool) -> Result<()> {
         return Ok(());
     }
 
-    // ── Resolve reverse deps ──────────────────────────────────────────────────
     ui::print_resolving_reverse_deps();
     ui::print_preparing_removal(scope_path);
 
-    // ── Package list ──────────────────────────────────────────────────────────
     ui::print_removing_list_header();
     for r in &to_remove {
         ui::print_removing_item(&r.name, Some(&r.version));
@@ -169,7 +141,6 @@ pub async fn remove_packages(names: &[String], dry_run: bool) -> Result<()> {
     }
     println!();
 
-    // ── Remove files ──────────────────────────────────────────────────────────
     let freed_bytes: u64 = to_remove
         .iter()
         .chain(orphans.iter())
@@ -184,7 +155,6 @@ pub async fn remove_packages(names: &[String], dry_run: bool) -> Result<()> {
     }
     ui::print_arrow_phase(&format!("Removing files from {scope_path}..."));
 
-    // ── Phase bars ────────────────────────────────────────────────────────────
     let has_desktop = to_remove.iter().any(|r| {
         r.display_name.to_ascii_lowercase().contains("browser")
             || r.display_name.to_ascii_lowercase().contains("desktop")
@@ -205,16 +175,9 @@ pub async fn remove_packages(names: &[String], dry_run: bool) -> Result<()> {
     crate::triggers::flush();
     crate::steps::finish();
 
-    // ── Clean orphaned deps ───────────────────────────────────────────────────
-    //
-    // The progress bar below used to be purely cosmetic — no orphan was
-    // ever actually deleted, only shown in the list above. `orphans` (built
-    // before the dry-run check) now really does get removed alongside
-    // `to_remove` in the deletion loop that follows.
     ui::print_arrow_phase("Cleaning orphaned dependencies...");
     ui::print_remove_step("Cleaning orphaned dependencies");
 
-    // ── Delete receipts ───────────────────────────────────────────────────────
     let mut removed_count = 0usize;
 
     for r in to_remove.iter().chain(orphans.iter()) {
@@ -249,14 +212,7 @@ pub async fn remove_packages(names: &[String], dry_run: bool) -> Result<()> {
     Ok(())
 }
 
-// ── File deletion ─────────────────────────────────────────────────────────────
-
 fn delete_receipt_files(installed_files: &[String]) {
-    // The flat registry schema doesn't discriminate files/symlinks/dirs up
-    // front, so classify each path by its actual on-disk type. Files and
-    // symlinks can go immediately (remove_file doesn't follow symlinks);
-    // directories are deferred and removed deepest-first, once empty.
-    // removed through the merged mount so the overlay drops them at once
     crate::triggers::note(installed_files);
     let mut dirs = Vec::new();
     for path in installed_files {
@@ -267,16 +223,14 @@ fn delete_receipt_files(installed_files: &[String]) {
                 let _ = crate::immutable::try_clear_immutable(&live);
                 let _ = fs::remove_file(&live);
             }
-            Err(_) => {} // already gone
+            Err(_) => {}
         }
     }
-    dirs.sort_by(|a, b| b.len().cmp(&a.len())); // deepest first
+    dirs.sort_by(|a, b| b.len().cmp(&a.len()));
     for dir in &dirs {
-        let _ = fs::remove_dir(dir); // fails silently if non-empty
+        let _ = fs::remove_dir(dir);
     }
 }
-
-// ── Receipt loader ────────────────────────────────────────────────────────────
 
 fn load_receipt(name: &str) -> Option<Receipt> {
     let path = Path::new(INSTALLED_DIR).join(format!("{name}.toml"));
@@ -286,8 +240,6 @@ fn load_receipt(name: &str) -> Option<Receipt> {
     let text = fs::read_to_string(&path).ok()?;
     toml::from_str(&text).ok()
 }
-
-// ── Syshub package set ────────────────────────────────────────────────────────
 
 fn load_syshub_packages() -> std::collections::HashSet<String> {
     let mut set = std::collections::HashSet::new();
@@ -305,25 +257,9 @@ fn load_syshub_packages() -> std::collections::HashSet<String> {
     set
 }
 
-// ── packages.toml registry update ────────────────────────────────────────────
-
 fn remove_from_packages_toml(name: &str) {
     let _ = crate::cmd::install::registry::remove_from_master_index(name);
 }
-
-// ── Orphan detection ──────────────────────────────────────────────────────────
-//
-// A package's own `dependencies` field stores raw tokens exactly as its
-// source repo declared them — a mix of plain "pkgname=version" and virtual
-// "so:soname" capability tokens (confirmed against real receipts, e.g.
-// curl's `dependencies = ["libcurl=8.21.0-r0", "so:libc.musl-x86_64.so.1",
-// "so:libcurl.so.4", "so:libz.so.1"]`). Matching a token back to the real
-// installed package that satisfies it means checking both the package's
-// plain name *and* its own `provides` list (populated from the source
-// repo's real "p:" metadata — see `apk::find_record` for the same
-// two-step match used at resolve time; this is the local-registry
-// equivalent, since that function is private to a different module and
-// operates on repo-index records, not installed receipts).
 
 #[derive(Deserialize, Default, Clone)]
 struct MinReceipt {
@@ -370,7 +306,7 @@ fn load_all_receipts_except(excluding: &[String]) -> std::collections::HashMap<S
 
 /// Find installed packages that satisfy one of `target_deps` (the
 /// package(s) being removed own forward-dependency tokens) and that
-/// nothing else still installed depends on — true orphans, safe to also
+/// nothing else still installed depends on: true orphans, safe to also
 /// remove. `excluding` is every package already being removed in this
 /// operation (so a batch remove doesn't count members of its own batch as
 /// "still depending on" each other).
@@ -404,8 +340,6 @@ fn collect_safe_orphans(target_deps: &[String], excluding: &[String]) -> Vec<Str
         })
         .collect()
 }
-
-// ── Size estimator ────────────────────────────────────────────────────────────
 
 fn estimate_freed_mb(receipts: &[Receipt]) -> f64 {
     let bytes: u64 = receipts

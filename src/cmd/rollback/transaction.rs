@@ -1,18 +1,4 @@
-//! transaction.rs — Rollback logic for userland and syshub transactions.
-//!
-//! Transaction record layout (written by install/upgrade/remove drivers):
-//!
-//!   /overlayer/zexlib/transactions/<tx_id>/
-//!       state.toml          ← metadata (id, timestamp, operation, target, backup_archive)
-//!       packages.toml       ← snapshot of /overlayer/zexlib/registry/packages.toml at tx time
-//!       <pkg>.toml          ← snapshot of installed/<pkg>.toml (if package existed before)
-//!       backup.tar.zst      ← tar.zst of files that existed before (for upgrade/remove)
-//!
-//!   Syshub tx layout:
-//!   /overlayer/zexlib/transactions/<syshub-tx_id>/
-//!       state.toml          ← same schema, operation = "upgrade-syshub"
-//!       syshub.toml         ← snapshot of /overlayer/syshub/engine/services/syshub.toml
-//!       syshub-backup.tar.zst ← tar of overwritten syshub files
+//! transaction.rs: Rollback logic for userland and syshub transactions.
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -30,22 +16,19 @@ const PACKAGES_TOML: &str = "/overlayer/zexlib/registry/packages.toml";
 const INSTALLED_DIR: &str = "/overlayer/zexlib/registry/installed";
 const UNION_PATH: &str = "/overlayer/zexlib/union";
 
-// ── Transaction state schema ──────────────────────────────────────────────────
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TransactionState {
     pub transaction_id: String,
     pub timestamp: String,
-    pub operation: String, // "install" | "remove" | "upgrade" | "upgrade-syshub"
-    pub target_package: String, // package name or "syshub"
+    pub operation: String,
+    pub target_package: String,
     #[serde(default)]
-    pub backup_archive: String, // filename of .tar.zst (empty for pure-install tx)
+    pub backup_archive: String,
     #[serde(default)]
-    pub version: String, // version at tx time
+    pub version: String,
     #[serde(default)]
-    pub packages: Vec<String>, // all packages involved (main + deps)
+    pub packages: Vec<String>,
 }
-
-// ── Public API ────────────────────────────────────────────────────────────────
 
 /// List all transactions sorted by timestamp (newest first).
 pub fn list_transactions() -> Vec<TransactionState> {
@@ -100,7 +83,6 @@ pub fn rollback_userland(tx_id: &str) -> Result<()> {
     let mut files_touched = 0usize;
     let mut freed_bytes = 0u64;
 
-    // ── 1. Restore registry state (packages.toml snapshot) ──────────────────
     ui::print_arrow("Restoring registry state...");
     let snap_pkgs = tx_dir.join("packages.toml");
     if snap_pkgs.exists() {
@@ -108,7 +90,6 @@ pub fn rollback_userland(tx_id: &str) -> Result<()> {
     }
     ui::print_step("Restoring registry state");
 
-    // ── 2. Restore receipt files ──────────────────────────────────────────────
     ui::print_arrow("Restoring receipt files...");
     let all_pkgs = if state.packages.is_empty() {
         vec![pkg.clone()]
@@ -125,17 +106,12 @@ pub fn rollback_userland(tx_id: &str) -> Result<()> {
     }
     ui::print_step("Restoring receipt files");
 
-    // ── 3. Remove installed files (for install operations) ────────────────────
     ui::print_arrow(&format!("Removing installed files from {}...", UNION_PATH));
     if state.operation == "install" {
-        // Read current receipt to know what files were installed
         let cur_receipt = Path::new(INSTALLED_DIR).join(format!("{pkg}.toml"));
         if cur_receipt.exists() {
             if let Ok(raw) = fs::read_to_string(&cur_receipt) {
                 if let Ok(record) = toml::from_str::<PkgRecord>(&raw) {
-                    // The flat installed_files list doesn't distinguish
-                    // files/symlinks/dirs up front — classify each by its
-                    // actual on-disk type, same approach as `zex remove`.
                     let mut dirs = Vec::new();
                     for f in &record.installed_files {
                         let live = crate::archive_safety::live_path(Path::new(f));
@@ -155,7 +131,6 @@ pub fn rollback_userland(tx_id: &str) -> Result<()> {
                     for d in &dirs {
                         let _ = fs::remove_dir(d);
                     }
-                    // Delete receipt — package is now uninstalled
                     let _ = fs::remove_file(&cur_receipt);
                     let _ = crate::cmd::install::registry::remove_from_master_index(pkg);
                 }
@@ -164,11 +139,9 @@ pub fn rollback_userland(tx_id: &str) -> Result<()> {
     }
     ui::print_step("Removing installed files");
 
-    // ── 4. Restore backup archive (for remove/upgrade operations) ─────────────
     ui::print_arrow("Restoring backup archive...");
     let bak = tx_dir.join(&state.backup_archive);
     if bak.exists() && !state.backup_archive.is_empty() {
-        // through the merged mount, same as installs
         let count = extract_backup(
             &bak,
             &crate::archive_safety::live_path(Path::new(UNION_PATH)),
@@ -198,15 +171,12 @@ pub fn rollback_userland(tx_id: &str) -> Result<()> {
 
 /// Rollback a syshub transaction (remount rw → restore → remount ro).
 pub fn rollback_syshub(_tx_id: &str) -> Result<()> {
-    // the base is only ever changed at boot by quantra-ramfs, never under the running overlay
     crate::syshub_pending::request_rollback()?;
     println!(
         "\n System Hub rollback requested: the last applied upgrade is undone at the next boot.\n"
     );
     Ok(())
 }
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn load_state(tx_dir: &Path) -> Result<TransactionState> {
     let raw = fs::read_to_string(tx_dir.join("state.toml")).context("reading state.toml")?;
@@ -227,7 +197,6 @@ fn extract_backup(archive: &Path, dest: &Path) -> Result<usize> {
         let mut entry = entry?;
         let raw = entry.path()?.into_owned();
         let rel = raw.to_string_lossy();
-        // Strip leading slash if present
         let rel = rel.trim_start_matches('/');
         if rel.is_empty() {
             continue;
