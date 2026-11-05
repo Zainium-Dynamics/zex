@@ -16,9 +16,7 @@ before anything is installed.
 
 ## Status
 
-Two-phase correctness + capability pass completed 2026-07-19. Build is
-green, 502 tests pass. Full detail in [`REPORT.md`](./REPORT.md); short
-verdict table in [`AUDIT-REPORT.md`](./AUDIT-REPORT.md). Not a universal
+Not a universal
 Linux package manager — this is Zainium OS's own package manager, with
 compatibility shims that let it also consume three other distros' package
 indices.
@@ -191,8 +189,6 @@ zex extract ./myapp-1.0.zex --output ./out   # unpack a package (short: zex -e �
 - [`ARCHITECTURE.md`](./ARCHITECTURE.md) — module structure, dispatch flow, dependency resolution, transaction model
 - [`ZEX-FORMAT.md`](./ZEX-FORMAT.md) — the native `.zex` package format spec
 - [`CHANGELOG.md`](./CHANGELOG.md) — release history
-- [`REPORT.md`](./REPORT.md) — full engineering report, per-tier verification detail
-- [`AUDIT-REPORT.md`](./AUDIT-REPORT.md) — short verdict summary
 - `man/zex.1` and `man/zex-<command>.1` — full command reference (`man ./man/zex.1`)
 
 ## Contributing
