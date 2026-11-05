@@ -1,4 +1,3 @@
-// cmd/upgrade/mod.rs — re-exports the upgrade driver entry point
 pub mod audit;
 pub mod benchmark;
 pub mod checksum;

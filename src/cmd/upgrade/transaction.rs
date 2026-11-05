@@ -1,17 +1,4 @@
 //! Transactional rollback engine.
-//!
-//! Wraps all install steps in a transaction. If ANY step fails, ALL previously
-//! modified files are restored to their pre-update state.
-//!
-//! This addresses the NixOS and Apple panel requirements:
-//!   - NixOS: "A failed transaction leaves the system 100% unchanged"
-//!   - Apple:  "Pre-update snapshot — if anything fails, roll back"
-//!
-//! Design:
-//!   Before each file modification, call `transaction.checkpoint(path)`.
-//!   This records the current state of that file (content or copy).
-//!   On success: `transaction.commit()` — deletes all backup copies.
-//!   On failure: `transaction.rollback()` — restores every file in reverse order.
 
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
@@ -19,11 +6,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-// ─────────────────────────────────────────────────────────────────────────────
-// TYPES
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// One checkpointed file — records its pre-update state.
+/// One checkpointed file: records its pre-update state.
 ///
 /// Serializable: this is written to disk as an on-disk journal entry (see
 /// `Transaction::checkpoint`) so a crash that kills the process before
@@ -40,13 +23,13 @@ struct Checkpoint {
 
 #[derive(Debug, Serialize, Deserialize)]
 enum PreState {
-    /// File did not exist — rollback = delete it
+    /// File did not exist: rollback = delete it
     DidNotExist,
-    /// File was a regular file — content backed up to this temp path
+    /// File was a regular file: content backed up to this temp path
     BackedUp(PathBuf),
     /// File was a symlink pointing to this target
     Symlink(PathBuf),
-    /// Directory too large to backup in full (modules) — directory path noted
+    /// Directory too large to backup in full (modules): directory path noted
     LargeDir(PathBuf),
 }
 
@@ -77,22 +60,18 @@ fn write_atomic(path: &Path, contents: &[u8]) -> anyhow::Result<()> {
     Ok(())
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// TRANSACTION
-// ─────────────────────────────────────────────────────────────────────────────
-
 pub struct Transaction {
     checkpoints: Vec<Checkpoint>,
-    backup_root: PathBuf, // e.g. /tmp/zai-rollback-<pid>
+    backup_root: PathBuf,
     #[allow(dead_code)]
     step_log: Vec<String>,
     checkpoint_seq: u64,
 }
 
-/// Marker file name recording a transaction's on-disk state — "in_progress"
+/// Marker file name recording a transaction's on-disk state: "in_progress"
 /// from creation until `commit()` atomically flips it to "committed" as its
 /// very first action (before any cleanup). `recover_stale` uses this to
-/// tell a genuinely-interrupted transaction (still "in_progress" — the
+/// tell a genuinely-interrupted transaction (still "in_progress": the
 /// owning process died) apart from one that crashed merely while deleting
 /// its own already-committed backup files (which must NOT be rolled back).
 const STATE_FILE: &str = "STATE";
@@ -126,7 +105,7 @@ impl Transaction {
     /// If `path` does not exist yet, records `DidNotExist` so rollback deletes it.
     ///
     /// Persists the checkpoint to an on-disk journal entry *before*
-    /// returning — a crash right after this call still leaves enough on
+    /// returning: a crash right after this call still leaves enough on
     /// disk for `recover_stale` to finish the rollback later; the
     /// in-memory `checkpoints` vec alone would be lost the instant this
     /// process dies.
@@ -137,7 +116,6 @@ impl Transaction {
             let target = fs::read_link(path)?;
             PreState::Symlink(target)
         } else if path.is_file() {
-            // Back up by copying to a unique backup file
             let backup_name = path_to_backup_name(path);
             let backup_path = self.backup_root.join(&backup_name);
             if let Some(p) = backup_path.parent() {
@@ -147,18 +125,13 @@ impl Transaction {
                 .map_err(|e| anyhow!("Failed to backup {:?} for rollback: {}", path, e))?;
             PreState::BackedUp(backup_path)
         } else if path.is_dir() {
-            // Large dirs (e.g. kernel modules): note the path, copy will be done lazily
-            // For modules, the old dir is renamed to <dir>.pre-update so rollback = rename back
             let backup_dir = self.backup_root.join(path_to_backup_name(path));
             if path.exists() {
-                // Rename old dir to backup location (atomic on same FS)
-                // This atomically frees the target path for the new install
                 if let Some(p) = backup_dir.parent() {
                     fs::create_dir_all(p)?;
                 }
                 fs::rename(path, &backup_dir)
                     .map_err(|e| anyhow!("Failed to backup dir {:?}: {}", path, e))?;
-                // Recreate empty dir at original path so install step can write into it
                 fs::create_dir_all(path)?;
             }
             PreState::LargeDir(backup_dir)
@@ -193,11 +166,6 @@ impl Transaction {
 
     /// Commit: all steps succeeded. Delete all backup copies.
     pub fn commit(self) {
-        // Flip the state marker to "committed" *first*, atomically, before
-        // any cleanup — if this process dies partway through the cleanup
-        // below, `recover_stale` must see "committed" and just finish
-        // deleting the directory, not mistakenly roll back a transaction
-        // that had already fully succeeded.
         let _ = write_atomic(
             &self.backup_root.join(STATE_FILE),
             STATE_COMMITTED.as_bytes(),
@@ -222,7 +190,6 @@ impl Transaction {
     pub fn rollback(self) -> anyhow::Result<()> {
         let mut errors: Vec<String> = Vec::new();
 
-        // Reverse order: undo last checkpoint first (LIFO = safe)
         for cp in self.checkpoints.into_iter().rev() {
             if let Err(e) = restore_checkpoint(cp) {
                 errors.push(e.to_string());
@@ -244,20 +211,20 @@ impl Transaction {
 
     /// Crash recovery: finds and finishes any transaction left behind by a
     /// process that died (SIGKILL, power loss, OOM) before it could call
-    /// `commit()` or `rollback()` on itself — the normal in-process error
+    /// `commit()` or `rollback()` on itself: the normal in-process error
     /// handling those two provide is no help there, since the `Transaction`
     /// value and its in-memory checkpoint list die with the process. Scans
     /// `staging_dir` for `rollback-<pid>` directories from *previous* runs:
     /// ones marked "committed" just get their leftover directory deleted;
     /// ones still "in_progress" get their on-disk checkpoint journal
     /// replayed in reverse, restoring every file to its pre-transaction
-    /// state — exactly what `rollback()` would have done had the owning
+    /// state: exactly what `rollback()` would have done had the owning
     /// process lived long enough to call it.
     ///
     /// Safe to call unconditionally at the start of every syshub/userland
     /// upgrade: a clean prior run leaves nothing to recover, and this never
     /// touches a `rollback-<pid>` directory belonging to the *current*
-    /// process (that can't exist yet — `Transaction::new` hasn't run).
+    /// process (that can't exist yet: `Transaction::new` hasn't run).
     pub fn recover_stale(staging_dir: &Path) -> Vec<String> {
         let mut recovered = Vec::new();
         let Ok(entries) = fs::read_dir(staging_dir) else {
@@ -280,10 +247,6 @@ impl Transaction {
                 continue;
             }
 
-            // Still "in_progress" (or the STATE file itself never made it
-            // to disk before the crash) — treat as interrupted and replay
-            // its on-disk checkpoint journal, in reverse sequence order,
-            // same as a normal rollback().
             let checkpoints_dir = path.join("checkpoints");
             let mut journal_files: Vec<PathBuf> = fs::read_dir(&checkpoints_dir)
                 .map(|d| d.flatten().map(|e| e.path()).collect())
@@ -324,7 +287,6 @@ impl Transaction {
 fn restore_checkpoint(cp: Checkpoint) -> anyhow::Result<()> {
     match cp.state {
         PreState::DidNotExist => {
-            // This file was created by the update — delete it
             if cp.target.exists() || cp.target.is_symlink() {
                 if cp.target.is_dir() {
                     fs::remove_dir_all(&cp.target).map_err(|e| {
@@ -338,13 +300,11 @@ fn restore_checkpoint(cp: Checkpoint) -> anyhow::Result<()> {
             }
         }
         PreState::BackedUp(backup_path) => {
-            // Restore file from backup (atomic rename)
             if let Some(p) = cp.target.parent() {
                 let _ = fs::create_dir_all(p);
             }
             fs::rename(&backup_path, &cp.target)
                 .or_else(|_| {
-                    // Cross-device: fall back to copy + delete
                     fs::copy(&backup_path, &cp.target)?;
                     fs::remove_file(&backup_path)?;
                     Ok::<(), std::io::Error>(())
@@ -352,7 +312,6 @@ fn restore_checkpoint(cp: Checkpoint) -> anyhow::Result<()> {
                 .map_err(|e| anyhow!("Rollback: failed to restore {:?}: {}", cp.target, e))?;
         }
         PreState::Symlink(original_target) => {
-            // Restore symlink
             if cp.target.exists() || cp.target.is_symlink() {
                 fs::remove_file(&cp.target).map_err(|e| {
                     anyhow!("Rollback: failed to remove symlink {:?}: {}", cp.target, e)
@@ -363,7 +322,6 @@ fn restore_checkpoint(cp: Checkpoint) -> anyhow::Result<()> {
             })?;
         }
         PreState::LargeDir(backup_dir) => {
-            // Remove the newly installed dir, restore the backup
             if cp.target.exists() {
                 fs::remove_dir_all(&cp.target).map_err(|e| {
                     anyhow!("Rollback: failed to remove new dir {:?}: {}", cp.target, e)
@@ -386,10 +344,6 @@ fn path_to_backup_name(path: &Path) -> String {
         .replace('/', "__")
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// TESTS
-// ─────────────────────────────────────────────────────────────────────────────
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -397,7 +351,6 @@ mod tests {
     /// Each test gets its own unique temp directory so parallel tests don't collide.
     fn tmp_dir(test_name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("zai_tx_{}_{}", test_name, std::process::id()));
-        // Remove any leftover from a previous run
         let _ = fs::remove_dir_all(&d);
         fs::create_dir_all(&d).unwrap();
         d
@@ -410,20 +363,16 @@ mod tests {
         let stage = root.join("stage");
         fs::create_dir_all(&stage).unwrap();
 
-        // Write original content
         fs::write(&target, b"ORIGINAL").unwrap();
 
         let mut tx = Transaction::new(&stage).unwrap();
         tx.checkpoint(&target).unwrap();
 
-        // Simulate update: overwrite
         fs::write(&target, b"NEW CONTENT").unwrap();
         assert_eq!(fs::read(&target).unwrap(), b"NEW CONTENT");
 
-        // Rollback
         tx.rollback().unwrap();
 
-        // Must be restored
         assert_eq!(fs::read(&target).unwrap(), b"ORIGINAL");
         let _ = fs::remove_dir_all(&root);
     }
@@ -435,20 +384,16 @@ mod tests {
         let stage = root.join("stage");
         fs::create_dir_all(&stage).unwrap();
 
-        // File does NOT exist before update
         assert!(!target.exists());
 
         let mut tx = Transaction::new(&stage).unwrap();
-        tx.checkpoint(&target).unwrap(); // records DidNotExist
+        tx.checkpoint(&target).unwrap();
 
-        // Simulate update: create file
         fs::write(&target, b"CREATED BY UPDATE").unwrap();
         assert!(target.exists());
 
-        // Rollback
         tx.rollback().unwrap();
 
-        // Must be deleted
         assert!(!target.exists());
         let _ = fs::remove_dir_all(&root);
     }
@@ -466,27 +411,19 @@ mod tests {
         let backup_root = tx.backup_root.clone();
         tx.checkpoint(&target).unwrap();
 
-        // Backup dir should exist and have a copy
         assert!(backup_root.exists());
 
-        // Simulate successful update
         fs::write(&target, b"UPDATED").unwrap();
 
         tx.commit();
 
-        // Backup root should be gone
         assert!(!backup_root.exists());
-        // Target should have new content
         assert_eq!(fs::read(&target).unwrap(), b"UPDATED");
         let _ = fs::remove_dir_all(&root);
     }
 
     #[test]
     fn rollback_runs_in_reverse_order() {
-        // Create two files A and B
-        // Checkpoint A then B
-        // Modify both
-        // Rollback should restore both correctly regardless of order
         let root = tmp_dir("reverse_order");
         let file_a = root.join("a");
         let file_b = root.join("b");
@@ -512,11 +449,6 @@ mod tests {
 
     #[test]
     fn recover_stale_restores_interrupted_transaction() {
-        // Simulate a process that dies (SIGKILL, power loss) right after
-        // checkpointing — never calls commit() or rollback() on itself.
-        // Dropping `tx` without calling either leaves exactly the on-disk
-        // state a real crash would: the journal + STATE=in_progress file,
-        // with no in-memory Transaction anywhere to clean it up.
         let root = tmp_dir("recover_interrupted");
         let target = root.join("critical-file");
         let stage = root.join("stage");
@@ -527,7 +459,6 @@ mod tests {
             let mut tx = Transaction::new(&stage).unwrap();
             tx.checkpoint(&target).unwrap();
             fs::write(&target, b"HALF-UPGRADED").unwrap();
-            // `tx` drops here uncommitted — simulating the crash.
         }
         assert_eq!(fs::read(&target).unwrap(), b"HALF-UPGRADED");
 
@@ -535,7 +466,6 @@ mod tests {
         assert_eq!(recovered.len(), 1);
         assert_eq!(fs::read(&target).unwrap(), b"ORIGINAL");
 
-        // The stale rollback directory itself must be cleaned up too.
         let leftover = fs::read_dir(&stage).unwrap().flatten().count();
         assert_eq!(leftover, 0);
 
@@ -544,24 +474,18 @@ mod tests {
 
     #[test]
     fn recover_stale_ignores_already_committed_transaction() {
-        // A transaction that crashed *after* commit() flipped STATE to
-        // "committed" but *during* its own cleanup must not be rolled
-        // back — the upgrade it represents already fully succeeded.
         let root = tmp_dir("recover_committed");
         let target = root.join("already-upgraded-file");
         let stage = root.join("stage");
         fs::create_dir_all(&stage).unwrap();
         fs::write(&target, b"NEW VERSION").unwrap();
 
-        // Hand-construct what commit() leaves behind if it crashes midway
-        // through its own cleanup, after marking STATE committed.
         let backup_root = stage.join("rollback-999999");
         fs::create_dir_all(backup_root.join("checkpoints")).unwrap();
         fs::write(backup_root.join(STATE_FILE), STATE_COMMITTED).unwrap();
 
         let recovered = Transaction::recover_stale(&stage);
         assert!(recovered.is_empty());
-        // The already-correct file must be left completely untouched.
         assert_eq!(fs::read(&target).unwrap(), b"NEW VERSION");
         assert!(!backup_root.exists());
 

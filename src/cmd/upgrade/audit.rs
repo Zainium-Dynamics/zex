@@ -1,6 +1,4 @@
-//! audit.rs — Upgrade audit log.
-//! Writes a persistent record of every syshub/uland upgrade attempt
-//! to /overlayer/zexlib/registry/upgrade-audit.toml.
+//! audit.rs: Upgrade audit log.
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
@@ -9,8 +7,8 @@ use std::path::Path;
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AuditEntry {
     pub timestamp: String,
-    pub kind: String,    // "syshub" | "uland"
-    pub outcome: String, // "success" | "rolled_back" | "failed"
+    pub kind: String,
+    pub outcome: String,
     pub packages: Vec<String>,
     pub duration_ms: u64,
     pub error: Option<String>,
@@ -27,7 +25,6 @@ pub fn append(entry: AuditEntry) -> Result<()> {
     };
 
     entries.push(entry);
-    // Keep the last 200 entries only — file stays small.
     if entries.len() > 200 {
         entries.drain(0..entries.len() - 200);
     }

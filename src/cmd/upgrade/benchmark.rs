@@ -1,8 +1,8 @@
-//! benchmark.rs — Upgrade/install hot-path timing helpers.
+//! benchmark.rs: Upgrade/install hot-path timing helpers.
 
 use std::time::Instant;
 
-/// Lightweight benchmark guard — prints elapsed on drop.
+/// Lightweight benchmark guard: prints elapsed on drop.
 pub struct Benchmark {
     label: String,
     started: Instant,

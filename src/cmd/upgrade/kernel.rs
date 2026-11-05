@@ -1,23 +1,4 @@
-//! kernel.rs — `elevate zex kernel`: the boot kernel and its quantra-ramfs.
-//!
-//! An installed system boots what Limine reads from the ESP (see esp.rs), so a kernel
-//! never goes into the base: this writes it to the ESP. The kernel archive
-//! (`kernel/x86_64/kernel.toml`, packages in `kernel/x86_64/packages/`) has the kernel
-//! and the ramfs as separate packages. The kernel's modules are a syshub package (named
-//! by the kernel entry's `modules` field) and go into the base like a syshub upgrade,
-//! after asking.
-//!
-//! On the ESP, the kernel named in limine.conf's default entries and `quantra-ramfs.img`
-//! boot by default. The kernel's file name is never fixed here: it is whatever limine.conf
-//! boots, and a new kernel package brings its own (the file in its `payload/kernel/` that
-//! is not `linux-panic`); when that name changes, the default entries follow it. An upgrade
-//! first moves the running pair to `linux-panic` + `quantra-ramfs-panic.img`, which the
-//! "Fallback Kernel" menu entries boot, so the last working pair stays one menu choice away.
-//! `kernel.toml` beside them records both pairs.
-//!
-//!   elevate zex kernel              what boots now, and what the archive has
-//!   elevate zex kernel --u          upgrade the kernel and/or ramfs
-//!   elevate zex kernel --rollback   boot the fallback pair by default again
+//! kernel.rs: `elevate zex kernel`: the boot kernel and its quantra-ramfs.
 
 use anyhow::{Context, Result, bail};
 use indicatif::MultiProgress;
@@ -108,8 +89,6 @@ struct Modules {
     entry: toml::Value,
 }
 
-// ── Commands ──────────────────────────────────────────────────────────────────
-
 pub async fn status() -> Result<()> {
     crate::syshub_pending::ensure_available()?;
     let esp = Esp::mount()?;
@@ -178,7 +157,6 @@ async fn upgrade_with(with_syshub: bool) -> Result<()> {
             });
         }
     }
-    // the boot loader comes from the same archive
     let mut boot_loader = None;
     if let Some(entry) = index.packages.get(BOOT_LOADER) {
         let new = syscore::val_str(entry);
@@ -216,12 +194,10 @@ async fn upgrade_with(with_syshub: bool) -> Result<()> {
         return Ok(());
     }
 
-    // the new kernel's drivers live in the base: ask before staging them
     let mut modules = None;
     if let Some(kernel) = picks.iter().find(|p| p.name == KERNEL)
         && let Some(name) = index.packages.get(KERNEL).and_then(|e| field(e, "modules"))
     {
-        // with syshub the one answer above already covers the modules
         if with_syshub
             || ui::ask_yes(&format!(
                 "Update the kernel modules ({name} {}) in the System Hub with this kernel?",
@@ -234,7 +210,6 @@ async fn upgrade_with(with_syshub: bool) -> Result<()> {
         }
     }
 
-    // ── download and verify everything before anything changes ────────────────
     let dl = Path::new(DL_TMP);
     if dl.exists() {
         fs::remove_dir_all(dl)?;
@@ -269,24 +244,20 @@ async fn upgrade_with(with_syshub: bool) -> Result<()> {
     }
     overall.finish_and_clear();
 
-    // each package's file that boots, under the name the package gives it
     let mut boot_files: HashMap<String, (String, PathBuf)> = HashMap::new();
     for p in &picks {
         let boot = extract_boot_file(&zexes[&p.name], fallback_of(&p.name), &dl)?;
         boot_files.insert(p.name.clone(), boot);
     }
 
-    // each phase below ends as done, or as failed when an error leaves early
     let steps = crate::steps::Guard::new();
 
-    // ── modules into the base (applied at the next boot, before the GPU loads) ─
     let mut modules_txn = None;
     if let Some(m) = &modules {
         ui::start_phase("Staging the kernel modules");
         modules_txn = Some(stage_modules(m, &zexes[&m.name])?);
     }
 
-    // ── the ESP: running pair becomes the fallback, then the new files go in ──
     if !picks.is_empty() {
         ui::start_phase("Installing on the EFI partition");
         let dir = esp.kernel_dir();
@@ -302,7 +273,6 @@ async fn upgrade_with(with_syshub: bool) -> Result<()> {
             let (file, path) = &boot_files[&p.name];
             let before = booted_file(&esp, &p.name);
             esp::copy_synced(path, &dir.join(file))?;
-            // a kernel with another name: the default entries boot the new file, the old one goes
             if let Some(old) = before.filter(|old| old != file) {
                 esp.default_entries_use(&old, file)?;
                 fs::remove_file(dir.join(&old)).ok();
@@ -319,8 +289,6 @@ async fn upgrade_with(with_syshub: bool) -> Result<()> {
         if esp.install_limine(&files, &b.new)? {
             ledger.boot_loader = Some(b.new.clone());
         } else {
-            // UEFI got the new release; the BIOS part follows once the base has the
-            // same limine tool, so the next `zex kernel --u` offers it again
             ui::print_boot_loader_bios_later(&b.new);
         }
     }
@@ -367,8 +335,6 @@ pub fn rollback() -> Result<()> {
     ui::print_kernel_rolled_back(ledger.current.get(KERNEL).map(String::as_str));
     Ok(())
 }
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn fallback_of(name: &str) -> &'static str {
     SLOTS

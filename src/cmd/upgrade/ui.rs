@@ -1,37 +1,21 @@
-//! ui.rs — Real-time terminal UI for the upgrade driver.
-//!
-//! Covers both `elevate zex syshub --u` and `elevate zex uland --u`.
-//! All output comes through this module — no println! anywhere else.
-//!
-//! Colors:
-//!   GREEN  (#92)  — progress, success, version numbers, arrows
-//!   PURPLE (#95)  — package names, titles
-//!   CYAN   (#96)  — sizes, speeds, paths
-//!   YELLOW (#93)  — warnings, reboot notice
-//!   RED    (#91)  — errors
-//!   DIM    (2m)   — secondary info, separators
-//!   RESET  (0m)
+//! ui.rs: Real-time terminal UI for the upgrade driver.
 
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::time::Duration;
 
-// ── ANSI palette ─────────────────────────────────────────────────────────────
-pub const G: &str = "\x1b[92m"; // bright green
-pub const P: &str = "\x1b[95m"; // bright purple
-pub const B: &str = "\x1b[96m"; // bright cyan
-pub const Y: &str = "\x1b[93m"; // yellow
-pub const R: &str = "\x1b[91m"; // bright red
+pub const G: &str = "\x1b[92m";
+pub const P: &str = "\x1b[95m";
+pub const B: &str = "\x1b[96m";
+pub const Y: &str = "\x1b[93m";
+pub const R: &str = "\x1b[91m";
 pub const DIM: &str = "\x1b[2m";
 pub const RST: &str = "\x1b[0m";
 pub const BLD: &str = "\x1b[1m";
 
-// ── Bar characters ───────────────────────────────────────────────────────────
 const FILLED: char = '█';
 const EMPTY: char = '░';
-const BAR_W: usize = 22; // inner bar width (matches visual spec)
-const STEP_W: usize = 45; // width of the "step" label column
-
-// ── Colour helpers ────────────────────────────────────────────────────────────
+const BAR_W: usize = 22;
+const STEP_W: usize = 45;
 
 pub fn g(s: &str) -> String {
     format!("{G}{s}{RST}")
@@ -52,8 +36,6 @@ pub fn dim(s: &str) -> String {
     format!("{DIM}{s}{RST}")
 }
 
-// ── Static bar renderer (fake-fill for verify/apply/manifest steps) ───────────
-
 /// Render a filled progress bar for "phase" steps that are not byte-based.
 /// e.g. "Verifying integrity ...................... [██████████████████████] 100%"
 pub fn phase_bar(label: &str, width: usize) -> String {
@@ -66,24 +48,16 @@ pub fn phase_bar(label: &str, width: usize) -> String {
     )
 }
 
-// ── Indicatif-based real download progress bar ────────────────────────────────
-
 /// Build a per-package download progress bar.
 /// Template matches the visual spec:
 ///   "  rust-1.78.0       → 1.81.0  142.3/218.7 MB   [████████░░░░░░] 65%   19.4 MB/s  4s"
 pub fn make_pkg_bar(
     mp: &MultiProgress,
     total_b: u64,
-    pkg_label: &str, // e.g. "rust-1.78.0       → 1.81.0"
+    pkg_label: &str,
 ) -> ProgressBar {
-    // Package name on its own line above the bar — confirmed live that
-    // cramming it onto the same line as the bar/percent/speed/eta made it
-    // the first thing squeezed out on a normal-width terminal (the bar
-    // template's own fields have no give, so the name-column just never
-    // rendered at all rather than truncating gracefully).
     let label = format!("  {P}{:<38}{RST}", pkg_label);
     let pb = make_pkg_bar_inner(mp, total_b, &label);
-    // finish_pkg_bar turns the bar into one line with this label
     pb.set_prefix(pkg_label.to_string());
     pb
 }
@@ -135,7 +109,7 @@ pub fn finish_pkg_bar(pb: &ProgressBar) {
 /// Build the "Overall Progress" bar shown below the per-package rows.
 ///
 /// Driven by cumulative bytes downloaded across every package, not by
-/// component-completion count — with only 2 downloads running concurrently,
+/// component-completion count: with only 2 downloads running concurrently,
 /// a component-count bar sits frozen at the same percentage for the entire
 /// duration of the largest file (confirmed live: stuck at "40% (2/5)" for
 /// minutes while a 107MB package was still streaming in), which reads as
@@ -154,8 +128,6 @@ pub fn make_overall_bar(mp: &MultiProgress, total_bytes: u64) -> ProgressBar {
     pb.enable_steady_tick(Duration::from_millis(200));
     pb
 }
-
-// ── Syshub header / summary blocks ───────────────────────────────────────────
 
 pub fn print_syshub_header() {
     println!("\n {G}{BLD}Zainium Syshub Upgrade{RST}\n");
@@ -192,7 +164,6 @@ pub fn print_syshub_uptodate(version: &str, checked: usize) {
 }
 
 pub fn print_syshub_package_list(pkgs: &[(&str, &str, &str)]) {
-    // pkgs: (name, old_ver, new_ver)
     println!("{G}Packages to be upgraded {DIM}(System Hub){RST}{G}:{RST}");
     for (name, old, new) in pkgs {
         println!("  {DIM}•{RST} {P}{name:<22}{RST}  {B}{old}{RST} {DIM}→{RST} {G}{new}{RST}");
@@ -236,7 +207,6 @@ pub fn print_kernel_header() {
 pub fn print_kernel_list(pkgs: &[(&str, &str, &str)]) {
     println!("{G}Packages to be upgraded {DIM}(Kernel){RST}{G}:{RST}");
     for (name, old, new) in pkgs {
-        // "0": on the EFI partition, but no zex kernel run recorded its version yet
         let old = if *old == "0" { "installed, version unknown" } else { old };
         println!("  {DIM}•{RST} {P}{name:<22}{RST}  {B}{old}{RST} {DIM}→{RST} {G}{new}{RST}");
     }
@@ -359,8 +329,6 @@ pub fn print_pending_cancelled(txn: &str) {
     );
 }
 
-// ── Error display ─────────────────────────────────────────────────────────────
-
 pub fn print_no_internet() {
     println!("\n {R}Error:{RST} No internet connection detected.\n");
     println!(" Upgrade requires an active internet connection to fetch updates.\n");
@@ -378,8 +346,6 @@ pub fn print_download_interrupted(pkg: &str) {
     println!("  {DIM}•{RST} System consistency has been maintained.\n");
     println!(" {R}Operation failed.{RST}\n");
 }
-
-// ── Uland header / summary blocks ────────────────────────────────────────────
 
 pub fn print_uland_header() {
     println!("\n {G}{BLD}Zainium Userland Upgrade{RST}\n");
@@ -429,12 +395,6 @@ pub fn print_uland_starting() {
     println!("{DIM}Downloading & Upgrading packages...{RST}\n");
 }
 
-// `new_ver` was dropped from this signature: there is no single coherent
-// "userland version" — each upgraded package carries its own independent
-// version, and this was printing one fabricated placeholder value
-// ("2026v3.2") as if it applied to all of them. Same fix already applied
-// to `cmd::update::ui::print_uptodate` for the identical fabricated-value
-// pattern; ported here since this is a separate, independent call site.
 pub fn print_uland_done(count: usize, total_gb: f64, secs: u64) {
     println!("\n {G}✓ Userland Upgrade Completed Successfully{RST}\n");
     println!("{G}Upgrade Summary{RST}");

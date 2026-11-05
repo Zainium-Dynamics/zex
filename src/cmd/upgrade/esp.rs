@@ -1,9 +1,4 @@
-//! esp.rs — Zainium's EFI system partition: the FAT partition Limine boots from.
-//!
-//! Limine reads only FAT, so the installer copies the kernel and quantra-ramfs from
-//! zaisys onto the ESP (`overlayer/zaisys/kernel/`); that copy is what boots. This finds
-//! it (already mounted, or any FAT partition carrying that directory and a limine.conf
-//! naming this system's root) and mounts it for the length of a `zex kernel` run.
+//! esp.rs: Zainium's EFI system partition: the FAT partition Limine boots from.
 
 use anyhow::{Context, Result, bail};
 use std::ffi::CString;
@@ -119,7 +114,6 @@ impl Esp {
         for dest in &targets {
             copy_synced(&bios, dest)?;
         }
-        // its report goes to the screen only when it fails
         let out = std::process::Command::new(LIMINE_TOOL)
             .arg("bios-install")
             .arg(&disk)
@@ -246,14 +240,12 @@ fn booted_kernel_in(conf: &str, fallback_kernel: &str) -> Option<String> {
 }
 
 fn is_ours(dir: &Path, root_uuid: Option<&str>) -> bool {
-    // Zainium's ESP: the kernel directory with quantra-ramfs (the kernel's name may change)
     if !dir.join(KERNEL_DIR).join("quantra-ramfs.img").is_file() {
         return false;
     }
     let Ok(conf) = fs::read_to_string(dir.join("limine.conf")) else {
         return false;
     };
-    // two Zainium installs on one machine: the one this system booted names its root
     root_uuid.is_none_or(|u| conf.contains(u))
 }
 

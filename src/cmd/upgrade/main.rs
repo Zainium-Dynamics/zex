@@ -89,7 +89,6 @@ pub async fn run(_raw_args: Vec<String>) -> anyhow::Result<()> {
         std::process::exit(1);
     }
 
-    // Handle dummy 'upgrade' arg if passed by zex wrapper
     let mut args: Vec<String> = std::env::args().collect();
     if args.len() > 1 && args[1] == "upgrade" {
         args.remove(1);
@@ -124,13 +123,6 @@ pub async fn run(_raw_args: Vec<String>) -> anyhow::Result<()> {
         Commands::Syshub { u, .. } => {
             if u {
                 if let Err(e) = syscore::execute().await {
-                    // `{:#}` prints the full anyhow context chain, not just
-                    // the topmost `.context(...)` — a bare `{}` here was
-                    // hiding the real underlying cause behind whichever
-                    // wrapper message happened to be outermost, confirmed
-                    // live: every failure just said "self-upgrade swap of
-                    // zex binary" with no way to tell which of several
-                    // possible causes inside that step actually fired.
                     eprintln!("✗ Syshub upgrade failed: {:#}", e);
                     std::process::exit(1);
                 }

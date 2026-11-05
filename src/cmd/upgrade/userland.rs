@@ -1,17 +1,4 @@
-//! userland.rs — Multi-tier userland upgrade engine.
-//!
-//! Command:  elevate zex uland --u
-//!
-//! Each installed package has an `origin` field in packages.toml:
-//!   "tier1-zainium"  → zainium-userland-zexlib  (format: zex)
-//!   "tier2-void"     → void-musl-current / void-musl-nonfree (format: xbps)
-//!   "tier3-alpine"   → alpine-main / alpine-community (format: apk)
-//!   "tier4-chimera"  → chimera-main / chimera-user (format: apk)
-//!
-//! The upgrade driver reads zex_services.toml to find the mirror per tier,
-//! fetches its index in the right format, parses it, diffs against the
-//! locally installed version, then downloads and overlays updated packages
-//! 2 at a time — exactly like syscore but for the writable union layer.
+//! userland.rs: Multi-tier userland upgrade engine.
 
 use anyhow::{Context, Result, bail};
 use futures_util::{StreamExt, stream};
@@ -31,14 +18,12 @@ use super::{
     vercmp::is_upgrade,
 };
 
-// ── Paths ──────────────────────────────────────────────────────────────────────
 const ZEX_SERVICES: &str = "/overlayer/syshub/engine/services/zex_services.toml";
 const PACKAGES_TOML: &str = "/overlayer/zexlib/registry/packages.toml";
 const INSTALLED_DIR: &str = "/overlayer/zexlib/registry/installed";
 const UNION_PATH: &str = "/overlayer/zexlib/union";
 const DL_TMP: &str = "/overlayer/zexlib/tmp/uland-dl";
 
-// ── zex_services.toml schema ───────────────────────────────────────────────────
 #[derive(Debug, Deserialize)]
 struct ZexServices {
     mirrors: Vec<Mirror>,
@@ -51,7 +36,7 @@ struct Mirror {
     id: String,
     base_url: String,
     index_url: String,
-    format: String, // "zex" | "apk" | "xbps"
+    format: String,
     priority: u32,
     supported_archs: Vec<String>,
 }
@@ -62,7 +47,6 @@ struct TrustConf {
     require_signatures: bool,
 }
 
-// ── packages.toml schema ───────────────────────────────────────────────────────
 #[derive(Debug, Deserialize, Clone)]
 struct PackagesToml {
     packages: HashMap<String, PackageEntry>,
@@ -71,10 +55,10 @@ struct PackagesToml {
 #[derive(Debug, Deserialize, Clone)]
 struct PackageEntry {
     version: String,
-    origin: String, // "tier1-zainium" | "tier2-void" | "tier3-alpine" | "tier4-chimera"
+    origin: String,
     /// The *exact* mirror this package was resolved from (e.g.
     /// "alpine-community", not just "tier3-alpine"). A tier can have
-    /// several mirrors — upgrade checking must use the one the package
+    /// several mirrors: upgrade checking must use the one the package
     /// actually came from, or it either misses it entirely or silently
     /// "upgrades" it from a different mirror/tier than it was installed
     /// from. Empty for legacy entries written before this field existed.
@@ -82,14 +66,13 @@ struct PackageEntry {
     source_mirror: String,
 }
 
-// ── Resolved upgrade record ────────────────────────────────────────────────────
 #[derive(Debug, Clone)]
 struct UpgradePkg {
     name: String,
     old_ver: String,
     new_ver: String,
     origin: String,
-    tier_label: String, // "T1" / "T2" / "T3" / "T4" for display
+    tier_label: String,
     format: PkgFmt,
     url: String,
     filename: String,
@@ -103,10 +86,6 @@ enum PkgFmt {
     Xbps,
     Adb,
 }
-
-// ── Public entry ───────────────────────────────────────────────────────────────
-
-// ── Pin check helper ──────────────────────────────────────────────────────────
 
 /// Returns true if this package is pinned in the Zainium registry.
 /// Reads /overlayer/zexlib/registry/pinned.toml.
@@ -135,38 +114,25 @@ pub async fn execute() -> Result<()> {
     ui::print_uland_header();
     ui::print_uland_checking();
 
-    // ── 1. Internet ──────────────────────────────────────────────────────────
     if !online().await {
         ui::print_no_internet();
         std::process::exit(1);
     }
 
-    // ── 2. Parse config files ────────────────────────────────────────────────
     let svc_raw = fs::read_to_string(ZEX_SERVICES).context("reading zex_services.toml")?;
     let services: ZexServices = toml::from_str(&svc_raw).context("parsing zex_services.toml")?;
 
     let local_raw = fs::read_to_string(PACKAGES_TOML).context("reading packages.toml")?;
     let local: PackagesToml = toml::from_str(&local_raw).context("parsing packages.toml")?;
 
-    // ── 3. Detect host arch ───────────────────────────────────────────────────
     let arch = detect_arch();
 
-    // ── 4. Build http client with configured timeout ──────────────────────────
     let client = crate::http_client::build(concat!(
         "uland/",
         env!("CARGO_PKG_VERSION"),
         " (Zainium OS)"
     ))?;
 
-    // ── 5. Fetch index for each *exact mirror* that has installed packages ────
-    //
-    // Group by the precise mirror a package was resolved from (not just
-    // its tier) — a tier can have several mirrors (alpine-main vs
-    // alpine-community, chimera-main vs chimera-user), and checking the
-    // wrong one either misses the package or "upgrades" it from a
-    // different source than it was actually installed from. Legacy
-    // entries written before `source_mirror` existed fall back to the
-    // old tier-generic default.
     let mut mirror_pkgs: HashMap<String, Vec<(String, PackageEntry)>> = HashMap::new();
     for (name, entry) in &local.packages {
         let key = if !entry.source_mirror.is_empty() {
@@ -193,7 +159,6 @@ pub async fn execute() -> Result<()> {
             continue;
         };
 
-        // Substitute {arch} in URLs
         let index_url = mirror.index_url.replace("{arch}", &arch);
         let base_url = mirror.base_url.replace("{arch}", &arch);
 
@@ -215,7 +180,6 @@ pub async fn execute() -> Result<()> {
         }));
     }
 
-    // Sort: tier1 first, then alphabetically
     upgrades.sort_by(|a, b| a.tier_label.cmp(&b.tier_label).then(a.name.cmp(&b.name)));
 
     if upgrades.is_empty() {
@@ -226,7 +190,6 @@ pub async fn execute() -> Result<()> {
 
     ui::print_uland_found(upgrades.len());
 
-    // ── 6. Print package list with tier badges ────────────────────────────────
     print_tier_package_list(&upgrades);
 
     let total_bytes: u64 = upgrades.iter().map(|u| u.size_bytes).sum();
@@ -250,7 +213,6 @@ pub async fn execute() -> Result<()> {
 
     ui::print_uland_starting();
 
-    // ── 7. Prepare download dir ───────────────────────────────────────────────
     let dl_tmp = Path::new(DL_TMP);
     if dl_tmp.exists() {
         fs::remove_dir_all(dl_tmp)?;
@@ -266,13 +228,6 @@ pub async fn execute() -> Result<()> {
     let mut done: Vec<String> = Vec::new();
     let mut actual_bytes: u64 = 0;
 
-    // ── 8. Download + apply, 2 concurrent ─────────────────────────────────────
-    // Sliding-window concurrency (`buffer_unordered`), not fixed pairs —
-    // same fix, same reasoning, as syscore.rs's identical pattern: a fixed
-    // `chunks(2)` held BOTH slots of a pair open until BOTH finished, so a
-    // small package that finished early just sat at 100% instead of
-    // immediately picking up package #3 while its much-larger chunk-mate
-    // kept streaming.
     let mut in_flight = stream::iter(upgrades.iter())
         .map(|pkg| {
             let label = format!(
@@ -303,7 +258,6 @@ pub async fn execute() -> Result<()> {
         })
         .buffer_unordered(2);
 
-    // through the merged mount, so upgraded files are visible right away
     let live_root = crate::archive_safety::live_path(Path::new(UNION_PATH));
     while let Some((pkg_name, zex_path, fmt, result)) = in_flight.next().await {
         let bytes = match result {
@@ -323,8 +277,6 @@ pub async fn execute() -> Result<()> {
         };
         actual_bytes += bytes;
 
-        // Signature verify only for native .zex packages — against the
-        // pubkey embedded in the package's own manifest.toml.
         if fmt == PkgFmt::Zex {
             let mode = if services.trust.require_signatures {
                 crate::trust::SignatureVerificationMode::Strict
@@ -334,7 +286,6 @@ pub async fn execute() -> Result<()> {
             crate::trust::verify_zex_archive(&zex_path, mode)?;
         }
 
-        // Extract into union
         match fmt {
             PkgFmt::Zex => extract_zex_into(&zex_path, &live_root)?,
             PkgFmt::Apk => extract_apk_into(&zex_path, &live_root)?,
@@ -342,10 +293,6 @@ pub async fn execute() -> Result<()> {
             PkgFmt::Adb => extract_adb_into(&zex_path, &live_root)?,
         }
 
-        // Bump the existing receipt's version in place — this preserves
-        // installed_files/dependencies/sha256/etc, unlike writing a fresh
-        // receipt from scratch (which would silently break `zex remove`
-        // and orphan detection for this package).
         let pkg_info = upgrades.iter().find(|u| u.name == pkg_name).unwrap();
         crate::cmd::install::registry::update_version(&pkg_info.name, &pkg_info.new_ver)?;
 
@@ -355,13 +302,9 @@ pub async fn execute() -> Result<()> {
     overall.finish_and_clear();
     println!();
 
-    // ── 9. Phase bars ─────────────────────────────────────────────────────────
     ui::print_phase("Verifying integrity");
     ui::print_phase("Extracting & overlaying packages");
 
-    // packages.toml is already kept in sync per-package by
-    // registry::update_version() (called above for each upgraded
-    // package), which also preserves every other field in its receipt.
     ui::print_phase("Updating system registry");
 
     fs::remove_dir_all(dl_tmp).ok();
@@ -382,9 +325,7 @@ pub async fn execute() -> Result<()> {
     Ok(())
 }
 
-// ── Mirror selection ───────────────────────────────────────────────────────────
-
-/// Looks a mirror up by its *exact* id (e.g. "alpine-community") — the
+/// Looks a mirror up by its *exact* id (e.g. "alpine-community"): the
 /// precise mirror a package was resolved from, as recorded in its
 /// registry entry. This is the primary path; `match_mirror` below is
 /// only a fallback for legacy entries that predate `source_mirror`.
@@ -409,7 +350,7 @@ fn mirror_by_exact_id<'a>(
 /// Fallback for legacy entries with no recorded `source_mirror`: picks a
 /// single representative mirror per tier. This can pick the wrong mirror
 /// within a multi-mirror tier (e.g. alpine-main when the package actually
-/// came from alpine-community) — it's a best-effort default, not a
+/// came from alpine-community): it's a best-effort default, not a
 /// correctness guarantee, which is exactly why `mirror_by_exact_id` is
 /// tried first everywhere this is called.
 /// "tier1-zainium" → zainium-userland-zexlib (zex)
@@ -438,17 +379,6 @@ fn match_mirror<'a>(
         .map(|m| (m, fmt))
 }
 
-// Tier ↔ distro pairing here must match `zex_services.toml`'s own tier
-// comments exactly: "TIER 2: VOID LINUX PORTS (power-user tier —
-// prioritized over Alpine)" / "TIER 3: ALPINE LINUX PORTS". Confirmed
-// live: a real installed Void package (`kurly`, `origin = "tier2-void"`)
-// showed up in `zex uland --u`'s output badged "[T2-ALP]" — T2 mislabeled
-// as Alpine — because both `tier_label`'s "tier2"/"alpine" pairing and
-// `tier_badge`'s T2/T3 badge text were backwards relative to that
-// convention. The bare-distro-name fallback (`|| origin.contains("void")`)
-// matters too, not just the numbers: an `origin` string built as just
-// "alpine-main" with no "tier3" prefix would previously have matched
-// `tier2`'s `|| origin.contains("alpine")` arm and landed on T2 as well.
 fn tier_label(origin: &str) -> String {
     if origin.contains("tier1") || origin.contains("zainium") {
         "T1".into()
@@ -500,8 +430,6 @@ fn print_tier_package_list(pkgs: &[UpgradePkg]) {
     }
 }
 
-// ── Index fetchers ─────────────────────────────────────────────────────────────
-
 /// Tier 1: Fetch Zainium zex_ledger TOML, diff against installed.
 async fn fetch_zex_upgrades(
     client: &reqwest::Client,
@@ -545,7 +473,7 @@ async fn fetch_zex_upgrades(
             name: local_name.clone(),
             old_ver: local_entry.version.clone(),
             new_ver,
-            origin: String::new(), // filled by caller
+            origin: String::new(),
             tier_label: String::new(),
             format: PkgFmt::Zex,
             url,
@@ -571,11 +499,7 @@ async fn fetch_apk_upgrades(
         .bytes()
         .await?;
 
-    // Decompress gz → untar → read APKINDEX text
     let apkindex_text = tokio::task::spawn_blocking(move || -> Result<String> {
-        // APKINDEX.tar.gz is a concatenation of multiple gzip members
-        // (signature tarball + index tarball) — a plain GzDecoder only
-        // reads the first member and silently truncates before APKINDEX.
         let dec = flate2::read::MultiGzDecoder::new(&bytes[..]);
         let mut archive = tar::Archive::new(dec);
         let mut text = String::new();
@@ -590,7 +514,6 @@ async fn fetch_apk_upgrades(
     })
     .await??;
 
-    // Parse APKINDEX (each package block separated by blank line)
     let mut remote_versions: HashMap<String, (String, u64)> = HashMap::new();
     for block in apkindex_text.split("\n\n") {
         let mut name = String::new();
@@ -676,11 +599,6 @@ async fn fetch_xbps_upgrades(
             .into_dictionary()
             .ok_or_else(|| anyhow::anyhow!("index.plist root is not a dict"))?;
 
-        // The current Void repodata schema keys the dictionary by the
-        // package name itself — there's no separate "pkgname" field, and
-        // no plain "version" field (only combined "pkgver" = "name-
-        // version_revision"). Size is "filename-size", not
-        // "repository-filesize". See cmd::install::xbps for the same fix.
         let mut out = HashMap::new();
         for (key, meta_val) in dict {
             let Some(meta) = meta_val.as_dictionary() else {
@@ -715,7 +633,6 @@ async fn fetch_xbps_upgrades(
             continue;
         }
 
-        // Void filename convention: <pkgname>-<version>.<arch>.xbps
         let filename = format!("{}-{}.x86_64.xbps", local_name, new_ver);
         let url = format!("{}/{}", base_url.trim_end_matches('/'), filename);
 
@@ -786,8 +703,6 @@ async fn fetch_adb_upgrades(
     Ok(out)
 }
 
-// ── Extractors ─────────────────────────────────────────────────────────────────
-
 /// A new file in place of the old one. Installed files are sealed with fs-verity
 /// at boot, and a sealed file cannot be opened for writing (EPERM), so the old one
 /// is unlinked first, as a reinstall does.
@@ -849,9 +764,6 @@ fn extract_apk_into(src: &Path, dest: &Path) -> Result<()> {
     #[cfg(unix)]
     use std::os::unix::fs::symlink;
     let file = fs::File::open(src)?;
-    // .apk packages are a concatenation of multiple gzip members
-    // (signature + control + data tarballs) — MultiGzDecoder reads
-    // through all of them instead of stopping after the signature.
     let dec = flate2::read::MultiGzDecoder::new(file);
     let mut archive = tar::Archive::new(dec);
     let mut written: Vec<PathBuf> = Vec::new();
@@ -859,7 +771,6 @@ fn extract_apk_into(src: &Path, dest: &Path) -> Result<()> {
         let mut entry = entry?;
         let raw = entry.path()?.into_owned();
         let raw_s = raw.to_string_lossy();
-        // Skip apk metadata files
         if raw_s.starts_with(".SIGN") || raw_s.starts_with(".PKGINFO") {
             continue;
         }
@@ -906,7 +817,6 @@ fn extract_xbps_into(src: &Path, dest: &Path) -> Result<()> {
         let mut entry = entry?;
         let raw = entry.path()?.into_owned();
         let raw_s = raw.to_string_lossy();
-        // Skip xbps metadata
         if raw_s.contains("files.plist")
             || raw_s.contains("props.plist")
             || raw_s.ends_with("/INSTALL")
@@ -952,7 +862,7 @@ fn extract_xbps_into(src: &Path, dest: &Path) -> Result<()> {
 }
 
 /// Chimera's `.apk` is apk-tools v3's binary "ADB" container, not the
-/// legacy gzip-tar format the name suggests — see `cmd::install::adb`.
+/// legacy gzip-tar format the name suggests: see `cmd::install::adb`.
 fn extract_adb_into(src: &Path, dest: &Path) -> Result<()> {
     #[cfg(unix)]
     use std::os::unix::fs::symlink;
@@ -984,12 +894,6 @@ fn extract_adb_into(src: &Path, dest: &Path) -> Result<()> {
             }
             S_IFLNK => {
                 let target = entry.link_target.unwrap_or_default();
-                // Real base-files packages ship self-referential usrmerge
-                // symlinks (e.g. "/bin -> usr/bin") that our own
-                // remap_usr_paths already collapses onto the same union
-                // path structurally — skip creating the symlink literally
-                // in that case (see installer::extract_adb for the fully
-                // documented version of this fix).
                 let target_remapped =
                     crate::archive_safety::remap_usr_paths(PathBuf::from(&target));
                 if target_remapped != rel {
@@ -1018,13 +922,6 @@ fn extract_adb_into(src: &Path, dest: &Path) -> Result<()> {
                     use std::io::Write;
                     replace_file(&dst)?.write_all(&entry.content.unwrap_or_default())?;
                 }
-                // ADB stores the real POSIX mode per-entry (already used
-                // above for S_IFDIR/S_IFLNK) but this regular-file branch
-                // never applied it — the same bug already found and fixed
-                // in installer.rs's own extract_adb (every T4 binary
-                // landed non-executable), just never ported to this
-                // separate uland-upgrade copy of the same extraction
-                // logic.
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;
@@ -1039,7 +936,7 @@ fn extract_adb_into(src: &Path, dest: &Path) -> Result<()> {
 }
 
 /// Shared post-extraction pass for all four `extract_*_into` functions
-/// above — none of them use a separate staging root (they write straight
+/// above: none of them use a separate staging root (they write straight
 /// to the live union tree), so `written` must be patched right after the
 /// loop that wrote it, same timing constraint as `installer.rs`'s staged
 /// version. Fatal on failure (`?`), not logged-and-ignored: a binary that
@@ -1065,19 +962,11 @@ fn set_exec_if_needed(hdr: &tar::Header, path: &Path) {
 #[cfg(not(unix))]
 fn set_exec_if_needed(_: &tar::Header, _: &Path) {}
 
-// ── Small helpers ──────────────────────────────────────────────────────────────
-
 async fn online() -> bool {
     let Ok(client) = crate::http_client::build("zex-uland/ping") else {
         return false;
     };
 
-    // There is no more zex-server / API backend behind archive.zainiumdynamics.tech
-    // to ping (it was decommissioned — the domain now only serves static
-    // package files via Cloudflare/R2), and Tier 2/3/4 mirrors have nothing
-    // to do with that endpoint either — go straight to a generic
-    // reachability probe rather than wasting a round-trip on a permanently
-    // dead one first.
     client
         .head("https://mirrors.edge.kernel.org/")
         .send()
@@ -1116,13 +1005,13 @@ async fn content_length(client: &reqwest::Client, url: &str) -> Option<u64> {
 }
 
 /// Retries the whole download from byte 0 on failure (not a range-resume)
-/// — `cmd::install::downloader::download` already retries exactly this
+///: `cmd::install::downloader::download` already retries exactly this
 /// failure mode (3 retries, backoff) for the `zex install` path; this
 /// upgrade-path downloader never did, so a single mid-stream hiccup
 /// (confirmed live, repeatedly, in this environment) hard-failed the
 /// entire upgrade transaction instead of just costing a short delay.
 /// `overall`'s position may briefly over-count by a failed attempt's
-/// partial bytes on a retry — an acceptable trade-off against the
+/// partial bytes on a retry: an acceptable trade-off against the
 /// alternative of aborting outright.
 async fn download_with_bar(
     client: &reqwest::Client,
@@ -1191,11 +1080,6 @@ fn log_audit(kind: &str, pkgs: &[String], outcome: &str, err: Option<&str>, ms: 
     })
     .ok();
 
-    // Also record to the cross-tier unified history (`zex history`) —
-    // uland upgrades used to only ever show up in their own
-    // upgrade-audit.toml, invisible from the same place install/remove
-    // operations are recorded. Format is unknown at this granularity
-    // (uland spans every tier) so it's left blank rather than guessed.
     let _ = crate::cmd::install::history::record(
         crate::cmd::install::history::OperationType::Upgrade,
         pkgs.iter()
