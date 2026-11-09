@@ -186,9 +186,7 @@ zex extract ./myapp-1.0.zex --output ./out   # unpack a package (short: zex -e �
 
 ## Documentation
 
-- [`ARCHITECTURE.md`](./ARCHITECTURE.md) — module structure, dispatch flow, dependency resolution, transaction model
 - [`ZEX-FORMAT.md`](./ZEX-FORMAT.md) — the native `.zex` package format spec
-- [`CHANGELOG.md`](./CHANGELOG.md) — release history
 - `man/zex.1` and `man/zex-<command>.1` — full command reference (`man ./man/zex.1`)
 
 ## Contributing
