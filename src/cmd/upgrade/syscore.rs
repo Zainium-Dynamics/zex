@@ -199,12 +199,19 @@ pub async fn execute() -> Result<()> {
         };
         total_bytes += bytes;
 
-        crate::trust::verify_zex_archive(
+        // a package that fails its check leaves nothing staged behind, the same as a failed download
+        let checked = crate::trust::verify_zex_archive(
             &zex_path,
             crate::trust::SignatureVerificationMode::Strict,
-        )?;
-
-        extract_zex_into(&zex_path, staging).with_context(|| format!("extracting {pkg_name}"))?;
+        )
+        .and_then(|_| {
+            extract_zex_into(&zex_path, staging).with_context(|| format!("extracting {pkg_name}"))
+        });
+        if let Err(e) = checked {
+            cleanup_dir(staging);
+            cleanup_dir(dl_tmp);
+            return Err(e);
+        }
 
         downloaded.push(pkg_name);
     }
