@@ -105,7 +105,12 @@ pub fn flush() {
         );
     }
     if has("share/applications") {
-        rebuild("update-desktop-database", &["-q"], "share/applications", None);
+        rebuild(
+            "update-desktop-database",
+            &["-q"],
+            "share/applications",
+            None,
+        );
     }
     if has("share/mime/packages") {
         rebuild("update-mime-database", &[], "share/mime", Some("packages"));

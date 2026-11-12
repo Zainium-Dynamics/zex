@@ -73,7 +73,10 @@ fn files(top: &Path) -> impl Iterator<Item = walkdir::Result<walkdir::DirEntry>>
         .follow_links(false)
         .into_iter()
         .filter_entry(|e| {
-            e.depth() != 1 || !WRITABLE.iter().any(|w| e.file_name() == std::ffi::OsStr::new(w))
+            e.depth() != 1
+                || !WRITABLE
+                    .iter()
+                    .any(|w| e.file_name() == std::ffi::OsStr::new(w))
         })
 }
 

@@ -47,7 +47,9 @@ fn print_help() {
     println!(
         "    {G}kernel{R} {D}[--u|--rollback]{R} Boot kernel: status, upgrade, back to the fallback"
     );
-    println!("    {G}verity{R} {D}[--union on|off]{R} fs-verity for the userland (the base is always sealed)");
+    println!(
+        "    {G}verity{R} {D}[--union on|off]{R} fs-verity for the userland (the base is always sealed)"
+    );
     println!("    {G}search{R}  {D}<query>{R}       Search repositories");
     println!("    {G}refresh{R}             Refresh indexes of all 4 tiers");
     println!("    {G}rollback{R} {D}<tx_id>{R}      Revert a transaction");

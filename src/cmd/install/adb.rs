@@ -466,8 +466,7 @@ pub fn extract_entries(bytes: &[u8]) -> Result<Vec<ExtractedEntry>> {
                             link_target: Some(String::from_utf8_lossy(rest).into_owned()),
                         });
                     }
-                    m if m == S_IFBLK || m == S_IFCHR || m == S_IFIFO => {
-                    }
+                    m if m == S_IFBLK || m == S_IFCHR || m == S_IFIFO => {}
                     other => bail!("adb: unknown target mode {other:#o} for '{rel_path}'"),
                 }
                 continue;

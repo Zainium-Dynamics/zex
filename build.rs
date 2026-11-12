@@ -9,5 +9,4 @@ fn main() {
 
     let comp_dir = PathBuf::from("completions");
     fs::create_dir_all(&comp_dir).ok();
-
 }

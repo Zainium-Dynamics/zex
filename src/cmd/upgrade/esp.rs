@@ -67,7 +67,11 @@ impl Esp {
         if !sys.join("partition").exists() {
             return None;
         }
-        let parent = fs::canonicalize(&sys).ok()?.parent()?.file_name()?.to_owned();
+        let parent = fs::canonicalize(&sys)
+            .ok()?
+            .parent()?
+            .file_name()?
+            .to_owned();
         Some(Path::new("/dev").join(parent))
     }
 

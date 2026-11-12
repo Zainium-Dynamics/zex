@@ -20,6 +20,7 @@ const DL_TMP: &str = "/overlayer/zexlib/tmp/kernel-dl";
 const DEFAULT_INDEX: &str = "https://archive.zainiumdynamics.tech/kernel/x86_64/kernel.toml";
 const DEFAULT_BASE: &str = "https://archive.zainiumdynamics.tech/kernel/x86_64/packages";
 const LEDGER: &str = "kernel.toml";
+const MODULES_TXN: &str = "/overlayer/zexlib/var/lib/zex/syshub-modules-txn";
 
 const KERNEL: &str = "linux-kernel";
 const RAMFS: &str = "quantra-ramfs";
@@ -255,7 +256,11 @@ async fn upgrade_with(with_syshub: bool) -> Result<()> {
     let mut modules_txn = None;
     if let Some(m) = &modules {
         ui::start_phase("Staging the kernel modules");
-        modules_txn = Some(stage_modules(m, &zexes[&m.name])?);
+        let txn = stage_modules(m, &zexes[&m.name])?;
+        let _ = fs::create_dir_all(Path::new(MODULES_TXN).parent().unwrap());
+        fs::write(MODULES_TXN, format!("{txn}\n{}\n{}\n", m.name, m.version))
+            .context("recording the staged modules")?;
+        modules_txn = Some(txn);
     }
 
     if !picks.is_empty() {
@@ -334,6 +339,36 @@ pub fn rollback() -> Result<()> {
     drop(esp);
     ui::print_kernel_rolled_back(ledger.current.get(KERNEL).map(String::as_str));
     Ok(())
+}
+
+/// Rolling back a base upgrade that carried the kernel's modules puts the old modules back,
+/// so the old kernel has to boot with them.
+pub fn follow_base_rollback() -> Result<bool> {
+    let Ok(text) = fs::read_to_string(MODULES_TXN) else {
+        return Ok(false);
+    };
+    let mut lines = text.lines();
+    let (Some(txn), Some(name), Some(version)) = (lines.next(), lines.next(), lines.next()) else {
+        return Ok(false);
+    };
+    if crate::syshub_pending::waiting().as_deref() == Some(txn) {
+        return Ok(false);
+    }
+    let base: toml::Table = fs::read_to_string(LOCAL_SYSHUB)
+        .ok()
+        .and_then(|t| toml::from_str(&t).ok())
+        .unwrap_or_default();
+    let installed = base
+        .get("packages")
+        .and_then(|p| p.get(name))
+        .and_then(|e| e.get("version"))
+        .and_then(|v| v.as_str());
+    if installed != Some(version) {
+        return Ok(false);
+    }
+    rollback()?;
+    let _ = fs::remove_file(MODULES_TXN);
+    Ok(true)
 }
 
 fn fallback_of(name: &str) -> &'static str {

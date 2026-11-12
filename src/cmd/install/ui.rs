@@ -206,10 +206,7 @@ pub fn print_starting_parallel_installation() {
 pub fn print_downloading_single() {}
 
 pub fn print_downloading_parallel() {
-    println!(
-        "{DIM}Downloading packages ({} in parallel)...{RST}\n",
-        3
-    );
+    println!("{DIM}Downloading packages ({} in parallel)...{RST}\n", 3);
 }
 
 pub fn print_downloading_parallel_n(n: usize) {

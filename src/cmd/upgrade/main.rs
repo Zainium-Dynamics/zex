@@ -108,6 +108,13 @@ pub async fn run(_raw_args: Vec<String>) -> anyhow::Result<()> {
                 std::process::exit(1);
             }
             super::ui::print_rollback_requested();
+            match super::kernel::follow_base_rollback() {
+                Ok(true) => println!(" The kernel goes back too, to match its modules."),
+                Ok(false) => {}
+                Err(e) => eprintln!(
+                    "✗ The kernel could not go back with its modules: {e:#}\n  Run: elevate zex kernel --rollback"
+                ),
+            }
         }
         Commands::Syshub { cancel: true, .. } => {
             let Some(txn) = crate::syshub_pending::waiting() else {
