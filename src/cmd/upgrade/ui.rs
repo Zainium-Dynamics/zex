@@ -51,11 +51,7 @@ pub fn phase_bar(label: &str, width: usize) -> String {
 /// Build a per-package download progress bar.
 /// Template matches the visual spec:
 ///   "  rust-1.78.0       → 1.81.0  142.3/218.7 MB   [████████░░░░░░] 65%   19.4 MB/s  4s"
-pub fn make_pkg_bar(
-    mp: &MultiProgress,
-    total_b: u64,
-    pkg_label: &str,
-) -> ProgressBar {
+pub fn make_pkg_bar(mp: &MultiProgress, total_b: u64, pkg_label: &str) -> ProgressBar {
     let label = format!("  {P}{:<38}{RST}", pkg_label);
     let pb = make_pkg_bar_inner(mp, total_b, &label);
     pb.set_prefix(pkg_label.to_string());
@@ -207,7 +203,11 @@ pub fn print_kernel_header() {
 pub fn print_kernel_list(pkgs: &[(&str, &str, &str)]) {
     println!("{G}Packages to be upgraded {DIM}(Kernel){RST}{G}:{RST}");
     for (name, old, new) in pkgs {
-        let old = if *old == "0" { "installed, version unknown" } else { old };
+        let old = if *old == "0" {
+            "installed, version unknown"
+        } else {
+            old
+        };
         println!("  {DIM}•{RST} {P}{name:<22}{RST}  {B}{old}{RST} {DIM}→{RST} {G}{new}{RST}");
     }
     println!();
@@ -227,7 +227,9 @@ pub fn print_kernel_without_modules(version: &str) {
 }
 
 pub fn print_boot_loader_done(version: &str) {
-    println!("\n {G}✓{RST} Limine {BLD}{version}{RST} is on the EFI partition; it starts at the next boot.\n");
+    println!(
+        "\n {G}✓{RST} Limine {BLD}{version}{RST} is on the EFI partition; it starts at the next boot.\n"
+    );
 }
 
 pub fn print_boot_loader_bios_later(version: &str) {

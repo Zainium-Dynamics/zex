@@ -57,9 +57,7 @@ impl PackageBackend {
     /// programmatic callers.  Returns `true` when all commands succeed.
     pub async fn execute_removal(&self, name: &str, recursive: bool) -> bool {
         match self {
-            Self::ZexStore => {
-                zex_store_removal(name).await
-            }
+            Self::ZexStore => zex_store_removal(name).await,
             Self::Apt => {
                 let mut remove_args = vec!["remove", "-y"];
                 if recursive {

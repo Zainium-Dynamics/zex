@@ -34,8 +34,5 @@ fn main() {
         let _ = black_box(zex::cmd::install::union::build_sync_event());
         black_box(i);
     }
-    println!(
-        "union sync event: 1000 ops in {:?}",
-        start.elapsed()
-    );
+    println!("union sync event: 1000 ops in {:?}", start.elapsed());
 }

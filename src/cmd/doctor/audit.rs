@@ -12,7 +12,6 @@ use walkdir::WalkDir;
 use super::layout::*;
 use crate::cmd::install::registry::PkgRecord;
 
-
 #[derive(Debug, Default)]
 pub struct AuditResult {
     pub dangling_symlinks: Vec<String>,
@@ -260,8 +259,7 @@ fn check_musl_sysroot(r: &mut AuditResult) {
         }
     }
     let lgcc = Path::new(MUSL_LIB_X86).join("libgcc_s.so.1");
-    if lgcc.exists() {
-    }
+    if lgcc.exists() {}
 }
 
 /// glibc is optional; when its directory exists, its loader and libc must too.
