@@ -173,30 +173,53 @@ async fn upgrade_with(with_syshub: bool) -> Result<()> {
             });
         }
     }
-    if picks.is_empty() && boot_loader.is_none() {
+    // The kernel on the ESP can be newer than the modules in the base: a second `zex syshub --u`
+    // before the reboot replaces the staged upgrade, and with it the modules staged for that
+    // kernel. Its modules are then staged again, or the kernel refuses every module at boot.
+    let modules_name = index.packages.get(KERNEL).and_then(|e| field(e, "modules"));
+    let repair = match (&modules_name, ledger.current.get(KERNEL)) {
+        (Some(name), Some(kernel)) if !picks.iter().any(|p| p.name == KERNEL) => {
+            modules_in_base(name).as_deref() != Some(kernel.as_str())
+        }
+        _ => false,
+    };
+    if picks.is_empty() && boot_loader.is_none() && !repair {
         ui::print_kernel_uptodate(ledger.current.get(KERNEL).map(String::as_str));
         return Ok(());
     }
-    let rows: Vec<(&str, &str, &str)> = picks
-        .iter()
-        .chain(boot_loader.iter())
-        .map(|p| (p.name.as_str(), p.old.as_str(), p.new.as_str()))
-        .collect();
-    ui::print_kernel_list(&rows);
-    let question = if picks.is_empty() {
-        "Proceed with the boot loader upgrade?"
-    } else if with_syshub {
-        "A newer kernel is available: upgrade the kernel and its modules too?"
-    } else {
-        "Proceed with the kernel upgrade?"
-    };
-    if !ui::ask_yes(question) {
-        ui::print_cancelled();
-        return Ok(());
+    if !picks.is_empty() || boot_loader.is_some() {
+        let rows: Vec<(&str, &str, &str)> = picks
+            .iter()
+            .chain(boot_loader.iter())
+            .map(|p| (p.name.as_str(), p.old.as_str(), p.new.as_str()))
+            .collect();
+        ui::print_kernel_list(&rows);
+        let question = if picks.is_empty() {
+            "Proceed with the boot loader upgrade?"
+        } else if with_syshub {
+            "A newer kernel is available: upgrade the kernel and its modules too?"
+        } else {
+            "Proceed with the kernel upgrade?"
+        };
+        if !ui::ask_yes(question) {
+            ui::print_cancelled();
+            if !repair {
+                return Ok(());
+            }
+            picks.clear();
+            boot_loader = None;
+        }
     }
 
     let mut modules = None;
-    if let Some(kernel) = picks.iter().find(|p| p.name == KERNEL)
+    if repair
+        && let (Some(name), Some(kernel)) = (&modules_name, ledger.current.get(KERNEL).cloned())
+    {
+        println!(
+            "  The base has no modules for kernel {kernel} on the EFI partition: staging {name} {kernel} again."
+        );
+        modules = Some(find_modules(&client, &services, name, &kernel).await?);
+    } else if let Some(kernel) = picks.iter().find(|p| p.name == KERNEL)
         && let Some(name) = index.packages.get(KERNEL).and_then(|e| field(e, "modules"))
     {
         if with_syshub
@@ -307,6 +330,8 @@ async fn upgrade_with(with_syshub: bool) -> Result<()> {
             ledger.current.get(KERNEL).map(String::as_str),
             modules_txn.as_deref(),
         );
+    } else if let Some(txn) = &modules_txn {
+        println!("  ✓ Kernel modules staged ({txn}): they go into the base at the next boot.");
     }
     if let Some(b) = &boot_loader
         && ledger.boot_loader.as_deref() == Some(b.new.as_str())
@@ -423,6 +448,21 @@ async fn fetch_index(client: &reqwest::Client, url: &str) -> Result<Index> {
         .text()
         .await?;
     toml::from_str(&raw).with_context(|| format!("parsing {url}"))
+}
+
+/// The version of the modules package the base will have after the next boot: the staged
+/// upgrade's ledger when one is waiting, the base's otherwise.
+fn modules_in_base(name: &str) -> Option<String> {
+    let staged = Path::new(crate::syshub_pending::PENDING)
+        .join("root")
+        .join(STAGED_SYSHUB);
+    let text = if crate::syshub_pending::waiting().is_some() && staged.is_file() {
+        fs::read_to_string(staged).ok()?
+    } else {
+        fs::read_to_string(LOCAL_SYSHUB).ok()?
+    };
+    let doc: toml::Table = toml::from_str(&text).ok()?;
+    doc.get("packages")?.get(name).map(syscore::val_str)
 }
 
 /// The syshub package with the kernel's modules, which must be for exactly that kernel.
