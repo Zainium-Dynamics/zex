@@ -235,7 +235,9 @@ pub async fn execute() -> Result<()> {
     if let Some(parent) = staged_manifest.parent() {
         fs::create_dir_all(parent)?;
     }
-    fs::write(&staged_manifest, &remote_raw).context("staging updated syshub.toml")?;
+    let names: Vec<&str> = upgrades.iter().map(|u| u.name.as_str()).collect();
+    let ledger = ledger_for_stage(&remote_raw, &local_raw, &names)?;
+    fs::write(&staged_manifest, ledger).context("staging updated syshub.toml")?;
     ui::start_phase("Staging upgrade for next boot");
     let txn = match crate::syshub_pending::commit(&remote.core_info.build_version) {
         Ok(txn) => txn,
@@ -294,6 +296,33 @@ fn is_pkg_pinned(name: &str) -> bool {
     toml::from_str::<PF>(&raw)
         .map(|f| f.pinned.iter().any(|p| p.name.eq_ignore_ascii_case(name)))
         .unwrap_or(false)
+}
+
+/// The syshub.toml to stage: the remote ledger, except that packages this upgrade does not
+/// install (the kernel modules, which come with their kernel, and pinned packages) keep their
+/// local entry, or are left out when they are not installed. The ledger then always says what
+/// is on disk.
+pub fn ledger_for_stage(remote_raw: &str, local_raw: &str, upgraded: &[&str]) -> Result<String> {
+    let mut remote: toml::Table = toml::from_str(remote_raw).context("Malformed remote syshub.toml")?;
+    let local: toml::Table = toml::from_str(local_raw).unwrap_or_default();
+    let local_pkgs = local.get("packages").and_then(|v| v.as_table());
+    if let Some(pkgs) = remote.get_mut("packages").and_then(|v| v.as_table_mut()) {
+        let names: Vec<String> = pkgs.keys().cloned().collect();
+        for name in names {
+            if name == "provides" || upgraded.contains(&name.as_str()) {
+                continue;
+            }
+            match local_pkgs.and_then(|l| l.get(&name)) {
+                Some(v) => {
+                    pkgs.insert(name, v.clone());
+                }
+                None => {
+                    pkgs.remove(&name);
+                }
+            }
+        }
+    }
+    Ok(toml::to_string(&remote)?)
 }
 
 fn diff_packages(
@@ -548,4 +577,22 @@ fn log_audit(kind: &str, pkgs: &[String], outcome: &str, err: Option<&str>, ms: 
         err.map(str::to_string),
         ms,
     );
+}
+
+#[cfg(test)]
+mod ledger_tests {
+    use super::ledger_for_stage;
+
+    #[test]
+    fn packages_not_upgraded_keep_their_local_entry() {
+        let local = "[packages]\nbash = \"5.2\"\nlinux-kernel-modules = \"7.3.4-r0\"\nhtop = \"1.0\"\n";
+        let remote = "[core_info]\nbuild_version = \"2\"\n[packages]\nbash = \"5.3\"\nlinux-kernel-modules = \"7.3.4-r1\"\nhtop = \"2.0\"\nnewpkg = \"1\"\n";
+        let out: toml::Table = toml::from_str(&ledger_for_stage(remote, local, &["bash"]).unwrap()).unwrap();
+        let p = out["packages"].as_table().unwrap();
+        assert_eq!(p["bash"].as_str(), Some("5.3"));
+        assert_eq!(p["linux-kernel-modules"].as_str(), Some("7.3.4-r0"));
+        assert_eq!(p["htop"].as_str(), Some("1.0"));
+        assert!(!p.contains_key("newpkg"));
+        assert_eq!(out["core_info"]["build_version"].as_str(), Some("2"));
+    }
 }
