@@ -97,7 +97,7 @@ pub async fn run(raw_args: Vec<String>) -> Result<()> {
 
     if uland_upgrades.is_empty() && syshub_upgrades.is_empty() {
         ui::print_uptodate(&local_core_version());
-        return Ok(());
+        return kernel_step(&cli).await;
     }
 
     if !uland_upgrades.is_empty() {
@@ -187,7 +187,17 @@ pub async fn run(raw_args: Vec<String>) -> Result<()> {
         !syshub_upgrades.is_empty(),
     );
 
-    Ok(())
+    kernel_step(&cli).await
+}
+
+/// The kernel and its modules, after the base: a newer kernel is offered with its modules in
+/// one question, as `zex syshub --u` does, so the two are always staged together.
+async fn kernel_step(cli: &Cli) -> Result<()> {
+    if cli.uland_only || crate::syshub_pending::ensure_available().is_err() {
+        return Ok(());
+    }
+    println!();
+    crate::cmd::upgrade::kernel::upgrade_with_syshub().await
 }
 
 /// Reads the real local syshub core version instead of the hardcoded

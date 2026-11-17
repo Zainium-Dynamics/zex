@@ -113,7 +113,11 @@ pub async fn apply_syshub(
 
     let staged_manifest = staging.join("engine/services/syshub.toml");
     fs::create_dir_all(staged_manifest.parent().unwrap())?;
-    fs::write(&staged_manifest, remote_manifest)?;
+    let local_raw = fs::read_to_string(staging_local_manifest(syshub_path)).unwrap_or_default();
+    let names: Vec<&str> = upgrades.iter().map(|u| u.name.as_str()).collect();
+    let ledger =
+        crate::cmd::upgrade::syscore::ledger_for_stage(remote_manifest, &local_raw, &names)?;
+    fs::write(&staged_manifest, ledger)?;
     if let Err(e) = crate::syshub_pending::commit("update") {
         crate::syshub_pending::clear().ok();
         return Err(e);
@@ -271,4 +275,8 @@ fn update_receipt(name: &str, new_ver: &str) -> Result<()> {
         return Ok(());
     }
     crate::cmd::install::registry::update_version(name, new_ver)
+}
+
+fn staging_local_manifest(syshub_path: &str) -> PathBuf {
+    Path::new(syshub_path).join("engine/services/syshub.toml")
 }

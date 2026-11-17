@@ -343,6 +343,7 @@ mod tests {
         fs::write(dir.join("limine.conf"), conf).unwrap();
         let esp = Esp {
             root: dir.clone(),
+            dev: None,
             mounted_here: false,
         };
         esp.fallback_entries_use("linux-panic", "quantra-ramfs-panic.img")
@@ -365,6 +366,7 @@ mod tests {
         fs::write(dir.join("limine.conf"), conf).unwrap();
         let esp = Esp {
             root: dir.clone(),
+            dev: None,
             mounted_here: false,
         };
         assert_eq!(

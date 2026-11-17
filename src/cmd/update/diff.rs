@@ -154,6 +154,11 @@ pub async fn diff_syshub(
 
     let mut upgrades = Vec::new();
     for (name, rv) in &remote.packages {
+        // The kernel modules are signed with their kernel's key: they come with the kernel
+        // (zex kernel), never alone, or the running kernel refuses every module.
+        if name == "provides" || crate::cmd::upgrade::kernel::is_modules_package(name) {
+            continue;
+        }
         let new_ver = val_str(rv);
         let old_ver = local
             .packages
