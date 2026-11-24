@@ -44,7 +44,7 @@ bytes         = "1"
 tar           = "0.4"
 zstd          = "0.13"
 # Native .zex compressor (magic ZEX1) — pack/unpack path for Tier-1 packages
-zexc          = { version = "1.2.0", default-features = false, features = ["std", "simd"] }
+zexc          = { version = "1.4.0", default-features = false, features = ["std", "simd"] }
 flate2        = { version = "1",    default-features = false, features = ["rust_backend"] }
 xz2           = "0.1"
 
