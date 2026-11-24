@@ -42,8 +42,18 @@ pub async fn refresh_all(client: &reqwest::Client, arch: &str) -> usize {
             let url = m.index_url.replace("{arch}", arch);
             let file = url.rsplit('/').next().unwrap_or("index").to_string();
             let dest = save.then(|| cache.join(format!("{}.{file}", m.id)));
+            // `zex install` keeps its own copy of each index, named after the URL and reused
+            // for two hours; refresh that one too, or install misses what was just published.
+            // Same naming function install uses, so the two can never drift apart.
+            let install_copy =
+                save.then(|| cache.join(crate::cmd::install::backend::index_cache_name(&url)));
             tokio::spawn(async move {
-                let res = fetch(&client, &url, dest).await;
+                let res = fetch(&client, &url, dest.clone()).await;
+                if res.is_ok()
+                    && let (Some(dest), Some(copy)) = (&dest, &install_copy)
+                {
+                    let _ = std::fs::copy(dest, copy);
+                }
                 (m, res)
             })
         })
@@ -137,4 +147,56 @@ fn arch() -> &'static str {
     return "aarch64";
     #[cfg(not(target_arch = "aarch64"))]
     return "x86_64";
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::cmd::install::backend::index_cache_name;
+
+    #[test]
+    fn install_copy_name_matches_install_cache_name() {
+        // refresh writes the extra copy under the same name install reads it by.
+        let url = "https://archive.zainiumdynamics.tech/core/syshub/x86_64/syshub.toml";
+        assert_eq!(
+            index_cache_name(url),
+            "https___archive_zainiumdynamics_tech_core_syshub_x86_64_syshub_toml"
+        );
+    }
+
+    #[test]
+    fn zainium_zex_mirrors_have_no_arch_placeholder() {
+        // `zex install`'s zex backend fetches the zex mirror index by its RAW
+        // index_url (no {arch} substitution), while refresh substitutes {arch}.
+        // They name the same cache file only if the zex index_url has no {arch}.
+        // Lock that invariant so a future config edit can't silently make
+        // `zex refresh` stop feeding `zex install`.
+        let toml_text = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/zex_services.toml"));
+        let v: toml::Value = toml::from_str(toml_text).expect("zex_services.toml parses");
+        let mirrors = v
+            .get("mirrors")
+            .and_then(|m| m.as_array())
+            .expect("[[mirrors]]");
+        let mut checked = 0;
+        for m in mirrors {
+            if m.get("format").and_then(|f| f.as_str()) != Some("zex") {
+                continue;
+            }
+            let url = m
+                .get("index_url")
+                .and_then(|u| u.as_str())
+                .expect("index_url");
+            assert!(
+                !url.contains("{arch}"),
+                "zex mirror index_url {url} uses {{arch}}, but the zex backend fetches it raw; \
+                 refresh would cache it under a different name and install would miss it"
+            );
+            assert_eq!(
+                index_cache_name(url),
+                index_cache_name(&url.replace("{arch}", super::arch())),
+                "refresh and install disagree on the cache name for {url}"
+            );
+            checked += 1;
+        }
+        assert!(checked >= 1, "expected at least one zex mirror in the config");
+    }
 }
