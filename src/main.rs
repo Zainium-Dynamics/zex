@@ -73,6 +73,12 @@ fn print_help() {
     );
     println!("    {G}extract{R} {D}<file>{R}        Extract package contents {D}(short: -e){R}");
     println!();
+    println!("  {Y}This System:{R}");
+    println!("    {G}export{R}  {D}[file]{R}        Packages, apps, pins and settings as TOML");
+    println!(
+        "    {G}import{R}  {D}<file>{R}        The same system on this machine {D}(--dry-run){R}"
+    );
+    println!();
     println!("  Zainium OS — {B}archive.zainiumdynamics.tech{R}");
     println!();
 }
@@ -232,6 +238,8 @@ async fn main() {
 
         "kernel" => cmd::upgrade::run(vec!["upgrade".into(), "kernel".into()]).await,
         "verity" => cmd::verity::run(cmd_args.to_vec()),
+        "export" => cmd::system::export(cmd_args.to_vec()),
+        "import" => cmd::system::import(cmd_args.to_vec()),
         "syshub" | "uland" => {
             let mut up_args = vec!["upgrade".to_string()];
             match command {
