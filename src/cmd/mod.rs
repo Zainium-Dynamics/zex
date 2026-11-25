@@ -10,6 +10,7 @@ pub mod remove;
 pub mod rollback;
 pub mod search;
 pub mod sweep;
+pub mod system;
 pub mod update;
 pub mod upgrade;
 pub mod verity;
