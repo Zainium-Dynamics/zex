@@ -447,6 +447,13 @@ impl BackendConfig {
     }
 }
 
+/// On-disk name of a cached index, derived from its fetch URL. `zex install`
+/// and `zex refresh` must agree on this, or a just-refreshed index is not the
+/// file install reads. Keep this the single source of that name.
+pub fn index_cache_name(url: &str) -> String {
+    url.replace(|c: char| !c.is_alphanumeric(), "_")
+}
+
 /// High-performance metadata manager with disk and memory caching.
 /// Ensures large index files (like Packages.gz) are only fetched once.
 pub struct MetadataManager {
@@ -477,8 +484,7 @@ impl MetadataManager {
             }
         }
 
-        let safe_name = url.replace(|c: char| !c.is_alphanumeric(), "_");
-        let cache_path = self.cache_dir.join(safe_name);
+        let cache_path = self.cache_dir.join(index_cache_name(url));
 
         if !force {
             if let Ok(meta) = std::fs::metadata(&cache_path) {
